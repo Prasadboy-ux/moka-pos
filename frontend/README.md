@@ -19,8 +19,12 @@ Express and MongoDB deferred until the UI is proven.
 | POS + checkout + receipt | **Done** — cash, QRIS, debit, credit, PPN |
 | Menu illustrations | **Done** — 20 illustrated items |
 | Admin Overview dashboard | **Done** — KPIs, trend, payment mix, low stock |
-| Shift open / close | Planned — Milestone 3 |
-| Products / Inventory / Reports / Users | Planned — Milestone 3 |
+| Product management | **Done** — CRUD, recipe editor, categories, archive |
+| Stock management | **Done** — levels, adjustments, movement ledger |
+| Reports | **Done** — date range, period comparison, CSV export |
+| User management | **Done** — create, role, activate/deactivate |
+| Selling moves stock | **Done** — recipes and counted items, with ledger |
+| Shift open / close | Not built — records exist, no POS gate |
 | Express + MongoDB | Not started |
 
 ## Tech stack
@@ -36,6 +40,7 @@ Express and MongoDB deferred until the UI is proven.
 | State | Zustand (auth, cart) | 5.0.15 |
 | Icons | lucide-react | 1.59.0 |
 | Validation | ESLint 9 flat config | 9.39.5 |
+| Verification | Playwright smoke scripts | 1.64.1 |
 
 ## Getting started
 
@@ -51,6 +56,30 @@ npm run dev          # http://localhost:3000
 | `npm run start` | Serve production build |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
+| `npm run smoke` | All browser smoke suites (needs a running server) |
+
+### Verification
+
+`scripts/` holds Playwright suites that drive the real UI against a production
+build. They are the reason the bugs listed in the Milestone 3 changelog were
+caught, so they are worth running after any change to the data layer.
+
+```bash
+npm run build
+npm run start          # in one terminal
+npm run smoke          # in another
+```
+
+| Suite | Covers |
+|---|---|
+| `smoke:products` | catalogue CRUD, filters, sorting, archive, role gate |
+| `smoke:stock` | adjustments, refusal of over-withdrawal, ledger, a sale moving stock |
+| `smoke:reports` | ranges, presets, empty periods, CSV contents, role gate |
+| `smoke:users` | create, duplicate rejection, sign-in, deactivation, last-admin guard |
+| `smoke:journey` | one sale followed through till, dashboard, ledger, and report |
+
+They use a fixed set of demo credentials and reset nothing: each script signs in,
+changes data, and leaves it.
 
 ## Demo accounts
 
@@ -69,12 +98,12 @@ src/
     (auth)/login/          Login screen
     dashboard/             Admin area (role-gated layout)
       layout.tsx           Shell + auth/role guard
-      page.tsx             Overview          (placeholder)
-      pos/                 Point of Sale      (placeholder)
-      products/            Product management (placeholder)
-      inventory/           Stock management   (placeholder)
-      reports/             Reports            (placeholder)
-      users/               User management    (placeholder)
+      page.tsx             Overview
+      pos/                 Point of Sale
+      products/            Product management
+      inventory/           Stock management
+      reports/             Reports
+      users/               User management
   components/
     ui/                    shadcn primitives
     auth/                  LoginForm, RolePicker
@@ -84,23 +113,43 @@ src/
     dashboard/             StatCard, OverviewWidgets, AdminOverview
     pos/                   PosScreen, ProductGrid, CartPanel,
                            CheckoutDialog, ReceiptModal
+    products/              ProductsScreen, ProductFormDialog,
+                           CategoryManagerDialog
+    stock/                 StockScreen, StockAdjustDialog
+    reports/               ReportsScreen
+    users/                 UsersScreen, UserFormDialog
+    DataTable, FilterBar, ConfirmDialog, PageHeader
+  hooks/
+    useAsync.ts            One data-loading hook for every screen
+    useDebouncedValue.ts   Trailing value for search boxes
   lib/
     utils.ts               cn()
     format.ts              IDR currency, dates
-    nav.ts                 Navigation config + role permissions
+    csv.ts                 Quoted CSV export
+    auth.ts                StoredUser -> User, the only password boundary
+    demo.ts                Demo accounts shown on the login screen
     access.ts              canAccess / matchNavItem (route guard source of truth)
-  services/
-    reference.ts           Categories + ingredients fixtures
-    products.ts            Mock catalogue adapter (20 illustrated items)
-    orders.ts              Mock order store, seeded history
-    dashboard.ts           Dashboard read models
-    users.ts               Mock auth adapter
+    nav.ts                 Navigation config + role permissions
+    repositories/
+      types.ts             The interfaces every screen codes against
+      index.ts             getRepositories() — the swap point
+      read-models.ts       Dashboard and report aggregations
+      mock/                Implementation backed by localStorage
+        db.ts              Versioned document, atomic read-modify-write
+        seed.ts            Fixtures and 30 days of order history
+        helpers.ts         Latency, slug, id uniqueness
+        categories.ts  ingredients.ts  products.ts
+        stock.ts           The only writer of stock numbers
+        orders.ts          Order writes + stock consumption, one transaction
+        users.ts           Accounts and credential checks
+        shifts.ts          Shift records (not yet gated on selling)
   store/
     useAuthStore.ts        Session, persisted to localStorage
     useCartStore.ts        POS cart
   types/
-    auth.ts                Role, User, Session
+    auth.ts                Role, User, StoredUser, login messages
     pos.ts                 Product, Order, Ingredient, Shift, stock rules
+scripts/                   Playwright smoke suites
 asset/menu/                SOURCE artwork, 20 SVGs, labels intact
 public/menu/               Served artwork, 20 SVGs, labels stripped
 public/brand/
@@ -111,10 +160,34 @@ src/app/favicon.ico        Generated from the brand mark
 
 ## Architecture decisions
 
-**Service layer, not stores, holds the data.** Screens call
-`src/services/*.ts`. Those files currently return mock data; when Express is
-ready only those files change to axios calls, and no screen is touched. This is
-why `axios` was kept in `package.json` from the start.
+**Screens depend on interfaces, not on the data layer.** `getRepositories()`
+returns seven repository objects declared in `lib/repositories/types.ts`. The only
+file naming an implementation is `lib/repositories/index.ts`, so when Express
+exists the swap is seven imports rather than a rewrite. Every method is already
+async, which is what makes that true — a mock that answered synchronously would
+have forced every call site to change shape later.
+
+**One writer for stock, and one transaction per sale.** `mock/stock.ts` is the
+only module that assigns to `ingredient.stock` or `product.stock`, so the
+movement ledger cannot drift from the levels it claims to explain. A completed
+sale writes the order, decrements stock, and appends ledger rows inside a single
+`mutate`, which snapshots and restores on failure: a stock shortfall leaves no
+receipt and no partial movement.
+
+**Aggregations live in read models, not in screens.** The dashboard and reports
+both need the same sums, and a screen-local copy of that arithmetic would drift
+from the other screen's figures.
+
+**No new dependencies for the admin UI.** `radix-ui` already ships select,
+switch, alert-dialog, dropdown-menu, and popover, so the shadcn components are
+written directly against it rather than fetched by the CLI. Radix has no table
+primitive, so `DataTable` is plain markup with client sorting and pagination —
+the mock returns everything at once, so server-driven paging would be architecture
+for a problem this app does not have yet.
+
+**Passwords have one boundary.** `StoredUser` exists only inside the auth
+repository; `lib/auth.ts` converts it to `User`, which has no credential field.
+There is no path for a password to reach a component or the persisted session.
 
 **Role gating is enforced twice.** The sidebar only renders links a role can
 use, *and* `dashboard/layout.tsx` blocks rendering and redirects for any route
@@ -127,11 +200,16 @@ signed out mid-load. See changelog finding 2.
 
 **Sessions live in `localStorage` under `moka-pos.auth`.** Fine for a mock.
 Before production, sessions must move server-side (HTTP-only cookie or a real
-token) — a `localStorage` session is readable by any script on the page.
+token) — a `localStorage` session is readable by any script on the page. The
+mock database also lives in `localStorage`, which is a development convenience
+and nothing more.
 
 **`minStock` is a reorder threshold, not a sell block.** Items stay sellable down
 to zero; crossing `minStock` raises an admin alert. Change this only if the cafe
 wants to hard-stop selling.
+
+**Nothing is hard-deleted.** Products archive, users deactivate. Sales reference
+both by id, and deleting either would leave historical totals unresolvable.
 
 ## Brand tokens
 
@@ -153,6 +231,102 @@ the UI.
 ---
 
 ## Changelog
+
+### 2026-10-17 — Milestone 3: repository layer + four admin screens
+
+**Data layer**
+
+`src/services/*` is gone. In its place, `src/lib/repositories/` holds seven
+repository interfaces, a `getRepositories()` accessor that names the only
+implementation, and a mock behind it. Screens import interfaces; the Express
+swap is confined to `lib/repositories/index.ts`. `mock/db.ts` keeps one JSON
+document in `localStorage`, reseeding on a `DB_VERSION` mismatch so a schema
+change never needs a migration.
+
+`useAsync` replaces the `useState` + `useEffect` + `cancelled` flag that had been
+copied into each screen. It sets state only from promise callbacks, deriving
+`isLoading` instead of toggling it, which is what the React compiler's
+`set-state-in-effect` rule is asking for.
+
+**Selling now moves stock.** Previously a completed sale recorded an order and
+nothing else: ingredients never decremented and `StockMovement` existed as a type
+with no writer, so the seeded numbers could never move. `orderRepository.create`
+now writes the order, consumes stock (recipe → each ingredient, direct → the
+item), and appends the ledger rows inside one `mutate`. That snapshot-and-restore
+wrapper is what makes a shortfall safe: no receipt, no partial movement.
+
+**Product management** — searchable catalogue, counted category chips, stock-mode
+and status filters, sortable paginated table, create and edit with a recipe editor
+and a live cost roll-up, category add/rename/reorder/delete, activate toggle, and
+archive instead of delete. A recipe item shows how many servings current stock
+covers and names the ingredient that limits it, which is the number an admin can
+act on; a counted item shows its own level against its reorder point.
+
+**Stock management** — ingredient levels with reorder points and cost cover,
+counted packaged stock, and the full movement ledger. Adjustments derive their
+sign from the reason (purchase adds, waste removes, correction keeps the typed
+direction) and show the resulting level before saving, warning when it lands
+under the reorder point. Over-withdrawal is refused at the repository, not just
+in the form. Value is reported on two bases — ingredients at unit cost, packaged
+stock at selling price — instead of one total pretending they are comparable.
+
+**Reports** — date range with today / 7 / 30 day presets and a hand-picked range.
+Every headline figure carries a percentage against the equivalent range
+immediately before it, because a total alone cannot be read. Revenue per day,
+payment mix, revenue by category, top products, per-cashier takings, CSV export,
+and print. The export writes a multi-block file with a UTF-8 BOM, quotes every
+cell, and prefixes values starting `=`, `+`, `-`, or `@` so a spreadsheet does
+not evaluate them as formulas.
+
+**User management** — accounts are created, edited, given a role, and
+deactivated. Never deleted: sales reference the cashier who took them, so letting
+someone go means deactivating them. Deactivating the last active admin is refused
+in the repository, not only in the UI. Usernames are compared case-insensitively
+and limited to characters that can be typed quickly at a till. Password is
+required on create and optional on edit.
+
+**Four bugs found by reading the rendered screen, not the code**
+
+1. **The actions menu opened the edit dialog underneath the archive
+   confirmation**, so the confirm click was swallowed by the dialog on top and the
+   button was simply unclickable. Cause: the row's click handler fired when the
+   menu inside it was clicked. Fixed by removing the clickable-row pattern in
+   favour of a real button in the name cell — a clickable row was never reachable
+   by keyboard anyway.
+2. **Every recipe cost read as a rounding error.** `costPerUnit` held
+   per-kilogram figures while recipes multiply per gram, so a drink cost Rp 4 and
+   every margin showed 100%. Restated as rupiah per single ml/gram; the Caffe
+   Latte now costs Rp 9.736 at 65% margin. `DB_VERSION` bumped to reseed.
+3. **Ten of twenty products were flagged as needing restocking.** The rule counted
+   servings against an arbitrary threshold of four. Replaced with the ingredient
+   being at its reorder point, which matches the dashboard's own rule.
+4. **The current-account marker rendered as "Budi Santosoyou"** and was announced
+   as one word.
+
+**Two data changes**
+
+Seeded history went from 7 to 30 days: with only a week of data, the default
+seven-day report had no previous period and every delta read "No comparable
+period". Reports now compare like with like.
+
+**Verification**
+
+`typecheck`, `lint`, and `build` all exit 0. 95 browser checks across five
+Playwright suites (`npm run smoke`):
+
+| Suite | Result |
+|---|---|
+| `smoke:products` | 26/26 — CRUD, filters, sort, archive, role gate |
+| `smoke:stock` | 18/18 — adjustments, over-withdrawal refused, ledger, a sale moving stock |
+| `smoke:reports` | 19/19 — ranges, presets, empty periods, CSV contents |
+| `smoke:users` | 18/18 — create, duplicate rejection, sign-in, deactivation, last admin |
+| `smoke:journey` | 14/14 — one sale through till, dashboard, ledger, report |
+
+Worth noting for whoever runs these next: five failures during the build were bad
+assertions rather than app bugs — a `min(2)` length rule that `"Zz"` legitimately
+passes, a `page.locator("main section")` against a component that renders a
+`div`, and three `localStorage.clear()` calls that wiped the mock database
+alongside the session. The suites now drop only `moka-pos.auth`.
 
 ### 2026-10-17 — Milestone 2b: menu illustrations
 
@@ -407,21 +581,24 @@ production build confirmed:
 
 ### Known gaps and deliberate omissions
 
-- **Not a git repository.** No commits yet. Worth initialising before Milestone 3.
-- `playwright` was installed as a dev dependency for the verification pass; no
-  test suite is committed.
-- Shift open / close is not built. The POS does not yet require an open shift
-  before selling — that gate is planned for Milestone 3.
-- **Selling does not yet decrement stock.** The UI disables tiles when stock is
-  genuinely insufficient, but a completed order does not write a
-  `StockMovement` or reduce ingredient levels. That is the first thing to add
-  when the data layer becomes real, otherwise the seeded numbers never move.
-- Products, Inventory, Reports, and Users remain placeholders.
-- **Menu prices are placeholders.** `PLACEHOLDER_PRICES` in
-  `src/services/products.ts` marks the block.
+- **Shift open / close is not built.** `shiftRepository` records shifts, and the
+  reports read orders rather than shifts, but the POS does not require an open
+  shift before selling. That gate is the next thing to add.
+- **No cash reconciliation.** Shift close records a counted float, but nothing
+  compares it against the cash sales inside the shift yet.
+- Express, MongoDB, and real authentication do not exist. The repository
+  interfaces are the seam they slot into.
+- `localStorage` sessions are unsuitable for production; see Architecture. The
+  mock database lives there too, so a browser's data can be wiped by clearing
+  site data.
+- **Menu prices and ingredient costs are placeholders.** `PLACEHOLDER_PRICES` in
+  `src/lib/repositories/mock/seed.ts` marks the prices; the costs beside them
+  need real supplier invoices before the margin figures mean anything.
+- The seeded order history is uniform random, so it puts implausible numbers on
+  the report — 20 pour-over carafes in a week. It exists to give the aggregates
+  something to chew on, not to forecast demand.
 - If the artwork in `asset/menu/` is ever re-exported, re-run the strip: the
   served copies in `public/menu/` are generated, not hand-edited.
-- Express, MongoDB, and real authentication do not exist.
-- `localStorage` sessions are unsuitable for production; see Architecture.
 - Dark mode is defined in CSS but has no toggle.
-- Matcha Latte has no matcha ingredient in its recipe — placeholder data only.
+- Playwright browsers are not version-pinned; a fresh clone needs
+  `npx playwright install chromium` before `npm run smoke` will run.

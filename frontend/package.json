@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke-all.mjs",
+    "smoke:products": "node scripts/smoke-products.mjs",
+    "smoke:stock": "node scripts/smoke-stock.mjs",
+    "smoke:reports": "node scripts/smoke-reports.mjs",
+    "smoke:users": "node scripts/smoke-users.mjs",
+    "smoke:journey": "node scripts/smoke-journey.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.2",
