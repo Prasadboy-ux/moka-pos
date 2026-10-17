@@ -20,3 +20,24 @@ export function formatDateTime(value: Date | string | number): string {
     timeStyle: "short",
   }).format(date);
 }
+
+const dayFormatter = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+/**
+ * Day-level formatting for report axes and ranges.
+ *
+ * A bare `yyyy-mm-dd` is parsed as UTC midnight, which renders as the previous
+ * day for anyone west of Greenwich, so the string is pinned to local time
+ * first.
+ */
+export function formatDate(value: Date | string): string {
+  const date =
+    typeof value === "string"
+      ? new Date(`${value}T00:00:00`)
+      : value;
+  return dayFormatter.format(date);
+}

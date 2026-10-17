@@ -454,9 +454,13 @@ function mulberry32(seed: number): () => number {
 }
 
 /**
- * A week of trading so the dashboard and reports have real numbers to
+ * Thirty days of trading so the dashboard and reports have real numbers to
  * aggregate. Deterministic, weekend-weighted, and never lands a sale in the
  * future.
+ *
+ * Thirty rather than seven: the reports screen compares each range with the one
+ * before it, and with only a week of history the default seven-day view has
+ * nothing to compare against and reports "no comparable period" on every card.
  */
 function buildHistory(products: Product[], taxRate: number): Order[] {
   const rand = mulberry32(20261017);
@@ -464,9 +468,10 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
   const orders: Order[] = [];
   const now = Date.now();
 
+  const HISTORY_DAYS = 30;
   let receiptCounter = 1000;
 
-  for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+  for (let dayOffset = HISTORY_DAYS - 1; dayOffset >= 0; dayOffset--) {
     const dayStart = new Date(now);
     dayStart.setHours(0, 0, 0, 0);
     dayStart.setDate(dayStart.getDate() - dayOffset);
@@ -546,8 +551,10 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
  * 2 — ingredient `costPerUnit` restated as rupiah per single ml/gram. Version 1
  * held per-kilogram figures, which made every recipe cost read as a rounding
  * error and every margin as 100%.
+ * 3 — seeded history extended from 7 days to 30, so the reports screen has a
+ * previous period to compare against.
  */
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export function buildSeed(): Database {
   const orders = buildHistory(SEED_PRODUCTS, 0.1);

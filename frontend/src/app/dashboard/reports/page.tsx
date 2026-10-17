@@ -1,18 +1,11 @@
 import type { Metadata } from "next";
-import { BarChart3 } from "lucide-react";
-import { PagePlaceholder } from "@/components/common/PagePlaceholder";
+import { ReportsScreen } from "@/components/reports/ReportsScreen";
 
 export const metadata: Metadata = {
   title: "Reports",
+  description: "Revenue trends, sales by category, top products, and cashier performance",
 };
 
 export default function ReportsPage() {
-  return (
-    <PagePlaceholder
-      title="Reports"
-      description="Revenue trends, sales by category, top products, and per-cashier performance with CSV export."
-      icon={BarChart3}
-      milestone="Milestone 3"
-    />
-  );
+  return <ReportsScreen />;
 }
