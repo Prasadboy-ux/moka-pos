@@ -6,6 +6,9 @@ Express and MongoDB deferred until the UI is proven.
 > **This README is the living changelog.** Every update gets an entry in
 > [Changelog](#changelog) — append newest first, never rewrite history.
 
+> **Looking for the requirements docs?** See [`docs/`](./docs/README.md) — PRD,
+> TRD, API contract, testing, and design system.
+
 ---
 
 ## Status
@@ -156,6 +159,12 @@ src/
     auth.ts                Role, User, StoredUser, login messages
     pos.ts                 Product, Order, Ingredient, Shift, stock rules
 scripts/                   Playwright smoke suites
+docs/
+  PRD.md                   Product requirements: screens, rules, scope
+  TRD.md                   Technical requirements: architecture, data model
+  API-CONTRACT.md          What the backend must provide
+  TESTING.md               Suites, coverage, and what is missing
+  DESIGN.md                Tokens, touch, motion, print, component checklist
 asset/menu/                SOURCE artwork, 20 SVGs, labels intact
 public/menu/               Served artwork, 20 SVGs, labels stripped
 public/brand/

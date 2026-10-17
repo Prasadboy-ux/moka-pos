@@ -12,8 +12,13 @@ export interface Ingredient {
   name: string;
   unit: Unit;
   stock: number;
-  /** Sales are blocked and the item is flagged once stock drops to this. */
+  /**
+   * Reorder threshold, not a sales block. Items stay sellable down to zero and
+   * crossing this raises an admin alert. The backend must not reject a sale on
+   * this number, or the till will refuse drinks the cafe would happily make.
+   */
   minStock: number;
+  /** Rupiah for ONE unit — a single gram or millilitre. Recipes multiply by qty. */
   costPerUnit: number;
 }
 
