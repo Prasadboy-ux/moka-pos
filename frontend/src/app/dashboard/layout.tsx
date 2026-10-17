@@ -52,7 +52,15 @@ export default function DashboardLayout({
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header />
-        <main className="flex-1 overflow-x-hidden p-4 sm:p-6 md:pb-6">
+        {/**
+         * `id` matches the skip link in the root layout. The extra bottom padding
+         * keeps content clear of the mobile tab bar, which sits above the home
+         * indicator on a notched tablet.
+         */}
+        <main
+          id="main"
+          className="flex-1 overflow-x-hidden p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-6"
+        >
           {children}
         </main>
         <MobileNav />

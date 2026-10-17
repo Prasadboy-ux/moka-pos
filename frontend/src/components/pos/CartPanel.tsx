@@ -1,11 +1,12 @@
 "use client";
 
+import * as React from "react";
 import { Minus, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Separator } from "@/components/ui/separator";
 import { formatIDR, formatNumber } from "@/lib/format";
-import type { CartLine } from "@/store/useCartStore";
-import type { CartTotals } from "@/store/useCartStore";
+import type { CartLine, CartTotals } from "@/store/useCartStore";
 
 interface CartPanelProps {
   lines: CartLine[];
@@ -26,15 +27,24 @@ export function CartPanel({
   onClear,
   onCheckout,
 }: CartPanelProps) {
+  /**
+   * Clearing is confirmed rather than immediate. One stray tap next to the
+   * quantity steppers throws away a dozen-line order, and rebuilding it means
+   * re-tapping every tile — which is why this is not a bare button.
+   */
+  const [confirmClear, setConfirmClear] = React.useState(false);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-4 py-3">
-        <h2 className="text-sm font-semibold tracking-tight">Current order</h2>
+        <h2 className="scroll-mt-4 text-sm font-semibold tracking-tight">
+          Current order
+        </h2>
         {lines.length > 0 ? (
           <button
             type="button"
-            onClick={onClear}
-            className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive"
+            onClick={() => setConfirmClear(true)}
+            className="rounded text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
           >
             Clear
           </button>
@@ -43,7 +53,7 @@ export function CartPanel({
 
       <Separator />
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {lines.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-16 text-center">
             <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
@@ -75,7 +85,9 @@ export function CartPanel({
                     <Button
                       variant="outline"
                       size="icon"
-                      className="size-7"
+                      /* 40px rather than the 28px it started at: these are
+                         pressed repeatedly during a rush, by finger. */
+                      className="size-10"
                       aria-label={`Decrease ${line.name}`}
                       onClick={() => onSetQty(line.productId, line.qty - 1)}
                     >
@@ -87,7 +99,7 @@ export function CartPanel({
                     <Button
                       variant="outline"
                       size="icon"
-                      className="size-7"
+                      className="size-10"
                       aria-label={`Increase ${line.name}`}
                       onClick={() => onSetQty(line.productId, line.qty + 1)}
                     >
@@ -99,7 +111,7 @@ export function CartPanel({
                     type="button"
                     onClick={() => onRemove(line.productId)}
                     aria-label={`Remove ${line.name}`}
-                    className="text-muted-foreground transition-colors hover:text-destructive"
+                    className="flex size-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     <Trash2 className="size-4" aria-hidden />
                   </button>
@@ -131,15 +143,31 @@ export function CartPanel({
           </span>
         </div>
 
+        {/* The most-pressed control in the app, so it gets a thumb-sized hit
+            area rather than the standard button height. */}
         <Button
           size="lg"
-          className="mt-2 w-full"
+          className="mt-2 h-12 w-full text-base"
           disabled={lines.length === 0}
           onClick={onCheckout}
         >
           Charge {formatIDR(totals.total)}
         </Button>
       </div>
+
+      <ConfirmDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+        title="Clear this order?"
+        description={`${formatNumber(totals.itemCount)} ${
+          totals.itemCount === 1 ? "item" : "items"
+        } worth ${formatIDR(totals.total)} will be removed from the cart.`}
+        confirmLabel="Clear order"
+        destructive
+        onConfirm={async () => {
+          onClear();
+        }}
+      />
     </div>
   );
 }

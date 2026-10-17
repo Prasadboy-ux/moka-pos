@@ -323,7 +323,13 @@ function ProductFormBody({
               <span className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted">
                 {image ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={image} alt="" className="size-full object-cover" />
+                  <img
+                    src={image}
+                    alt=""
+                    width={300}
+                    height={400}
+                    className="size-full object-cover"
+                  />
                 ) : (
                   <ImageIcon className="size-5 text-muted-foreground" aria-hidden />
                 )}

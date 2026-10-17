@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/page-header";
 import { SectionCard } from "@/components/dashboard/StatCard";
 import { useToast } from "@/components/ui/toast";
 import { useAsync } from "@/hooks/useAsync";
+import { useQueryState } from "@/hooks/useQueryState";
 import {
   dayKeyDaysAgo,
   delta,
@@ -38,6 +39,12 @@ import { PAYMENT_LABEL } from "@/types/pos";
 
 type Preset = "today" | "7d" | "30d" | "custom";
 
+const PRESETS = [
+  { key: "today", label: "Today" },
+  { key: "7d", label: "Last 7 days" },
+  { key: "30d", label: "Last 30 days" },
+] as const;
+
 function rangeFor(preset: Exclude<Preset, "custom">): { from: string; to: string } {
   switch (preset) {
     case "today":
@@ -57,27 +64,42 @@ async function loadReport(from: string, to: string): Promise<SalesReport> {
 export function ReportsScreen() {
   const { toast } = useToast();
 
-  const [preset, setPreset] = React.useState<Preset>("7d");
-  const [{ from, to }, setRange] = React.useState(() => rangeFor("7d"));
+  /**
+   * The range lives in the URL so it survives a reload, works with the back
+   * button, and can be linked to. Preset and date inputs both write it; the
+   * preset is inferred from the range so the right button stays highlighted.
+   */
+  const [query, setQuery] = useQueryState();
 
-  const { data: report, error, isLoading } = useAsync(() => loadReport(from, to), [from, to]);
-
-  function applyPreset(next: Exclude<Preset, "custom">) {
-    setPreset(next);
-    setRange(rangeFor(next));
-  }
-
-  function onDateChange(field: "from" | "to", value: string) {
-    if (!value) return;
-    setPreset("custom");
-    setRange((current) => ({ ...current, [field]: value }));
-  }
+  const from = query.from ?? rangeFor("7d").from;
+  const to = query.to ?? rangeFor("7d").to;
 
   /**
    * A range typed by hand can arrive inverted, which would silently report an
    * empty period. Swapping the ends is friendlier than refusing the input.
    */
   const ordered = from <= to ? { from, to } : { from: to, to: from };
+
+  const activePreset = React.useMemo(() => {
+    if (query.from && query.to) return "custom";
+    const match = (PRESETS.find((option) => {
+      const range = rangeFor(option.key);
+      return range.from === from && range.to === to;
+    }) ?? null);
+    return match?.key ?? "custom";
+  }, [from, to, query.from, query.to]);
+
+  const { data: report, error, isLoading } = useAsync(() => loadReport(from, to), [from, to]);
+
+  function applyPreset(key: Exclude<Preset, "custom">) {
+    const range = rangeFor(key);
+    setQuery({ from: range.from, to: range.to });
+  }
+
+  function onDateChange(field: "from" | "to", value: string) {
+    if (!value) return;
+    setQuery({ [field]: value });
+  }
 
   const categoryColumns: Column<CategorySalesRow>[] = [
     {
@@ -253,7 +275,7 @@ export function ReportsScreen() {
       />
 
       <RangePicker
-        preset={preset}
+        preset={activePreset}
         from={ordered.from}
         to={ordered.to}
         onPreset={applyPreset}
@@ -391,13 +413,7 @@ function RangePicker({
       </div>
 
       <div className="flex flex-wrap gap-2 pb-0.5">
-        {(
-          [
-            { key: "today", label: "Today" },
-            { key: "7d", label: "Last 7 days" },
-            { key: "30d", label: "Last 30 days" },
-          ] as const
-        ).map((option) => (
+        {PRESETS.map((option) => (
           <Button
             key={option.key}
             size="sm"

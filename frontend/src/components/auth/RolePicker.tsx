@@ -40,7 +40,7 @@ export function RolePicker({ value, onChange }: RolePickerProps) {
             <label
               key={option.value}
               className={cn(
-                "group relative flex cursor-pointer flex-col gap-2 rounded-xl border-2 p-4 transition-all",
+                "group relative flex cursor-pointer flex-col gap-2 rounded-xl border-2 p-4 transition-[color,background-color,border-color,box-shadow]",
                 "focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                 isSelected
                   ? "border-primary bg-secondary shadow-sm"

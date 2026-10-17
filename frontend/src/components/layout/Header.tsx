@@ -26,7 +26,7 @@ export function Header() {
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b bg-background px-4 sm:px-6">
-      <div className="min-w-0">
+      <div className="min-w-0" translate="no">
         <h1 className="truncate text-base font-bold tracking-tight sm:text-lg">
           {current?.label ?? "Moka Cafe"}
         </h1>

@@ -6,6 +6,13 @@
 :root {
   --radius: 0.75rem;
 
+  /**
+   * Tells the browser its form controls and scrollbars belong to a light UI.
+   * Without it a user on forced-dark OS settings gets dark scrollbars and dark
+   * default controls inside an otherwise light page.
+   */
+  color-scheme: light;
+
   /* Moka brand palette, lifted from asset/logo/moka-logo.svg */
   --brand-cyan: #00c4df;
   --brand-teal: #009bb0;
@@ -56,6 +63,9 @@
 }
 
 .dark {
+  /* Same reasoning as :root, for the dark palette. */
+  color-scheme: dark;
+
   --background: #0b1418;
   --foreground: #e6edf0;
   --card: #101c21;
@@ -148,5 +158,122 @@
   body {
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
+
+    /* `manipulation` drops the ~300ms double-tap delay on every tile, chip, and
+       stepper. On a POS that adds up across a shift, and pinch-zoom still works
+       because only the double-tap gesture is removed. */
+    touch-action: manipulation;
+
+    /* Tapping a menu tile should not flash a grey rectangle first. Set on the
+       body so every interactive element inherits it. */
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/**
+ * Suppress the rubber-band pull-to-refresh on pointer devices, where a stray
+ * overscroll reveals browser chrome over a till screen. Left alone for coarse
+ * pointers so pull-to-refresh still works on a tablet.
+ *
+ * Unlayered on purpose: the rules below it must be able to beat component
+ * styles, and unlayered CSS always wins over layered CSS.
+ */
+@media (pointer: fine) {
+  html {
+    overscroll-behavior: none;
+  }
+}
+
+/**
+ * Reduced motion.
+ *
+ * Duration rather than `animation: none`, so the end state is still reached: an
+ * interrupted fade-in would otherwise leave a dialog or toast half transparent.
+ * Elements that move on hover carry a `motion-reduce:` variant that cancels the
+ * transform instead, since snapping to the scaled position is worse than no
+ * movement at all.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/**
+ * Printing a receipt.
+ *
+ * `window.print()` from the receipt dialog would otherwise print the POS grid,
+ * the sidebar, and the dialog chrome behind it. Everything is hidden except the
+ * receipt, and the dialog's own fixed, vertically-centred box has to be undone
+ * as well — it would otherwise clip the receipt to a `max-h` window and leave it
+ * floating in the middle of the page.
+ *
+ * Unlayered so it beats Tailwind's utilities, which live in a cascade layer.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  [data-receipt],
+  [data-receipt] * {
+    visibility: visible;
+  }
+
+  /**
+   * Release the receipt from the dialog shell, but keep it positioned rather
+   * than static: a static dialog would flow to the end of the document — after
+   * the whole POS app — and print off the bottom of the page. Anchored at the
+   * origin instead, the receipt starts at the top-left of the sheet.
+   */
+  [data-slot="dialog-content"],
+  [data-slot="dialog-overlay"] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: none;
+
+    /**
+     * Tailwind v4 emits `translate-x-[-50%]` as `translate: var(--tw-translate-x)
+     * var(--tw-translate-y)` — the CSS `translate` property, not `transform`.
+     * Setting `transform: none` therefore does nothing to it, and the build
+     * strips a literal `translate: none` from the rule. Zeroing the variables
+     * the utility resolves from is what actually cancels the centring, and it
+     * wins because this rule is unlayered.
+     */
+    --tw-translate-x: 0px;
+    --tw-translate-y: 0px;
+    translate: none;
+
+    max-height: none;
+    max-width: none;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  /* The dialog's own header and buttons are inside the shell, not the receipt,
+     so they are already hidden by the rule above. */
+
+  [data-receipt] {
+    width: 80mm;
+    max-width: none;
+    margin: 0 auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: #ffffff;
+    color: #000000;
+    /* The screen version is scaled down to fit a dialog; print at real size. */
+    font-size: 10pt;
   }
 }

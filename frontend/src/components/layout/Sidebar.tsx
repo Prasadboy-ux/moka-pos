@@ -30,7 +30,7 @@ export function Sidebar() {
           />
         </div>
         <div className="leading-tight">
-          <p className="text-sm font-bold tracking-tight">Moka Cafe</p>
+          <p translate="no" className="text-sm font-bold tracking-tight">Moka Cafe</p>
           <p className="text-[11px] text-muted-foreground">Point of Sale</p>
         </div>
       </div>

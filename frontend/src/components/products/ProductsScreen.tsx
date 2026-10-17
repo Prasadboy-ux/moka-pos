@@ -35,6 +35,7 @@ import { CategoryManagerDialog } from "@/components/products/CategoryManagerDial
 import { useToast } from "@/components/ui/toast";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useQueryState } from "@/hooks/useQueryState";
 import { getRepositories } from "@/lib/repositories";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { maxServings, type Category, type Ingredient, type Product } from "@/types/pos";
@@ -50,6 +51,9 @@ import { maxServings, type Category, type Ingredient, type Product } from "@/typ
 
 type StatusFilter = "active" | "inactive" | "all";
 type ModeFilter = "all" | "recipe" | "direct";
+
+const STATUS_FILTERS = ["active", "inactive", "all"] as const;
+const MODE_FILTERS = ["all", "recipe", "direct"] as const;
 
 interface Catalogue {
   products: Product[];
@@ -75,10 +79,21 @@ export function ProductsScreen() {
   const { data, error, isLoading, reload } = useAsync(loadCatalogue);
   const { toast } = useToast();
 
-  const [search, setSearch] = React.useState("");
-  const [categoryId, setCategoryId] = React.useState<string | null>(null);
-  const [status, setStatus] = React.useState<StatusFilter>("active");
-  const [mode, setMode] = React.useState<ModeFilter>("all");
+  /**
+   * Filters live in the URL so a filtered catalogue survives a reload and can be
+   * shared. Search stays local while typing and is written on a debounce, so no
+   * keystroke turns into a navigation.
+   */
+  const [query, setQuery] = useQueryState();
+
+  const [search, setSearch] = React.useState(query.q ?? "");
+  const categoryId = query.cat ?? null;
+  const status: StatusFilter = STATUS_FILTERS.includes(query.status as StatusFilter)
+    ? (query.status as StatusFilter)
+    : "active";
+  const mode: ModeFilter = MODE_FILTERS.includes(query.mode as ModeFilter)
+    ? (query.mode as ModeFilter)
+    : "all";
 
   const [editing, setEditing] = React.useState<Product | null>(null);
   const [formOpen, setFormOpen] = React.useState(false);
@@ -86,6 +101,10 @@ export function ProductsScreen() {
   const [archiving, setArchiving] = React.useState<Product | null>(null);
 
   const debouncedSearch = useDebouncedValue(search);
+
+  React.useEffect(() => {
+    setQuery({ q: debouncedSearch.trim() || null });
+  }, [debouncedSearch, setQuery]);
 
   /**
    * Memoised rather than inlined as `data?.products ?? []`: a fresh empty array
@@ -195,7 +214,13 @@ export function ProductsScreen() {
         >
           <span className="size-9 shrink-0 overflow-hidden rounded-lg border bg-muted">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={product.image} alt="" className="size-full object-cover" />
+            <img
+              src={product.image}
+              alt=""
+              width={300}
+              height={400}
+              className="size-full object-cover"
+            />
           </span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-medium">{product.name}</span>
@@ -326,10 +351,15 @@ export function ProductsScreen() {
         searchPlaceholder="Search products"
         options={categoryOptions}
         active={categoryId}
-        onActiveChange={setCategoryId}
+        onActiveChange={(value) => setQuery({ cat: value })}
         trailing={
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={mode} onValueChange={(value) => setMode(value as ModeFilter)}>
+            <Select
+              value={mode}
+              onValueChange={(value) =>
+                setQuery({ mode: value === "all" ? null : value })
+              }
+            >
               <SelectTrigger size="sm" className="w-40">
                 <SelectValue />
               </SelectTrigger>
@@ -340,7 +370,10 @@ export function ProductsScreen() {
               </SelectContent>
             </Select>
 
-            <Select value={status} onValueChange={(value) => setStatus(value as StatusFilter)}>
+            <Select
+              value={status}
+              onValueChange={(value) => setQuery({ status: value })}
+            >
               <SelectTrigger size="sm" className="w-36">
                 <SelectValue />
               </SelectTrigger>

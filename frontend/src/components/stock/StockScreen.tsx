@@ -18,6 +18,7 @@ import { PageHeader } from "@/components/page-header";
 import { SectionCard } from "@/components/dashboard/StatCard";
 import { StockAdjustDialog } from "@/components/stock/StockAdjustDialog";
 import { useAsync } from "@/hooks/useAsync";
+import { useQueryState } from "@/hooks/useQueryState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { getRepositories } from "@/lib/repositories";
 import { formatDateTime, formatIDR, formatNumber } from "@/lib/format";
@@ -63,6 +64,11 @@ async function loadStock(): Promise<StockData> {
   };
 }
 
+const TABS = ["ingredients", "products", "movements"] as const;
+type StockTab = (typeof TABS)[number];
+
+const MOVEMENT_FILTERS = ["all", "sale", "purchase", "adjustment", "waste"] as const;
+
 type AdjustTarget =
   | { kind: "ingredient"; record: Ingredient }
   | { kind: "product"; record: Product };
@@ -84,12 +90,33 @@ const MOVEMENT_VARIANT: Record<MovementType, "secondary" | "outline" | "destruct
 export function StockScreen() {
   const { data, error, isLoading, reload } = useAsync(loadStock);
 
-  const [search, setSearch] = React.useState("");
-  const [tab, setTab] = React.useState("ingredients");
-  const [movementType, setMovementType] = React.useState<"all" | MovementType>("all");
+  /**
+   * Tab and movement filter live in the URL: which view you were reading is part
+   * of where you were, and losing it on reload defeats the point of the ledger
+   * when an admin is chasing a discrepancy.
+   */
+const [query, setQuery] = useQueryState();
+  const tab: StockTab = TABS.includes(query.tab as StockTab)
+    ? (query.tab as StockTab)
+    : "ingredients";
+  const movementType: MovementType | "all" = (
+    MOVEMENT_FILTERS as readonly string[]
+  ).includes(query.movement ?? "")
+    ? (query.movement as MovementType)
+    : "all";
+
+  const [search, setSearch] = React.useState(query.q ?? "");
   const [adjusting, setAdjusting] = React.useState<AdjustTarget | null>(null);
 
   const debouncedSearch = useDebouncedValue(search);
+
+  /**
+   * The search box stays local so typing never waits on a navigation; only the
+   * settled value is written, one history entry per pause.
+   */
+  React.useEffect(() => {
+    setQuery({ q: debouncedSearch.trim() || null });
+  }, [debouncedSearch, setQuery]);
 
   const ingredients = React.useMemo(() => data?.ingredients ?? [], [data]);
   const products = React.useMemo(() => data?.products ?? [], [data]);
@@ -211,7 +238,13 @@ export function StockScreen() {
         <div className="flex items-center gap-3">
           <span className="size-9 shrink-0 overflow-hidden rounded-lg border bg-muted">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={product.image} alt="" className="size-full object-cover" />
+            <img
+              src={product.image}
+              alt=""
+              width={300}
+              height={400}
+              className="size-full object-cover"
+            />
           </span>
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{product.name}</p>
@@ -377,7 +410,7 @@ export function StockScreen() {
         </div>
       ) : null}
 
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={tab} onValueChange={(value) => setQuery({ tab: value === "ingredients" ? null : value })}>
         <TabsList>
           <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
           <TabsTrigger value="products">Counted products</TabsTrigger>
@@ -401,7 +434,9 @@ export function StockScreen() {
               tab === "movements" ? (
                 <Select
                   value={movementType}
-                  onValueChange={(value) => setMovementType(value as "all" | MovementType)}
+                  onValueChange={(value) =>
+                    setQuery({ movement: value === "all" ? null : value })
+                  }
                 >
                   <SelectTrigger size="sm" className="w-44">
                     <SelectValue />

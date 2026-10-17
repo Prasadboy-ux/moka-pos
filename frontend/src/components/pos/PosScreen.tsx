@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { CheckoutDialog } from "@/components/pos/CheckoutDialog";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { useAsync } from "@/hooks/useAsync";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useQueryState } from "@/hooks/useQueryState";
 import { getRepositories } from "@/lib/repositories";
 import { computeTotals, useCartStore } from "@/store/useCartStore";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -37,8 +39,23 @@ export function PosScreen() {
   const categories: Category[] = menu.data?.categories ?? [];
   const ingredients: Map<string, Ingredient> = menu.data?.ingredients ?? new Map();
 
-  const [category, setCategory] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  /**
+   * Category and search live in the URL. At a till this is mostly about
+   * recovery: if the page reloads mid-rush the cashier gets the same category
+   * back instead of an unfiltered grid, and a URL can be handed to another till
+   * to show the same view. Search stays local while typing and is written on a
+   * debounce, so no keystroke becomes a navigation.
+   */
+  const [query, setQuery] = useQueryState();
+  const category = query.cat ?? null;
+  const [search, setSearch] = useState(query.q ?? "");
+
+  const debouncedSearch = useDebouncedValue(search);
+
+  useEffect(() => {
+    setQuery({ q: debouncedSearch.trim() || null });
+  }, [debouncedSearch, setQuery]);
+
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
 
@@ -95,7 +112,7 @@ export function PosScreen() {
         categories={categories}
         ingredients={ingredients}
         activeCategory={category}
-        onCategoryChange={setCategory}
+        onCategoryChange={(value) => setQuery({ cat: value })}
         search={search}
         onSearchChange={setSearch}
         onAdd={handleAdd}

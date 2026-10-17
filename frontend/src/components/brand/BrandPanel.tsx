@@ -24,7 +24,7 @@ export function BrandPanel() {
             className="size-8"
           />
         </div>
-        <span className="text-lg font-bold tracking-tight">Moka Cafe</span>
+        <span translate="no" className="text-lg font-bold tracking-tight">Moka Cafe</span>
       </div>
 
       <div className="relative space-y-6">

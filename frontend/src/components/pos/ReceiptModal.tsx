@@ -30,9 +30,17 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mx-auto w-full max-w-[280px] rounded-lg border bg-white p-4 text-[11px] leading-snug text-black">
+{/*
+          `data-receipt` is what the print stylesheet in globals.css keys on.
+          Without it `window.print()` would print the whole POS screen with the
+          receipt floating in the middle of it.
+        */}
+        <div
+          data-receipt
+          className="mx-auto w-full max-w-[280px] rounded-lg border bg-white p-4 text-[11px] leading-snug text-black"
+        >
           <div className="text-center">
-            <p className="text-sm font-bold tracking-tight">MOKA CAFE</p>
+            <p translate="no" className="text-sm font-bold tracking-tight">MOKA CAFE</p>
             <p className="tracking-[0.2em] text-[8px] font-semibold">
               POINT OF SALE
             </p>
@@ -91,7 +99,7 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
 
           <div className="my-2 border-t border-dashed" />
 
-          <p className="text-center text-[9px]">
+          <p translate="no" className="text-center text-[9px]">
             Thank you for visiting Moka Cafe.
           </p>
         </div>

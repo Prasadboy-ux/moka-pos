@@ -47,9 +47,12 @@ export function ProductGrid({
             aria-hidden
           />
           <Input
+            type="search"
+            name="menu-search"
+            autoComplete="off"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search menu..."
+            placeholder="Search menu…"
             aria-label="Search menu"
             className="pl-9"
           />
@@ -115,10 +118,10 @@ function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
       disabled={!available}
       aria-label={`Add ${product.name}, ${formatIDR(product.price)}`}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-all",
+        "group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-[color,background-color,border-color,box-shadow,transform]",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         available
-          ? "border-border hover:border-primary hover:shadow-md active:scale-[0.98]"
+          ? "border-border hover:border-primary hover:shadow-md motion-safe:active:scale-[0.98]"
           : "cursor-not-allowed border-border opacity-60",
       )}
     >
@@ -138,9 +141,14 @@ function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
           src={product.image}
           alt=""
           aria-hidden
+          /* The artwork ships as 300x400; declaring it gives the browser an
+             intrinsic ratio before the stylesheet resolves. The square box and
+             object-cover then do the cropping, unchanged. */
+          width={300}
+          height={400}
           loading="lazy"
           decoding="async"
-          className="size-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
+          className="size-full object-cover object-center transition-transform duration-300 group-hover:scale-105 motion-reduce:group-hover:scale-100"
         />
 
         {inCart > 0 ? (

@@ -101,10 +101,13 @@ export function LoginForm() {
               className="size-6"
             />
           </div>
-          <span className="text-base font-bold tracking-tight">Moka Cafe</span>
+          <span translate="no" className="text-base font-bold tracking-tight">Moka Cafe</span>
         </div>
 
-        <p className="text-xs font-semibold tracking-[0.3em] text-primary uppercase">
+        <p
+          translate="no"
+          className="text-xs font-semibold tracking-[0.3em] text-primary uppercase"
+        >
           Moka Cafe
         </p>
         <h1 className="text-2xl font-bold tracking-tight text-balance">
@@ -137,8 +140,8 @@ export function LoginForm() {
           <Input
             id="username"
             autoComplete="username"
-            autoFocus
-            placeholder="e.g. kasir"
+            spellCheck={false}
+            placeholder="e.g. kasir…"
             aria-invalid={Boolean(errors.username)}
             aria-describedby={errors.username ? "username-error" : undefined}
             {...register("username")}

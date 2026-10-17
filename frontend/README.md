@@ -77,6 +77,7 @@ npm run smoke          # in another
 | `smoke:reports` | ranges, presets, empty periods, CSV contents, role gate |
 | `smoke:users` | create, duplicate rejection, sign-in, deactivation, last-admin guard |
 | `smoke:journey` | one sale followed through till, dashboard, ledger, and report |
+| `smoke:a11y` | document metadata, skip link, reduced motion, URL state, print geometry |
 
 They use a fixed set of demo credentials and reset nothing: each script signs in,
 changes data, and leaves it.
@@ -231,6 +232,92 @@ the UI.
 ---
 
 ## Changelog
+
+### 2026-10-17 — Milestone 3b: interface guidelines pass
+
+Reviewed against the Vercel Web Interface Guidelines, focused on the POS because
+that is where the app is touched most and by hand. 33 findings, all fixed.
+
+**Touch, which matters most at a till**
+
+- `touch-action: manipulation` on the body removes the ~300 ms double-tap delay
+  from every tile, chip, and stepper. Pinch-zoom still works — only the
+  double-tap gesture goes.
+- `-webkit-tap-highlight-color: transparent` stops the grey flash on every tap.
+- Cart steppers went from 28 px to 40 px, the remove button gained a real hit
+  area, quick tender from 32 px to 44 px, and Charge to 48 px. These are pressed
+  repeatedly during a rush, by finger.
+- The cart's scroll container is `overscroll-contain`, so scrolling a long order
+  no longer chains to the page behind it.
+
+**Motion, focus, and confirmation**
+
+- A `prefers-reduced-motion` block collapses every animation and transition.
+  Two motion classes are cancelled outright rather than sped up: the infinite
+  skeleton pulse (`motion-reduce:animate-none`) and the tile hover zoom
+  (`motion-reduce:group-hover:scale-100`), because snapping to a scaled position
+  reads worse than not moving at all. The tile's press-down scale is now
+  `motion-safe:` only.
+- Both `autoFocus` calls removed. The cash field in the checkout dialog was
+  raising the software keyboard over the cart on a tablet — the opposite of what
+  a cashier wants mid-sale.
+- Clearing the order is now confirmed, with the item count and value in the
+  prompt. It was one tap away from a dozen-line order, next to the steppers.
+- Every `transition-all` replaced with the properties actually animated
+  (button, switch, tabs, progress, role picker, product tile). A bare
+  `transition-all` also animates whatever a variant changes later.
+
+**Printing a receipt**
+
+`window.print()` was printing the POS grid, the sidebar, and the dialog chrome
+with the receipt floating in the middle. Now a print stylesheet isolates
+`[data-receipt]` and re-declares it at 80 mm.
+
+Worth recording how this was fixed, because it is not obvious: the receipt is
+inside a Radix dialog that Tailwind centres with `translate-x-[-50%]`, and
+Tailwind v4 emits that as the CSS **`translate` property**, not `transform`. So
+`transform: none` in the print stylesheet did nothing, and the build additionally
+strips a literal `translate: none` from the rule. The fix is to zero the custom
+properties the utility resolves from (`--tw-translate-x` / `--tw-translate-y`),
+which survives minification. Two intermediate attempts made it worse — `position:
+static` pushed the dialog to the end of the document flow and off the page
+entirely. `smoke:a11y` now asserts the measured print geometry rather than the
+stylesheet text, because the stylesheet can look right and still print nothing.
+
+**URL reflects state**
+
+Filters, tabs, and the report range now live in the query string: POS category
+and search, products filters, stock tab and movement filter, and the report date
+range. Reload keeps your place, back undoes a filter change, and a report can be
+linked to. Writes use `replace`, so a filter does not stack a history entry, and
+search is written on a debounce so typing never becomes a navigation. Each of
+those screens needs a `Suspense` boundary, which the four route files now have.
+
+**Document and inputs**
+
+- `<html lang="id">`, matching the Indonesian copy, currency, and dates.
+- Skip link to `#main`, first tab stop, verified.
+- `theme-color` changed from the brand cyan to `#ffffff`, which is the page
+  background; the cyan was only ever a header accent.
+- `color-scheme` declared for both palettes.
+- Explicit `width`/`height` on every menu illustration.
+- `name` + `autocomplete="off"` on the search and cash fields, `spellCheck` off
+  on usernames, placeholders ending in `…`, and `translate="no"` on the brand
+  name in every visible position.
+- Safe-area padding under the mobile tab bar.
+- Dialogs and selects are `overscroll-contain` and capped at `90dvh`, so a long
+  form scrolls inside its dialog instead of off the top of a short screen.
+
+**Verification**
+
+`typecheck`, `lint`, and `build` all exit 0. 117 browser checks across six
+suites, including the new `smoke:a11y` at 22/22 covering document metadata, the
+skip link, reduced-motion computed styles, URL state surviving reloads, the
+clear confirmation, and print geometry.
+
+The receipt print layout was also verified visually under print media rather than
+trusted from the stylesheet: 302 px wide (80 mm at 96 dpi), fully inside the
+page, with zero elements outside the receipt still painting.
 
 ### 2026-10-17 — Milestone 3: repository layer + four admin screens
 

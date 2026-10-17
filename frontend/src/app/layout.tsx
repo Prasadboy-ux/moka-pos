@@ -21,15 +21,29 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#00c4df",
+  /**
+   * Matches the page background. The brand cyan is used for the header accent
+   * and the PWA title, not as a page tint, so it does not belong here.
+   */
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    /**
+     * `id` in Indonesian: the UI copy, currency, and dates are all Indonesian,
+     * so that is the language a screen reader should be given.
+     */
+    <html lang="id" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-100 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground"
+        >
+          Skip to content
+        </a>
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

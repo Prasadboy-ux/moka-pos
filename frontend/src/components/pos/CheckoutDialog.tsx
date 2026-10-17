@@ -172,13 +172,20 @@ function CheckoutBody({
           <div className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="cash-given">Cash received</Label>
+              {/*
+                No autoFocus here. This dialog opens on a tablet at the till,
+                and focusing the field raises the software keyboard over the
+                cart on the way to typing a cash amount — the opposite of what
+                a cashier wants at that moment.
+              */}
               <Input
                 id="cash-given"
+                name="cash-received"
                 inputMode="numeric"
-                placeholder="0"
+                placeholder="e.g. 50000…"
+                autoComplete="off"
                 value={cashGiven}
                 onChange={(e) => setCashGiven(e.target.value)}
-                autoFocus
                 className="text-lg font-semibold tabular-nums"
               />
             </div>
@@ -189,7 +196,10 @@ function CheckoutBody({
                   key={amount}
                   type="button"
                   variant="outline"
-                  size="sm"
+                  /* h-11 rather than size="sm": quick tender is a one-tap
+                     substitute for typing an amount, so it needs a thumb-sized
+                     hit area. */
+                  className="h-11 tabular-nums"
                   onClick={() => setCashGiven(String(amount))}
                 >
                   {formatIDR(amount)}
