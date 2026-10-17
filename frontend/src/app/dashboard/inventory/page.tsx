@@ -1,18 +1,11 @@
 import type { Metadata } from "next";
-import { Boxes } from "lucide-react";
-import { PagePlaceholder } from "@/components/common/PagePlaceholder";
+import { StockScreen } from "@/components/stock/StockScreen";
 
 export const metadata: Metadata = {
   title: "Inventory",
+  description: "Ingredient levels, counted stock, and the movement audit trail",
 };
 
 export default function InventoryPage() {
-  return (
-    <PagePlaceholder
-      title="Stock management"
-      description="Ingredients and packaged goods, minimum stock levels, and the full movement audit trail."
-      icon={Boxes}
-      milestone="Milestone 3"
-    />
-  );
+  return <StockScreen />;
 }
