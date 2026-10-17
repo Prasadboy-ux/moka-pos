@@ -135,7 +135,9 @@ try {
   check("recipe items are excluded from this tab", !/Iced Americano/.test(productTab));
 
   // ------------------------------------------------------- cashier blocked
-  await page.evaluate(() => window.localStorage.clear());
+  // Only the session is dropped. The mock database also lives in localStorage, so
+  // clearing the whole thing would wipe accounts and stock created earlier.
+  await page.evaluate(() => window.localStorage.removeItem("moka-pos.auth"));
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /kasir \/ kasir123/ }).click();
   await page.locator("#password").fill("kasir123");
