@@ -15,3 +15,9 @@ next-env.d.ts
 Thumbs.db
 .vercel
 npm-debug.log*
+
+# Locally installed agent skill packs. Third-party content fetched from GitHub
+# and pinned by skills-lock.json; reproducible from that file, so keeping it out
+# of history avoids 108 files of vendored tooling in every clone.
+.agents/
+skills-lock.json
