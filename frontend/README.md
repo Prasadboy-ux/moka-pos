@@ -24,8 +24,12 @@ Express and MongoDB deferred until the UI is proven.
 | Reports | **Done** — date range, period comparison, CSV export |
 | User management | **Done** — create, role, activate/deactivate |
 | Selling moves stock | **Done** — recipes and counted items, with ledger |
-| Shift open / close | Not built — records exist, no POS gate |
-| Express + MongoDB | Not started |
+| Interface guidelines | **Done** — touch targets, reduced motion, print, URL state |
+| Shift open / close | Records only — no POS gate, no cash reconciliation |
+| Express + MongoDB | Not started — see [What we can build next](#what-we-can-build-next) |
+
+Frontend is complete and self-contained: no API routes, no server code, no
+server dependencies. The backend has a written contract to implement.
 
 ## Tech stack
 
@@ -78,6 +82,7 @@ npm run smoke          # in another
 | `smoke:users` | create, duplicate rejection, sign-in, deactivation, last-admin guard |
 | `smoke:journey` | one sale followed through till, dashboard, ledger, and report |
 | `smoke:a11y` | document metadata, skip link, reduced motion, URL state, print geometry |
+| `smoke:screens` | acceptance pass over all seven requested screens |
 
 They use a fixed set of demo credentials and reset nothing: each script signs in,
 changes data, and leaves it.
@@ -226,8 +231,108 @@ Defined in `src/app/globals.css`, lifted from `asset/logo/moka-logo.svg`:
 | `--primary` | `#00a5bd` | Buttons, active states |
 
 `--primary` is the logo cyan darkened slightly so white text on top of it
-clears WCAG AA contrast. A `.dark` block is defined but not yet reachable in
-the UI.
+clears WCAG AA contrast. A `.dark` block is defined but not yet reachable in the
+UI.
+
+---
+
+## What we can build next
+
+The frontend is complete and self-contained, so the roadmap is mostly "what a
+server unlocks" and "what the cafe will inevitably ask for". Ordered by what
+earns its keep first.
+
+### 1. Express + MongoDB — the real unlock
+
+The contract is already written. `src/lib/repositories/types.ts` declares seven
+interfaces, every method async, which is what makes them implementable over HTTP
+without touching a screen:
+
+| Interface | Methods |
+|---|---|
+| `CategoryRepository` | list, create, update, remove, reorder |
+| `IngredientRepository` | list, getById, create, update |
+| `ProductRepository` | list, getById, create, update, setActive, archive |
+| `StockRepository` | movements, adjust, levelOf, value |
+| `UserRepository` | list, create, update, setActive, authenticate |
+| `OrderRepository` | list, getById, recent, create |
+| `ShiftRepository` | current, list, open, close |
+
+Six input DTOs (`CategoryInput`, `IngredientInput`, `ProductInput`,
+`StockAdjustInput`, `UserInput`, `CreateOrderInput`) are the request bodies, and
+`src/types/pos.ts` plus `src/types/auth.ts` are the response shapes. Suggested
+collections: `users`, `categories`, `ingredients`, `products` (recipe embedded),
+`orders` (lines embedded, so a receipt never needs a join), `stock_movements`,
+`shifts`.
+
+What the mock genuinely cannot do, and what a server fixes:
+
+- **Two tills at once.** The store is per-browser `localStorage`, so two
+  cashiers are two unrelated datasets.
+- **Durability.** Clearing site data erases the whole business.
+- **Real enforcement.** Role checks are client-side today. Hiding a nav item is
+  not authorisation; the server must re-check on every route.
+- **Race safety.** Two tills selling the last pastry can both pass the stock
+  check. A Mongo transaction makes the decrement and the sale one atomic write —
+  the same guarantee `mock/stock.ts` gives today with its snapshot-and-restore.
+
+Then: httpOnly-cookie sessions in place of the `localStorage` session, and a
+server-side guard so `/dashboard/users` refuses a cashier even without the UI.
+
+### 2. Features the frontend already has a seam for
+
+These are not rewrites; each is a screen on top of something that exists.
+
+- **Shift gating.** `shiftRepository` records shifts and `Shift` is fully typed,
+  but the POS does not require an open shift. Blocking checkout with no open
+  shift is one condition in `CheckoutDialog`.
+- **Cash reconciliation.** `Shift.close` already takes a counted float; nothing
+  compares it against cash sales inside the shift. An X-report closes the gap.
+- **Receipt reprint.** `OrderRepository.getById` exists and no screen calls it —
+  it is what a receipt reprint button and an order-history screen need.
+- **Cashier home view.** Cashiers currently land straight on the POS. A
+  "my shift today" view would use `OrderRepository.list({ cashierId })`.
+
+### 3. What the cafe will ask for
+
+Roughly in the order it comes up.
+
+- **Real prices and supplier costs.** `costPerUnit` is rupiah per ml/gram now but
+  the numbers are invented. Supplier invoices make margin, COGS, and gross
+  profit real — and `ProductFormDialog` already shows cost, margin, and gross per
+  cup, so the UI needs no change.
+- **Discounts and promotions.** No concept exists. Needs a line-level or
+  order-level adjustment, a reason code, and a place in the ledger.
+- **Split bills and table service.** Orders are currently one payment. Tab or
+  table grouping means an order can settle in parts.
+- **Product photo upload.** Products pick from the 20 fixed illustrations in
+  `public/menu/`. Real uploads need a storage decision — S3 or local disk served
+  by Express.
+- **Kitchen display / order queue.** The till prints the order; a second screen
+  showing what is outstanding is mostly front-end plus a socket.
+
+### 4. Hardening worth doing at some point
+
+- **Unit tests.** Only browser smoke suites exist (154 checks, all end-to-end).
+  The aggregation and stock rules in `read-models.ts` and `types/pos.ts` are
+  pure functions and are where unit tests pay off most.
+- **CI.** `typecheck`, `lint`, `build`, and `npm run smoke` are all scripted and
+  ready to run in GitHub Actions on every push. Nothing wires them up yet.
+- **Dark mode.** The palette and tokens exist; only the toggle is missing.
+- **PWA.** `appleWebApp` metadata is already set. An offline-capable installable
+  build would suit a till with flaky wifi.
+- **Indonesian UI copy.** The copy is English while the currency, dates, and
+  locale are Indonesian. A copy pass, not a refactor.
+
+### 5. Worth deciding before writing the API
+
+1. **Session strategy** — httpOnly cookie (recommended, survives XSS) versus a
+   token in memory (needs an interceptor in every axios call).
+2. **Whether shift gating ships with v1** — it changes the POS's opening
+   behaviour, so retrofitting it later touches a screen that is already busy.
+3. **Whether roles stay fixed at two.** The code assumes `admin | kasir`
+   everywhere; a third role means widening `Role` and re-checking `lib/nav.ts`.
+4. **Image storage** — decides whether Express serves files or presigned URLs do.
 
 ---
 
