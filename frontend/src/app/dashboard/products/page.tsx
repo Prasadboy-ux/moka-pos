@@ -1,18 +1,11 @@
 import type { Metadata } from "next";
-import { Package } from "lucide-react";
-import { PagePlaceholder } from "@/components/common/PagePlaceholder";
+import { ProductsScreen } from "@/components/products/ProductsScreen";
 
 export const metadata: Metadata = {
   title: "Products",
+  description: "Menu items, categories, pricing, and per-product recipes",
 };
 
 export default function ProductsPage() {
-  return (
-    <PagePlaceholder
-      title="Product management"
-      description="Menu items, categories, pricing, and per-product recipes that drive ingredient usage."
-      icon={Package}
-      milestone="Milestone 3"
-    />
-  );
+  return <ProductsScreen />;
 }

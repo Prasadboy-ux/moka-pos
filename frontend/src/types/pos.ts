@@ -158,3 +158,31 @@ export function shortages(
     return ing.stock < needed ? [{ ingredient: ing, needed }] : [];
   });
 }
+
+/**
+ * How many of this product the current stock can cover.
+ *
+ * A recipe item has no stock level of its own, so "stock" for a made-to-order
+ * drink has to be expressed in servings: the binding ingredient sets the limit,
+ * which is the only number an admin can act on when deciding what to reorder.
+ *
+ * Null when the product carries no stock model at all — a recipe with no rows,
+ * which the form forbids but old data could still contain.
+ */
+export function maxServings(
+  product: Product,
+  ingredients: Map<string, Ingredient>,
+): number | null {
+  if (product.stockMode === "direct") return product.stock ?? null;
+  if (product.recipe.length === 0) return null;
+
+  return Math.min(
+    ...product.recipe.map((item) => {
+      const ingredient = ingredients.get(item.ingredientId);
+      // An unresolvable ingredient means the recipe is broken, and pretending
+      // there is stock would hide it. Treat it as nothing available.
+      if (!ingredient || item.qty <= 0) return 0;
+      return Math.floor(ingredient.stock / item.qty);
+    }),
+  );
+}

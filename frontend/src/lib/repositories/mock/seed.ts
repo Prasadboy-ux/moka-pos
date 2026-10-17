@@ -34,6 +34,11 @@ export const SEED_CATEGORIES: Category[] = [
  * Ingredients are the recipe inputs only. Packaged goods are `direct` products
  * carrying their own stock, so listing them here too would double-count them on
  * the stock screen.
+ *
+ * `costPerUnit` is rupiah for ONE unit — a single gram or a single millilitre —
+ * because that is what a recipe multiplies. A 250 g bag of beans at Rp 95.000 is
+ * therefore 380 per gram. These are placeholders like the selling prices above;
+ * replace them once supplier invoices are confirmed.
  */
 export const SEED_INGREDIENTS: Ingredient[] = [
   {
@@ -42,7 +47,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "gram",
     stock: 4200,
     minStock: 1500,
-    costPerUnit: 0.09,
+    costPerUnit: 380,
   },
   {
     id: "i-milk-fresh",
@@ -50,7 +55,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 6200,
     minStock: 2000,
-    costPerUnit: 0.012,
+    costPerUnit: 16,
   },
   {
     id: "i-sugar",
@@ -58,7 +63,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 3100,
     minStock: 800,
-    costPerUnit: 0.006,
+    costPerUnit: 4,
   },
   {
     id: "i-chocolate",
@@ -66,7 +71,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 1400,
     minStock: 500,
-    costPerUnit: 0.014,
+    costPerUnit: 12,
   },
   {
     id: "i-caramel",
@@ -74,7 +79,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 260,
     minStock: 300,
-    costPerUnit: 0.022,
+    costPerUnit: 15,
   },
   {
     id: "i-brown-sugar",
@@ -82,7 +87,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 1200,
     minStock: 400,
-    costPerUnit: 0.009,
+    costPerUnit: 5,
   },
   {
     id: "i-tea",
@@ -90,7 +95,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "gram",
     stock: 760,
     minStock: 300,
-    costPerUnit: 0.05,
+    costPerUnit: 2,
   },
   {
     id: "i-boba",
@@ -98,7 +103,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "gram",
     stock: 800,
     minStock: 300,
-    costPerUnit: 0.018,
+    costPerUnit: 3,
   },
   {
     id: "i-ice",
@@ -106,7 +111,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "gram",
     stock: 9000,
     minStock: 3000,
-    costPerUnit: 0.002,
+    costPerUnit: 0.2,
   },
   {
     id: "i-lemon",
@@ -114,7 +119,7 @@ export const SEED_INGREDIENTS: Ingredient[] = [
     unit: "ml",
     stock: 190,
     minStock: 200,
-    costPerUnit: 0.02,
+    costPerUnit: 6,
   },
 ];
 
@@ -537,8 +542,12 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
  * Bump this whenever the shape above changes. The store compares it against
  * what is in `localStorage` and reseeds on a mismatch, so a schema change never
  * has to be migrated by hand.
+ *
+ * 2 — ingredient `costPerUnit` restated as rupiah per single ml/gram. Version 1
+ * held per-kilogram figures, which made every recipe cost read as a rounding
+ * error and every margin as 100%.
  */
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export function buildSeed(): Database {
   const orders = buildHistory(SEED_PRODUCTS, 0.1);

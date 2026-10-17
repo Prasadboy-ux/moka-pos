@@ -41,6 +41,12 @@ interface DataTableProps<T> {
   emptyDescription?: string
   /** Pass a lucide icon to replace the default empty-state glyph. */
   emptyIcon?: LucideIcon
+  /**
+   * Optional whole-row click target. Deliberately not the default: a clickable
+   * row is not reachable by keyboard, so prefer a real button inside the row.
+   * If used, stop propagation inside any cell holding its own control or the
+   * click will fire twice.
+   */
   onRowClick?: (row: T) => void
 }
 
