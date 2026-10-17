@@ -13,13 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RolePicker } from "@/components/auth/RolePicker";
-import {
-  DEMO_CREDENTIALS,
-  LOGIN_ERROR_MESSAGE,
-  login,
-} from "@/services/users";
+import { getRepositories } from "@/lib/repositories";
+import { DEMO_CREDENTIALS } from "@/lib/demo";
 import { useAuthHydrated, useAuthStore } from "@/store/useAuthStore";
-import { ROLE_HOME, ROLE_LABEL, type Role } from "@/types/auth";
+import { LOGIN_ERROR_MESSAGE, ROLE_HOME, ROLE_LABEL, type Role } from "@/types/auth";
 
 const loginSchema = z.object({
   role: z.enum(["kasir", "admin"]),
@@ -62,10 +59,20 @@ export function LoginForm() {
   async function onSubmit(values: LoginValues) {
     setFormError(null);
 
-    const result = await login(values.username, values.password, values.role);
+    const result = await getRepositories().users.authenticate(
+      values.username,
+      values.password,
+    );
 
     if (!result.ok) {
       setFormError(LOGIN_ERROR_MESSAGE[result.reason]);
+      return;
+    }
+
+    // The role is a claim about the account, not a choice, so a mismatch is
+    // refused here rather than silently downgrading the session.
+    if (result.user.role !== values.role) {
+      setFormError(LOGIN_ERROR_MESSAGE["role-mismatch"]);
       return;
     }
 

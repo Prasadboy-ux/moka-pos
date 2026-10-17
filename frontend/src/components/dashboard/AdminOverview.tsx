@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import {
   Banknote,
   Loader2,
@@ -20,7 +19,8 @@ import {
   SeeAllLink,
   SectionCard,
 } from "@/components/dashboard/OverviewWidgets";
-import { getAdminDashboard, type DashboardSummary } from "@/services/dashboard";
+import { useAsync } from "@/hooks/useAsync";
+import { getAdminDashboard, type DashboardSummary } from "@/lib/repositories/read-models";
 import { formatIDR, formatNumber } from "@/lib/format";
 import { PAYMENT_LABEL } from "@/types/pos";
 
@@ -103,30 +103,17 @@ function PaymentMix({ summary }: { summary: DashboardSummary }) {
 }
 
 export function AdminOverview() {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    getAdminDashboard()
-      .then((data) => {
-        if (!cancelled) setSummary(data);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Could not load the dashboard summary.");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: summary, error, isLoading } = useAsync(getAdminDashboard);
 
   if (error) {
-    return <p className="text-sm text-destructive">{error}</p>;
+    return (
+      <p role="alert" className="py-20 text-center text-sm text-destructive">
+        {error}
+      </p>
+    );
   }
 
-  if (!summary) {
+  if (isLoading || !summary) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
@@ -142,8 +129,8 @@ export function AdminOverview() {
       <section aria-label="Today's performance" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Revenue today"
-          value={formatIDR(kpi.todayRevenue)}
-          hint={`${formatNumber(kpi.todayTransactions)} transactions`}
+          value={formatIDR(kpi.revenue)}
+          hint={`${formatNumber(kpi.transactions)} transactions`}
           icon={TrendingUp}
           tone="brand"
         />

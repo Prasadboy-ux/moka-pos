@@ -1,22 +1,130 @@
-import { CATEGORIES, INGREDIENTS } from "@/services/reference";
-import type { Category, Ingredient, Product } from "@/types/pos";
+import type { Database } from "@/lib/repositories/types";
+import type { StoredUser } from "@/types/auth";
+import type {
+  Category,
+  Ingredient,
+  Order,
+  OrderLine,
+  PaymentMethod,
+  Product,
+} from "@/types/pos";
 
 /**
- * Mock catalogue adapter. Swap the bodies for axios calls when the API lands;
- * screens import from here and will not change.
+ * Fixtures the mock store starts from.
  *
- * Every product maps 1:1 to an illustration in public/menu/.
- *
- * PRICES ARE PLACEHOLDERS. Replace this block when real pricing is confirmed.
- *
- * Drinks (coffee, non-coffee) consume ingredients via a recipe. Packaged goods
- * and merchandise (snack, retail) are counted directly, which is what the two
- * `stockMode` variants exist for.
+ * Deterministic on purpose: the same seed means a demo, a screenshot, and a bug
+ * report all show the same numbers. `buildHistory` uses a fixed PRNG seed for
+ * the same reason.
  */
 
+/**
+ * PRICES ARE PLACEHOLDERS. Replace this flag with the real price block when
+ * pricing is confirmed.
+ */
 const PLACEHOLDER_PRICES = true;
 
-const PRODUCTS: Product[] = [
+export const SEED_CATEGORIES: Category[] = [
+  { id: "c-coffee", name: "Coffee", sortOrder: 1 },
+  { id: "c-noncoffee", name: "Non Coffee", sortOrder: 2 },
+  { id: "c-snack", name: "Snack", sortOrder: 3 },
+  { id: "c-retail", name: "Retail", sortOrder: 4 },
+];
+
+/**
+ * Ingredients are the recipe inputs only. Packaged goods are `direct` products
+ * carrying their own stock, so listing them here too would double-count them on
+ * the stock screen.
+ */
+export const SEED_INGREDIENTS: Ingredient[] = [
+  {
+    id: "i-bean-house",
+    name: "House Blend Beans",
+    unit: "gram",
+    stock: 4200,
+    minStock: 1500,
+    costPerUnit: 0.09,
+  },
+  {
+    id: "i-milk-fresh",
+    name: "Fresh Milk",
+    unit: "ml",
+    stock: 6200,
+    minStock: 2000,
+    costPerUnit: 0.012,
+  },
+  {
+    id: "i-sugar",
+    name: "Sugar Syrup",
+    unit: "ml",
+    stock: 3100,
+    minStock: 800,
+    costPerUnit: 0.006,
+  },
+  {
+    id: "i-chocolate",
+    name: "Chocolate Sauce",
+    unit: "ml",
+    stock: 1400,
+    minStock: 500,
+    costPerUnit: 0.014,
+  },
+  {
+    id: "i-caramel",
+    name: "Caramel Sauce",
+    unit: "ml",
+    stock: 260,
+    minStock: 300,
+    costPerUnit: 0.022,
+  },
+  {
+    id: "i-brown-sugar",
+    name: "Brown Sugar Syrup",
+    unit: "ml",
+    stock: 1200,
+    minStock: 400,
+    costPerUnit: 0.009,
+  },
+  {
+    id: "i-tea",
+    name: "Black Tea Leaves",
+    unit: "gram",
+    stock: 760,
+    minStock: 300,
+    costPerUnit: 0.05,
+  },
+  {
+    id: "i-boba",
+    name: "Boba Pearls",
+    unit: "gram",
+    stock: 800,
+    minStock: 300,
+    costPerUnit: 0.018,
+  },
+  {
+    id: "i-ice",
+    name: "Ice Cubes",
+    unit: "gram",
+    stock: 9000,
+    minStock: 3000,
+    costPerUnit: 0.002,
+  },
+  {
+    id: "i-lemon",
+    name: "Lemon Juice",
+    unit: "ml",
+    stock: 190,
+    minStock: 200,
+    costPerUnit: 0.02,
+  },
+];
+
+/**
+ * Every product maps 1:1 to an illustration in `public/menu/`.
+ *
+ * Drinks (`recipe`) consume ingredients; packaged goods and merchandise
+ * (`direct`) are counted themselves.
+ */
+export const SEED_PRODUCTS: Product[] = [
   // ---------------------------------------------------------------- Coffee
   {
     id: "p-iced-latte",
@@ -287,31 +395,166 @@ const PRODUCTS: Product[] = [
   },
 ];
 
-function simulateLatency(ms = 250): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export const SEED_USERS: StoredUser[] = [
+  {
+    id: "u-1",
+    name: "Budi Santoso",
+    username: "admin",
+    password: "admin123",
+    role: "admin",
+    isActive: true,
+  },
+  {
+    id: "u-2",
+    name: "Siti Rahayu",
+    username: "kasir",
+    password: "kasir123",
+    role: "kasir",
+    isActive: true,
+  },
+  {
+    id: "u-3",
+    name: "Andi Wijaya",
+    username: "kasir2",
+    password: "kasir123",
+    role: "kasir",
+    isActive: false,
+  },
+];
+
+const HISTORY_CASHIERS = [
+  { id: "u-2", name: "Siti Rahayu" },
+  { id: "u-3", name: "Andi Wijaya" },
+] as const;
+
+const PAYMENT_MIX: PaymentMethod[] = [
+  "qris",
+  "qris",
+  "cash",
+  "cash",
+  "cash",
+  "debit",
+  "credit",
+];
+
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-export async function listCategories(): Promise<Category[]> {
-  await simulateLatency(120);
-  return [...CATEGORIES].sort((a, b) => a.sortOrder - b.sortOrder);
+/**
+ * A week of trading so the dashboard and reports have real numbers to
+ * aggregate. Deterministic, weekend-weighted, and never lands a sale in the
+ * future.
+ */
+function buildHistory(products: Product[], taxRate: number): Order[] {
+  const rand = mulberry32(20261017);
+  const sellable = products.filter((p) => p.isActive);
+  const orders: Order[] = [];
+  const now = Date.now();
+
+  let receiptCounter = 1000;
+
+  for (let dayOffset = 6; dayOffset >= 0; dayOffset--) {
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    dayStart.setDate(dayStart.getDate() - dayOffset);
+
+    const weekday = dayStart.getDay();
+    const isWeekend = weekday === 0 || weekday === 6;
+    const orderCount = Math.round(
+      (isWeekend ? 34 : 24) * (0.7 + rand() * 0.4) * (1 - dayOffset * 0.02),
+    );
+
+    for (let i = 0; i < orderCount; i++) {
+      const lineCount = 1 + Math.floor(rand() * 3);
+      const lines: OrderLine[] = [];
+
+      for (let l = 0; l < lineCount; l++) {
+        const product = sellable[Math.floor(rand() * sellable.length)];
+        if (!product) continue;
+        if (lines.some((line) => line.productId === product.id)) continue;
+        lines.push({
+          productId: product.id,
+          name: product.name,
+          price: product.price,
+          qty: 1 + Math.floor(rand() * 2),
+          stockMode: product.stockMode,
+        });
+      }
+
+      if (lines.length === 0) continue;
+
+      const subtotal = lines.reduce((sum, l) => sum + l.price * l.qty, 0);
+      const taxAmount = Math.round(subtotal * taxRate);
+      const total = subtotal + taxAmount;
+
+      const cashier = HISTORY_CASHIERS[Math.floor(rand() * HISTORY_CASHIERS.length)];
+      const method = PAYMENT_MIX[Math.floor(rand() * PAYMENT_MIX.length)];
+
+      if (!cashier || !method) continue;
+
+      const createdAt = new Date(dayStart);
+      createdAt.setHours(8 + Math.floor(rand() * 13), Math.floor(rand() * 60), 0, 0);
+
+      if (createdAt.getTime() > now) continue;
+
+      receiptCounter += 1;
+
+      const paidAmount =
+        method === "cash" ? Math.ceil(total / 5000) * 5000 : total;
+
+      orders.push({
+        id: `o-${receiptCounter}`,
+        receiptNo: `MOKA-${receiptCounter}`,
+        lines,
+        subtotal,
+        taxRate,
+        taxAmount,
+        total,
+        paymentMethod: method,
+        paidAmount,
+        changeAmount: paidAmount - total,
+        cashierId: cashier.id,
+        cashierName: cashier.name,
+        createdAt: createdAt.toISOString(),
+      });
+    }
+  }
+
+  return orders.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 }
 
-export async function listIngredients(): Promise<Ingredient[]> {
-  await simulateLatency(160);
-  return [...INGREDIENTS];
-}
+/**
+ * Bump this whenever the shape above changes. The store compares it against
+ * what is in `localStorage` and reseeds on a mismatch, so a schema change never
+ * has to be migrated by hand.
+ */
+export const DB_VERSION = 1;
 
-export async function listProducts(): Promise<Product[]> {
-  await simulateLatency(220);
-  return PRODUCTS.filter((p) => p.isActive);
-}
+export function buildSeed(): Database {
+  const orders = buildHistory(SEED_PRODUCTS, 0.1);
 
-export async function getIngredientsById(): Promise<Map<string, Ingredient>> {
-  const list = await listIngredients();
-  return new Map(list.map((i) => [i.id, i]));
-}
-
-export async function getProductById(id: string): Promise<Product | undefined> {
-  const list = await listProducts();
-  return list.find((p) => p.id === id);
+  return {
+    version: DB_VERSION,
+    categories: SEED_CATEGORIES.map((c) => ({ ...c })),
+    ingredients: SEED_INGREDIENTS.map((i) => ({ ...i })),
+    products: SEED_PRODUCTS.map((p) => ({ ...p, recipe: [...p.recipe] })),
+    users: SEED_USERS.map((u) => ({ ...u })),
+    orders,
+    movements: [],
+    shifts: [],
+    counters: {
+      receipt: 2000 + orders.length + 1,
+      movement: 1,
+    },
+  };
 }

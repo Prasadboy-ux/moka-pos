@@ -23,8 +23,13 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
-import { createOrder } from "@/services/orders";
-import { PAYMENT_LABEL, type Order, type PaymentMethod, type Product } from "@/types/pos";
+import { getRepositories } from "@/lib/repositories";
+import {
+  PAYMENT_LABEL,
+  TAX_RATE_DEFAULT,
+  type Order,
+  type PaymentMethod,
+} from "@/types/pos";
 import type { CartLine, CartTotals } from "@/store/useCartStore";
 
 const METHODS = [
@@ -39,8 +44,6 @@ interface CheckoutDialogProps {
   onOpenChange: (open: boolean) => void;
   lines: CartLine[];
   totals: CartTotals;
-  taxRate: number;
-  products: Product[];
   cashierId: string;
   cashierName: string;
   onCompleted: (order: Order) => void;
@@ -65,8 +68,6 @@ function CheckoutBody({
   onOpenChange,
   lines,
   totals,
-  taxRate,
-  products,
   cashierId,
   cashierName,
   onCompleted,
@@ -110,22 +111,30 @@ function CheckoutBody({
     try {
       const paidAmount = method === "cash" ? cashValue : totals.total;
 
-      const order = await createOrder(products, taxRate, {
-        lines,
-        subtotal: totals.subtotal,
-        taxRate,
-        taxAmount: totals.taxAmount,
-        total: totals.total,
+      /**
+       * Totals are recomputed inside the repository from the products it reads,
+       * so the receipt reflects what was actually charged rather than what the
+       * cart believed when it was drawn.
+       */
+      const { order } = await getRepositories().orders.create({
+        lines: lines.map((line) => ({
+          productId: line.productId,
+          qty: line.qty,
+        })),
         paymentMethod: method,
         paidAmount,
-        changeAmount: paidAmount - totals.total,
-        cashierId,
-        cashierName,
+        cashier: { id: cashierId, name: cashierName },
       });
 
       onCompleted(order);
-    } catch {
-      setError("Could not save the order. Check the connection and retry.");
+    } catch (cause) {
+      // Stock can run out between the grid and this click, and the repository
+      // is the only layer that knows the real levels.
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not save the order. Check the connection and retry.",
+      );
       setPending(false);
     }
   }
@@ -225,7 +234,7 @@ function CheckoutBody({
             <dd className="tabular-nums">{formatIDR(totals.subtotal)}</dd>
           </div>
           <div className="flex justify-between text-muted-foreground">
-            <dt>Tax PPN {Math.round(taxRate * 100)}%</dt>
+            <dt>Tax PPN {Math.round(TAX_RATE_DEFAULT * 100)}%</dt>
             <dd className="tabular-nums">{formatIDR(totals.taxAmount)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
