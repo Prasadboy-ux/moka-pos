@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="100%" height="100%">
+  <rect width="300" height="400" fill="#222" rx="16" />
+  <!-- Bag Body -->
+  <path d="M95,160 L205,160 L215,310 L85,310 Z" fill="#1c1612" stroke="#d49a46" stroke-width="2" />
+  <!-- Bag Top Fold / Seal -->
+  <path d="M95,160 L205,160 L195,120 L105,120 Z" fill="#2b221d" />
+  <rect x="100" y="145" width="100" height="8" fill="#0c0a08" />
+  <!-- Label -->
+  <rect x="120" y="190" width="60" height="80" fill="#f3d08c" rx="4" />
+  <!-- Bean icon on label -->
+  <ellipse cx="150" cy="225" rx="12" ry="18" fill="#3d1e0b" />
+  <path d="M150,207 C140,225 160,225 150,243" stroke="#f3d08c" stroke-width="2" fill="none" />
+  <rect x="130" y="255" width="40" height="4" fill="#3d1e0b" rx="2" />
+  <text x="150" y="360" fill="#f3d08c" font-family="sans-serif" font-size="16" font-weight="bold" text-anchor="middle">Whole Bean Coffee</text>
+</svg>

@@ -1,0 +1,19 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="100%" height="100%">
+  <rect width="300" height="400" fill="#222" rx="0" />
+  <!-- Cookie Base -->
+  <circle cx="150" cy="230" r="75" fill="#dca766" />
+  <!-- Texture / Edge definition -->
+  <circle cx="150" cy="230" r="75" fill="none" stroke="#ba803f" stroke-width="4" />
+  <!-- Chocolate Chips -->
+  <circle cx="120" cy="200" r="8" fill="#3d2314" />
+  <circle cx="165" cy="185" r="9" fill="#3d2314" />
+  <circle cx="190" cy="220" r="7" fill="#3d2314" />
+  <circle cx="145" cy="245" r="10" fill="#3d2314" />
+  <circle cx="105" cy="240" r="7" fill="#3d2314" />
+  <circle cx="170" cy="270" r="8" fill="#3d2314" />
+  <circle cx="130" cy="275" r="6" fill="#3d2314" />
+  <!-- Crumbs -->
+  <circle cx="90" cy="290" r="2" fill="#dca766" />
+  <circle cx="210" cy="285" r="3" fill="#dca766" />
+  <circle cx="220" cy="270" r="2" fill="#dca766" />
+  </svg>

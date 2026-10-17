@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <linearGradient id="markCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00C4DF" />
+      <stop offset="100%" stop-color="#009BB0" />
+    </linearGradient>
+    <linearGradient id="markBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1B75BC" />
+      <stop offset="100%" stop-color="#0F4C81" />
+    </linearGradient>
+  </defs>
+
+  <!-- Right / background arch block -->
+  <path d="M 125 0 L 165 0 C 184.3 0 200 15.7 200 35 L 200 165 C 200 184.3 184.3 200 165 200 L 125 200 C 105.7 200 90 184.3 90 165 L 90 35 C 90 15.7 105.7 0 125 0 Z" fill="url(#markBlue)" />
+
+  <!-- Left / foreground arch block -->
+  <path d="M 35 0 L 75 0 C 94.3 0 110 15.7 110 35 L 110 165 C 110 184.3 94.3 200 75 200 L 35 200 C 15.7 200 0 184.3 0 165 L 0 35 C 0 15.7 15.7 0 35 0 Z" fill="url(#markCyan)" />
+
+  <!-- Connecting bridge / crossbar -->
+  <path d="M 35 70 L 165 70 C 184.3 70 200 85.7 200 105 L 200 130 C 200 110.7 184.3 95 165 95 L 35 95 C 15.7 95 0 110.7 0 130 L 0 105 C 0 85.7 15.7 70 35 70 Z" fill="#ffffff" opacity="0.15" />
+</svg>

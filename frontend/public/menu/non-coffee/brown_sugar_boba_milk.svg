@@ -1,0 +1,17 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="100%" height="100%">
+  <rect width="300" height="400" fill="#222" rx="0" />
+  <polygon points="80,100 220,100 205,350 95,350" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)" stroke-width="2" />
+  <!-- Milk Body -->
+  <polygon points="96,348 204,348 215,105 85,105" fill="#bfa07a" />
+  <!-- Boba Pearls -->
+  <g fill="#120a04">
+    <circle cx="110" cy="330" r="10" /><circle cx="135" cy="335" r="10" /><circle cx="160" cy="330" r="10" /><circle cx="185" cy="328" r="10" />
+    <circle cx="120" cy="310" r="10" /><circle cx="145" cy="315" r="10" /><circle cx="170" cy="310" r="10" />
+    <circle cx="130" cy="290" r="10" /><circle cx="155" cy="292" r="10" />
+  </g>
+  <!-- Foam and Toast Top -->
+  <path d="M85,105 L215,105 L210,80 L90,80 Z" fill="#fffefb" />
+  <path d="M120,88 Q150,95 180,85" fill="none" stroke="#6e3c09" stroke-width="4" stroke-linecap="round" />
+  <!-- Straw -->
+  <line x1="175" y1="40" x2="165" y2="340" stroke="#111" stroke-width="8" stroke-linecap="round" />
+  </svg>
