@@ -11,6 +11,8 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Locally installed agent skill packs: third-party example code, not ours.
+      ".agents/**",
     ],
   },
   {

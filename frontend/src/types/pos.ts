@@ -144,21 +144,6 @@ export function canFulfill(
   });
 }
 
-/** Ingredient shortfalls for a cart holding qty of a product. */
-export function shortages(
-  product: Product,
-  ingredients: Map<string, Ingredient>,
-  qty: number,
-): Array<{ ingredient: Ingredient; needed: number }> {
-  if (product.stockMode === "direct") return [];
-  return product.recipe.flatMap((item) => {
-    const ing = ingredients.get(item.ingredientId);
-    if (!ing) return [];
-    const needed = item.qty * qty;
-    return ing.stock < needed ? [{ ingredient: ing, needed }] : [];
-  });
-}
-
 /**
  * How many of this product the current stock can cover.
  *

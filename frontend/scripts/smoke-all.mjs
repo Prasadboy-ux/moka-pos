@@ -20,6 +20,7 @@ const SUITES = [
   ["users", "smoke-users.mjs"],
   ["journey", "smoke-journey.mjs"],
   ["a11y", "smoke-a11y.mjs"],
+  ["screens", "smoke-screens.mjs"],
 ];
 
 function run(file) {

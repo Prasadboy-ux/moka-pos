@@ -8,7 +8,6 @@ import {
   type Order,
   type PaymentMethod,
   type Product,
-  type Shift,
 } from "@/types/pos";
 
 /**
@@ -303,39 +302,6 @@ export async function getAdminDashboard(): Promise<DashboardSummary> {
     lowStock: lowStockItems(productList, ingredientList),
     recentOrders: orderList.slice(0, 8),
     totalProducts: productList.length,
-  };
-}
-
-export interface CashierDashboardSummary {
-  kpi: Kpi;
-  recentOrders: Order[];
-  lowStockCount: number;
-  openShift: Shift | null;
-}
-
-/**
- * A cashier only cares about their own shift, so this deliberately excludes other
- * cashiers' takings and global revenue figures.
- */
-export async function getCashierDashboard(
-  userId: string,
-  openShift: Shift | null,
-): Promise<CashierDashboardSummary> {
-  const { products, ingredients, orders } = getRepositories();
-
-  const [productList, ingredientList, orderList] = await Promise.all([
-    products.list(),
-    ingredients.list(),
-    orders.list({ cashierId: userId }),
-  ]);
-
-  return {
-    kpi: summarise(
-      orderList.filter((o) => new Date(o.createdAt).getTime() >= startOfToday()),
-    ),
-    recentOrders: orderList.slice(0, 6),
-    lowStockCount: lowStockItems(productList, ingredientList).length,
-    openShift,
   };
 }
 

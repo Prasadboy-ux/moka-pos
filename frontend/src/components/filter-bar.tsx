@@ -101,14 +101,3 @@ export function FilterBar({
     </div>
   )
 }
-
-/** Small count of rows, for screens where the total is worth stating outright. */
-export function ResultCount({ shown, total }: { shown: number; total: number }) {
-  if (shown === total) return null;
-
-  return (
-    <p className="text-xs text-muted-foreground tabular-nums">
-      Showing {shown} of {total}
-    </p>
-  )
-}

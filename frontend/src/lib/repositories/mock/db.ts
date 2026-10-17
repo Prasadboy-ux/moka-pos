@@ -87,18 +87,3 @@ export function mutate<T>(fn: (db: Database) => T): T {
   persist(db);
   return result;
 }
-
-/** Throws away the cached document and reseeds. Exposed for demo resets. */
-export function resetDb(): void {
-  persist(buildSeed());
-}
-
-/** Next id for a collection, prefixed so ids stay readable in the ledger. */
-export function nextId(prefix: string, existing: ReadonlyArray<{ id: string }>): string {
-  const highest = existing.reduce((max, record) => {
-    const suffix = Number.parseInt(record.id.replace(`${prefix}-`, ""), 10);
-    return Number.isNaN(suffix) ? max : Math.max(max, suffix);
-  }, 0);
-
-  return `${prefix}-${highest + 1}`;
-}

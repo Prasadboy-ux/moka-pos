@@ -52,16 +52,3 @@ export function useQueryState(): [
 
   return [state, setQuery];
 }
-
-/** One parameter, with a default when it is absent. */
-export function useQueryParam(
-  key: string,
-  fallback: string,
-): [string, (value: string | null) => void] {
-  const [state, setQuery] = useQueryState();
-  const set = React.useCallback(
-    (value: string | null) => setQuery({ [key]: value }),
-    [key, setQuery],
-  );
-  return [state[key] ?? fallback, set];
-}

@@ -61,8 +61,3 @@ export function useAuthHydrated(): boolean {
 
   return hydrated;
 }
-
-/** Hook form for components that only need the user, not the session object. */
-export function useAuthUser(): User | null {
-  return useAuthStore((state) => state.session?.user ?? null);
-}

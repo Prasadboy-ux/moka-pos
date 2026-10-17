@@ -14,7 +14,8 @@
     "smoke:reports": "node scripts/smoke-reports.mjs",
     "smoke:users": "node scripts/smoke-users.mjs",
     "smoke:journey": "node scripts/smoke-journey.mjs",
-    "smoke:a11y": "node scripts/smoke-a11y.mjs"
+    "smoke:a11y": "node scripts/smoke-a11y.mjs",
+    "smoke:screens": "node scripts/smoke-screens.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.2",
