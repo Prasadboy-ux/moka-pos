@@ -2,6 +2,7 @@ import {
   Boxes,
   LayoutDashboard,
   Package,
+  Receipt,
   ShoppingCart,
   Users,
   BarChart3,
@@ -34,6 +35,20 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Take orders and process payments",
     href: "/dashboard/pos",
     icon: ShoppingCart,
+    roles: ["kasir", "admin"],
+  },
+  {
+    /*
+     * Cashiers get this too, not just admins. Reprinting a receipt and looking
+     * up what a customer paid yesterday are both things a cashier is asked to do
+     * mid-shift, and gating either behind the admin role means answering the
+     * question from memory.
+     */
+    label: "Transactions",
+    shortLabel: "Sales",
+    description: "Search, reprint, and send receipts",
+    href: "/dashboard/transactions",
+    icon: Receipt,
     roles: ["kasir", "admin"],
   },
   {

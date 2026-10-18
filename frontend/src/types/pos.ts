@@ -73,6 +73,49 @@ export interface OrderLine {
   stockMode: StockMode;
 }
 
+/**
+ * Who the sale was for.
+ *
+ * Optional in every sense: most POS sales are a walk-in with no contact details,
+ * and making the cashier type a phone number on every order would mean it never
+ * gets typed at all. It exists so a receipt can be sent after the customer has
+ * left, which is the part of "print or send" that does not need a server-side
+ * gateway.
+ */
+export interface OrderCustomer {
+  name: string;
+  /**
+   * Digits only, in international form without the plus — `6281234567890`.
+   * Normalised on entry by `normalisePhone`, because a WhatsApp link built from
+   * an un-normalised `+62 812-…` silently opens a chat with nobody.
+   */
+  phone: string;
+  email: string | null;
+}
+
+/**
+ * Reduces a typed phone number to the digits a wa.me link needs.
+ *
+ * Indonesian numbers are the awkward case: `+62 812-3456-7890` and
+ * `0812 3456 7890` are the same subscriber, and WhatsApp only accepts the
+ * international form. A leading `0` is rewritten to `62` rather than dropped,
+ * because that prefix is still what most customers and staff actually type.
+ *
+ * Returns null for anything that cannot be a subscriber number, so the caller
+ * can decline rather than build a link that opens nothing.
+ */
+export function normalisePhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+
+  if (digits.length === 0) return null;
+  if (digits.startsWith("62")) return digits;
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  // A bare national number without the trunk prefix.
+  if (digits.length >= 9 && digits.length <= 11) return `62${digits}`;
+
+  return null;
+}
+
 export interface Order {
   id: string;
   /** Human-friendly receipt number, e.g. "MOKA-1042". */
@@ -88,6 +131,8 @@ export interface Order {
   changeAmount: number;
   cashierId: string;
   cashierName: string;
+  /** Null for a walk-in sale. */
+  customer: OrderCustomer | null;
   createdAt: string;
 }
 
@@ -173,6 +218,50 @@ export function maxServings(
       // there is stock would hide it. Treat it as nothing available.
       if (!ingredient || item.qty <= 0) return 0;
       return Math.floor(ingredient.stock / item.qty);
+    }),
+  );
+}
+
+/**
+ * How many of this product can still be added to a cart that already holds
+ * `others`.
+ *
+ * `maxServings` looks at the shelf alone, which is the right question for the
+ * menu grid but the wrong one for the cart: two drinks sharing an espresso shot
+ * both look fully stocked until one of them is in the order, and the shortfall
+ * then surfaces as a failed sale after the customer has already handed over
+ * cash. Counting what the rest of the cart has claimed on each shared ingredient
+ * closes that window.
+ *
+ * `others` must exclude the line for this product — its own quantity is being
+ * decided here, not spent against itself.
+ *
+ * Returns null when nothing bounds the product, which is the same "no model to
+ * check against" answer `maxServings` gives.
+ */
+export function remainingFor(
+  product: Product,
+  ingredients: ReadonlyMap<string, Ingredient>,
+  others: ReadonlyArray<{ product: Product; qty: number }>,
+): number | null {
+  if (product.stockMode === "direct") return product.stock ?? null;
+  if (product.recipe.length === 0) return null;
+
+  const claimed = new Map<string, number>();
+  for (const line of others) {
+    for (const item of line.product.recipe) {
+      claimed.set(
+        item.ingredientId,
+        (claimed.get(item.ingredientId) ?? 0) + item.qty * line.qty,
+      );
+    }
+  }
+
+  return Math.min(
+    ...product.recipe.map((item) => {
+      const ingredient = ingredients.get(item.ingredientId);
+      if (!ingredient || item.qty <= 0) return 0;
+      return Math.floor((ingredient.stock - (claimed.get(item.ingredientId) ?? 0)) / item.qty);
     }),
   );
 }

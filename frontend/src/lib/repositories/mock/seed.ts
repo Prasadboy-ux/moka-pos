@@ -4,6 +4,7 @@ import type {
   Category,
   Ingredient,
   Order,
+  OrderCustomer,
   OrderLine,
   PaymentMethod,
   Product,
@@ -442,6 +443,22 @@ const PAYMENT_MIX: PaymentMethod[] = [
   "credit",
 ];
 
+/**
+ * Roughly a third of sales are to someone who gave a number, matching a real
+ * counter where most customers are walk-ins but the regulars are not.
+ *
+ * The mix matters for the transactions screen: a history with a customer on
+ * every row would hide the null case entirely, and one with none would make
+ * sending a receipt look impossible.
+ */
+const HISTORY_CUSTOMERS: OrderCustomer[] = [
+  { name: "Dewi Lestari", phone: "628123450101", email: "dewi.lestari@example.com" },
+  { name: "Bagus Pratama", phone: "628133450202", email: null },
+  { name: "Rina Kusuma", phone: "628523450303", email: "rina.kusuma@example.com" },
+  { name: "Hendra Wijaya", phone: "628113450404", email: null },
+  { name: "Maya Anggraini", phone: "628773450505", email: null },
+];
+
 function mulberry32(seed: number): () => number {
   let a = seed;
   return () => {
@@ -520,6 +537,16 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
       const paidAmount =
         method === "cash" ? Math.ceil(total / 5000) * 5000 : total;
 
+      /**
+       * Drawn before the push rather than inline, because the entries in
+       * HISTORY_CUSTOMERS are module-level objects: handing the same reference
+       * to thirty orders would make one edit anywhere rewrite all of them.
+       */
+      const customer =
+        rand() < 0.34
+          ? HISTORY_CUSTOMERS[Math.floor(rand() * HISTORY_CUSTOMERS.length)]
+          : undefined;
+
       orders.push({
         id: `o-${receiptCounter}`,
         receiptNo: `MOKA-${receiptCounter}`,
@@ -533,6 +560,7 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
         changeAmount: paidAmount - total,
         cashierId: cashier.id,
         cashierName: cashier.name,
+        customer: customer ? { ...customer } : null,
         createdAt: createdAt.toISOString(),
       });
     }
@@ -553,8 +581,11 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
  * error and every margin as 100%.
  * 3 — seeded history extended from 7 days to 30, so the reports screen has a
  * previous period to compare against.
+ * 4 — orders carry an optional `customer`. Reseeding is also what fills the
+ * transaction screen with sendable receipts, since nothing else writes to the
+ * store on first load.
  */
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 export function buildSeed(): Database {
   const orders = buildHistory(SEED_PRODUCTS, 0.1);

@@ -2,13 +2,13 @@
 
 import * as React from "react";
 import {
-  Archive,
   FolderTree,
   GlassWater,
   MoreHorizontal,
   Package,
   Pencil,
   Power,
+  Trash2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,9 +44,9 @@ import { maxServings, type Category, type Ingredient, type Product } from "@/typ
  * Product management.
  *
  * One screen covers the whole catalogue: filter, inspect stock, edit, activate,
- * archive, and manage categories. Deleting is deliberately not offered — past
- * receipts reference products by id, so a product is archived instead and drops
- * out of the POS while its history stays resolvable.
+ * delete, and manage categories. Taking an item off the menu temporarily is
+ * `setActive` — the delete beside it is the terminal one, and safe because order
+ * lines carry their own copy of the name and price.
  */
 
 type StatusFilter = "active" | "inactive" | "all";
@@ -98,7 +98,7 @@ export function ProductsScreen() {
   const [editing, setEditing] = React.useState<Product | null>(null);
   const [formOpen, setFormOpen] = React.useState(false);
   const [categoriesOpen, setCategoriesOpen] = React.useState(false);
-  const [archiving, setArchiving] = React.useState<Product | null>(null);
+  const [deleting, setDeleting] = React.useState<Product | null>(null);
 
   const debouncedSearch = useDebouncedValue(search);
 
@@ -313,11 +313,10 @@ export function ProductsScreen() {
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              disabled={!product.isActive}
-              onSelect={() => setArchiving(product)}
+              onSelect={() => setDeleting(product)}
             >
-              <Archive className="size-4" aria-hidden />
-              Archive
+              <Trash2 className="size-4" aria-hidden />
+              Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -422,18 +421,29 @@ export function ProductsScreen() {
       />
 
       <ConfirmDialog
-        open={archiving !== null}
+        open={deleting !== null}
         onOpenChange={(open) => {
-          if (!open) setArchiving(null);
+          if (!open) setDeleting(null);
         }}
-        title={`Archive ${archiving?.name ?? "this product"}?`}
-        description="It disappears from the POS and the catalogue. Past receipts keep it, so historical totals stay correct."
-        confirmLabel="Archive"
+        title={`Delete ${deleting?.name ?? "this product"}?`}
+        description={
+          /**
+           * Spelled out because it is the one irreversible action on this screen.
+           * The receipts line is not reassurance for its own sake — an admin
+           * deciding between "delete" and "hide" needs to know that hiding keeps
+           * the row and deleting does not, while historical totals survive either
+           * way.
+           */
+          deleting && deleting.isActive
+            ? "It disappears from the POS and the catalogue. This cannot be undone. Past receipts keep their own copy of the name and price, so historical totals stay correct. Use Hide from POS instead if you only want it off the menu for a while."
+            : "This cannot be undone. Past receipts keep their own copy of the name and price, so historical totals stay correct."
+        }
+        confirmLabel="Delete"
         destructive
         onConfirm={async () => {
-          if (!archiving) return;
-          await getRepositories().products.archive(archiving.id);
-          toast({ title: "Product archived", variant: "success" });
+          if (!deleting) return;
+          await getRepositories().products.remove(deleting.id);
+          toast({ title: "Product deleted", variant: "success" });
           reload();
         }}
       />

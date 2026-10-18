@@ -79,6 +79,71 @@ try {
   check("sale issues an itemised receipt", /MOKA-\d+/.test(receipt) && /Cashier/.test(receipt) && /TOTAL/.test(receipt));
   await page.keyboard.press("Escape");
 
+  // ------------------------------------------------------ 3b. Transactions
+  await page.goto(`${BASE}/dashboard/transactions`, { waitUntil: "networkidle" });
+  await page.waitForSelector("table tbody tr", { timeout: 15000 });
+
+  const transactions = await page.locator("main").innerText();
+  check("transactions screen lists sales", /MOKA-\d+/.test(transactions));
+  check("transactions has range presets", (await page.getByRole("button", { name: "All time" }).count()) === 1);
+  check("transactions filters by payment method", (await page.getByRole("button", { name: "QRIS" }).count()) >= 1);
+  check("transactions can be searched", (await page.getByLabel("Search transactions").count()) === 1);
+
+  /**
+   * Cash only, then back to everything.
+   *
+   * Asserted against the total the screen reports, not the number of rows on
+   * the page. The table paginates, so as long as the filtered set is larger
+   * than one page the first page stays completely full and row counts prove
+   * nothing — which is exactly the case here, where cash is roughly half the
+   * history. The visible rows are still checked for a method that must be gone.
+   */
+  const totalSales = async () => {
+    const text = await page.locator("main").innerText();
+    return Number(text.match(/([\d.]+)\s+sales/)?.[1]?.replace(/\./g, "") ?? "0");
+  };
+
+  const allTotal = await totalSales();
+  await page.getByRole("button", { name: "Cash", exact: true }).click();
+  await page.waitForTimeout(900);
+  const cashTotal = await totalSales();
+  const cashRows = await page.locator("table tbody tr").count();
+  const cashText = await page.locator("table tbody").innerText();
+  check(
+    "the payment filter narrows the list",
+    cashTotal > 0 && cashTotal < allTotal && cashRows > 0 && !cashText.includes("QRIS"),
+    `${cashTotal} of ${allTotal} sales, ${cashRows} rows on the page`,
+  );
+
+  await page.getByRole("button", { name: "All methods", exact: true }).click();
+  await page.waitForTimeout(700);
+  check("clearing the filter restores the full list", (await totalSales()) === allTotal);
+
+  // Reprint is the point of the screen: it must render the original document.
+  await page.getByRole("button", { name: "Reprint" }).first().click();
+  await page.waitForSelector("[data-receipt]", { timeout: 10000 });
+  check("reprint renders the stored receipt", (await page.locator("[data-receipt]").count()) === 1);
+  check(
+    "a reprinted receipt still carries its totals",
+    /TOTAL/.test(await page.locator("[data-receipt]").innerText()),
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+
+  // Search by the receipt number a customer would read back to a cashier. The
+  // counter is pre-incremented in the seed, so the first historical receipt is
+  // MOKA-1001 rather than MOKA-1000.
+  await page.goto(`${BASE}/dashboard/transactions?range=all`, { waitUntil: "networkidle" });
+  await page.waitForSelector("table tbody tr");
+  await page.locator("#transaction-search").fill("MOKA-1001");
+  await page.waitForTimeout(900);
+  const found = await page.locator("main").innerText();
+  check(
+    "searching by receipt number finds the sale",
+    /MOKA-1001/.test(found) && !/MOKA-1002/.test(found),
+    found.match(/MOKA-\d+/)?.[0] ?? "",
+  );
+
   // ------------------------------------------------ 4. Manajemen Product
   await page.goto(`${BASE}/dashboard/products`, { waitUntil: "networkidle" });
   await page.waitForSelector("table tbody tr");

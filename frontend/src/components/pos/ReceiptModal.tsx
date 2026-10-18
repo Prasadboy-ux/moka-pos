@@ -1,6 +1,6 @@
 "use client";
 
-import { Printer } from "lucide-react";
+import { Mail, MessageCircle, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDateTime, formatIDR } from "@/lib/format";
+import { emailLink, whatsAppLink } from "@/lib/receipt";
 import { PAYMENT_LABEL, type Order } from "@/types/pos";
 
 interface ReceiptModalProps {
@@ -19,6 +20,15 @@ interface ReceiptModalProps {
 
 export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
   if (!order) return null;
+
+  /**
+   * Sending is a link out of the browser, not an API call. Until there is a
+   * backend that holds an API key, wa.me and mailto are the only honest
+   * implementation: both end in an app the customer controls, which is also what
+   * keeps a receipt from being delivered to the wrong number by a bug here.
+   */
+  const whatsapp = whatsAppLink(order);
+  const email = emailLink(order);
 
   return (
     <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
@@ -52,6 +62,12 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
             <Row label="Receipt" value={order.receiptNo} />
             <Row label="Date" value={formatDateTime(order.createdAt)} />
             <Row label="Cashier" value={order.cashierName} />
+            {/*
+              Only the name goes on paper. The phone number is a routing detail
+              for the send buttons — printing it puts a customer's number on a
+              slip that gets left on the counter.
+            */}
+            {order.customer ? <Row label="Customer" value={order.customer.name} /> : null}
           </div>
 
           <div className="my-2 border-t border-dashed" />
@@ -104,15 +120,37 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            className="flex-1"
-            onClick={() => window.print()}
-          >
+        {/*
+          Outside `data-receipt` on purpose. These are actions on the till's
+          screen, and the print stylesheet hides everything the receipt does not
+          contain — leaving them inside would print a row of buttons on the
+          customer copy.
+        */}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button onClick={() => window.print()}>
             <Printer className="size-4" aria-hidden />
             Print receipt
           </Button>
-          <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+
+          {whatsapp ? (
+            <Button variant="outline" asChild>
+              <a href={whatsapp} target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="size-4" aria-hidden />
+                Send WhatsApp
+              </a>
+            </Button>
+          ) : null}
+
+          {email ? (
+            <Button variant="outline" asChild>
+              <a href={email}>
+                <Mail className="size-4" aria-hidden />
+                Send email
+              </a>
+            </Button>
+          ) : null}
+
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             New order
           </Button>
         </div>

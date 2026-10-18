@@ -55,6 +55,33 @@ try {
   const thirty = await revenueFor();
   check("30 day preset is larger than today", thirty >= today, `today=${today} 30d=${thirty}`);
 
+  // ------------------------------------------------------- monthly buckets
+  // A long range has to switch the chart to months, and cover the whole span
+  // rather than silently trimming it to the last fortnight.
+  await page.getByRole("button", { name: "Last 12 months" }).click();
+  await page.waitForSelector("text=Revenue per month", { timeout: 15000 });
+  const monthly = await page.locator("main").innerText();
+  check("long range switches the chart to months", /Revenue per month/.test(monthly));
+  check("monthly chart still shows the best month", /best month in the period/.test(monthly));
+
+  const monthBars = await page.locator('li:has-text("transactions")').count();
+  check("monthly chart covers twelve periods", monthBars === 12, `bars=${monthBars}`);
+
+  // A month bucket labels "Oct 2026", never "1 Oct 2026" — the yyyy-mm key
+  // pinned to day one would otherwise render as a full date. Scoped to the
+  // trend list because the page header legitimately prints the range's start
+  // date as "1 Nov 2025".
+  const trendList = page.locator("main ul").filter({ hasText: "transactions" }).first();
+  const trendText = await trendList.innerText();
+  check("month buckets are labelled as months", !/\b\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/.test(trendText), trendText.split("\n")[0]);
+
+  const twelveMonth = await revenueFor();
+  check("12 month revenue covers at least 30 days", twelveMonth >= thirty, `30d=${thirty} 12m=${twelveMonth}`);
+
+  await page.getByRole("button", { name: "Last 7 days" }).click();
+  await page.waitForTimeout(1200);
+  check("short range returns to daily buckets", /Revenue per day/.test(await page.locator("main").innerText()));
+
   // -------------------------------------------------- empty period state
   await page.locator("#report-from").fill("2020-01-01");
   await page.locator("#report-to").fill("2020-01-07");

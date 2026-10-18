@@ -160,7 +160,7 @@ mock had this wrong and every margin read as 100%.
 | `create(input)` | `POST /api/products` → `201` |
 | `update(id, input)` | `PUT /api/products/:id` |
 | `setActive(id, isActive)` | `PATCH /api/products/:id/active` |
-| `archive(id)` | `POST /api/products/:id/archive` |
+| `remove(id)` | `DELETE /api/products/:id` — `204` |
 
 ```jsonc
 ProductInput {
@@ -184,10 +184,19 @@ Server-side validation the client also enforces, so both fail the same way:
 - `direct` mode: `stock` and `minStock` present.
 - `recipe` is ignored (stored empty) in `direct` mode.
 
-`archive` is separate from `setActive` on purpose: archiving is the terminal
-"this will not be sold again" state and is what the UI calls from the row menu.
+`remove` is separate from `setActive` on purpose: `setActive` is the reversible
+"not selling this today" state, and `remove` is the terminal one. They are not the
+same action and the UI offers them as two items.
 
-**No delete endpoint.** Orders reference products by id.
+**Deleting a product does not rewrite history.** Order lines denormalise `name`,
+`price`, and `stockMode` as sold, so a receipt for a deleted product still prints
+what was actually charged and a reprint years later still matches. The server
+must not rewrite order lines on delete.
+
+The one caller that resolves products live is the **category split in reports**.
+A deleted product must be attributed to an `Uncategorised` bucket there rather
+than skipped, so the category table keeps agreeing with the revenue total above
+it.
 
 ## 6. Stock
 

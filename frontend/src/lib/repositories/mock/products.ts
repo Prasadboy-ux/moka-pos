@@ -94,19 +94,23 @@ export const productRepository: ProductRepository = {
     });
   },
 
-  async archive(id) {
+  async remove(id) {
     await simulateLatency(120);
-    return mutate((db) => {
-      const product = db.products.find((p) => p.id === id);
-      if (!product) throw new Error("Product not found.");
+    mutate((db) => {
+      const index = db.products.findIndex((p) => p.id === id);
+      if (index === -1) throw new Error("Product not found.");
 
       /**
-       * Past orders reference the product by id, so a hard delete would leave
-       * receipt lines with nothing to resolve. Archiving keeps history intact
-       * and drops it out of the POS and every active listing.
+       * A hard delete is safe here precisely because order lines denormalise
+       * their name and price at the moment of sale: a receipt for a deleted
+       * product still prints what was actually charged, and reprinting it years
+       * later still matches. The one thing that did have to keep working is the
+       * category split in reports, which routes an unresolvable product to
+       * "Uncategorised" rather than dropping its revenue.
+       *
+       * Hiding a product for a season is `setActive`; this is the terminal one.
        */
-      product.isActive = false;
-      return clone(product);
+      db.products.splice(index, 1);
     });
   },
 };

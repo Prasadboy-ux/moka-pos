@@ -39,7 +39,7 @@ Playwright browsers are not version-pinned. A fresh clone needs
 Sequential by design: each signs in, changes data, and signs in again, so
 running them concurrently would have them fighting over one session.
 
-### `smoke:screens` — 37 checks
+### `smoke:screens` — 46 checks
 
 The acceptance pass. One question per requested screen: **is this a working
 screen, or a placeholder that merely compiles?**
@@ -49,11 +49,12 @@ filter, a ledger tab — not on a heading, which a placeholder also has. Login i
 only counted as working if a wrong password is *refused* before a right one gets
 in.
 
-### `smoke:products` — 26
+### `smoke:products` — 27
 
 Catalogue CRUD, search and category filtering, sorting, create-time validation,
-edit dialog population, appearance on the POS, archive with confirmation,
-recovery from the Hidden filter, and the cashier route guard.
+edit dialog population, appearance on the POS, delete with confirmation, absence
+from the Hidden filter afterwards (a delete is terminal, unlike a hide), absence
+from the POS, and the cashier route guard.
 
 ### `smoke:stock` — 18
 
@@ -62,10 +63,12 @@ signed entries, ledger type filtering, the counted-products tab excluding
 recipe items, **a completed sale decrementing stock and writing the ledger**,
 and the route guard.
 
-### `smoke:reports` — 19
+### `smoke:reports` — 25
 
 Range and presets, period-over-period deltas, an empty period reporting zero,
-CSV download with its filename and contents, and the route guard.
+**a long range switching the trend chart to monthly buckets covering all twelve
+periods with month labels**, a short range returning to daily buckets, CSV
+download with its filename and contents, and the route guard.
 
 ### `smoke:users` — 18
 
@@ -73,11 +76,19 @@ Create, password length rejection, case-insensitive duplicate username, a newly
 created cashier signing in and still being refused admin routes, deactivation
 blocking sign-in, and the last-active-admin guard.
 
-### `smoke:journey` — 14
+### `smoke:journey` — 26
 
 One sale followed all the way round: till → receipt → cart cleared → dashboard
-reflects it numerically → movement ledger → today's report. This covers the
-*joins* between screens, which is where a data-layer swap breaks things.
+reflects it numerically → movement ledger → today's report. It also covers the
+**oversell clamp** — the stepper cannot be pushed past the shelf — which reads
+the seed straight out of storage rather than pinning a product name, so it
+survives the menu being reworked. This covers the *joins* between screens, which
+is where a data-layer swap breaks things.
+
+List assertions here are made against the **total a screen reports**, not the
+rows on the current page. The tables paginate, so a filtered set larger than one
+page leaves the first page completely full, and a row count would then prove
+nothing about whether the filter works.
 
 ### `smoke:a11y` — 22
 

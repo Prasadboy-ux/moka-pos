@@ -4,6 +4,7 @@ import type {
   Ingredient,
   MovementType,
   Order,
+  OrderCustomer,
   PaymentMethod,
   Product,
   RecipeItem,
@@ -101,9 +102,16 @@ export interface ProductRepository {
   getById(id: string): Promise<Product | undefined>;
   create(input: ProductInput): Promise<Product>;
   update(id: string, input: ProductInput): Promise<Product>;
+  /** Takes a product off the menu without removing it from the record. */
   setActive(id: string, isActive: boolean): Promise<Product>;
-  /** Clears the stockMode-specific fields so the record stays coherent. */
-  archive(id: string): Promise<Product>;
+  /**
+   * Deletes the record outright.
+   *
+   * Past orders keep their own copy of the name and price, so receipts and
+   * historical totals stay correct — a category split on a deleted product
+   * falls back to "Uncategorised" rather than dropping its revenue.
+   */
+  remove(id: string): Promise<void>;
 }
 
 // ----------------------------------------------------------------------- Stock
@@ -183,6 +191,12 @@ export interface CreateOrderInput {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   cashier: { id: string; name: string };
+  /**
+   * Omitted for a walk-in. Carried on the order so the receipt can be sent after
+   * the customer has left, and so the transaction screen can be searched by the
+   * name or number they gave.
+   */
+  customer?: OrderCustomer | null;
 }
 
 export interface OrderQuery {

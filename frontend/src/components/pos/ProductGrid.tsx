@@ -5,12 +5,22 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
-import { canFulfill, type Category, type Ingredient, type Product } from "@/types/pos";
+import type { Category, Product } from "@/types/pos";
+
+/**
+ * A null limit means nothing bounds the product — a recipe with no rows, or a
+ * counted item with no level on record. Those stay sellable, matching the
+ * behaviour the grid already had.
+ */
+function isAddable(limit: number | null): boolean {
+  return limit === null || limit > 0;
+}
 
 interface ProductGridProps {
   products: Product[];
   categories: Category[];
-  ingredients: Map<string, Ingredient>;
+  /** Units still addable per product, counting what the cart already claims. */
+  limits: Map<string, number | null>;
   activeCategory: string | null;
   onCategoryChange: (categoryId: string | null) => void;
   search: string;
@@ -22,7 +32,7 @@ interface ProductGridProps {
 export function ProductGrid({
   products,
   categories,
-  ingredients,
+  limits,
   activeCategory,
   onCategoryChange,
   search,
@@ -93,7 +103,7 @@ export function ProductGrid({
               key={product.id}
               product={product}
               inCart={qtyOf(product.id)}
-              available={canFulfill(product, ingredients, 1)}
+              available={isAddable(limits.get(product.id) ?? null)}
               onAdd={onAdd}
             />
           ))}
@@ -159,7 +169,13 @@ function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
 
         {!available ? (
           <span className="absolute inset-x-0 bottom-0 bg-destructive/90 py-1 text-center text-[11px] font-semibold text-destructive-foreground">
-            Out of stock
+            {/*
+              Two different reasons the tile is dead, and the cashier needs to
+              tell them apart: nothing on the shelf, or the shelf is all already
+              in this order. The second one is a normal state during a large
+              order and would otherwise look like a stock-out bug.
+            */}
+            {inCart > 0 ? "In this order · no more" : "Out of stock"}
           </span>
         ) : null}
       </div>

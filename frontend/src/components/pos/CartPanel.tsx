@@ -10,6 +10,8 @@ import type { CartLine, CartTotals } from "@/store/useCartStore";
 
 interface CartPanelProps {
   lines: CartLine[];
+  /** Units still addable per product, counting the rest of the cart's claims. */
+  limits: Map<string, number | null>;
   totals: CartTotals;
   taxRate: number;
   onSetQty: (productId: string, qty: number) => void;
@@ -20,6 +22,7 @@ interface CartPanelProps {
 
 export function CartPanel({
   lines,
+  limits,
   totals,
   taxRate,
   onSetQty,
@@ -65,8 +68,12 @@ export function CartPanel({
             </p>
           </div>
         ) : (
-          <ul className="divide-y">
-            {lines.map((line) => (
+<ul className="divide-y">
+            {lines.map((line) => {
+              const limit = limits.get(line.productId) ?? null;
+              const atLimit = limit !== null && line.qty >= limit;
+
+              return (
               <li key={line.productId} className="px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -93,14 +100,24 @@ export function CartPanel({
                     >
                       <Minus className="size-3.5" aria-hidden />
                     </Button>
-                    <span className="w-8 text-center text-sm font-semibold tabular-nums">
+                    <span
+                      data-cart-qty={line.productId}
+                      className="w-8 text-center text-sm font-semibold tabular-nums"
+                    >
                       {line.qty}
                     </span>
+                    {/*
+                      Disabled rather than clamped silently. A stepper that
+                      refuses to move and gives no reason reads as a broken
+                      till; the remaining-count note below is what turns it into
+                      a fact about stock.
+                    */}
                     <Button
                       variant="outline"
                       size="icon"
                       className="size-10"
                       aria-label={`Increase ${line.name}`}
+                      disabled={atLimit}
                       onClick={() => onSetQty(line.productId, line.qty + 1)}
                     >
                       <Plus className="size-3.5" aria-hidden />
@@ -111,13 +128,20 @@ export function CartPanel({
                     type="button"
                     onClick={() => onRemove(line.productId)}
                     aria-label={`Remove ${line.name}`}
-                    className="flex size-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="flex size-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
                   >
                     <Trash2 className="size-4" aria-hidden />
                   </button>
                 </div>
+
+                {atLimit ? (
+                  <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+                    All remaining stock is in this order
+                  </p>
+                ) : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

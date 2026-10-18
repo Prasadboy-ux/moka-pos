@@ -90,7 +90,10 @@ The catalogue.
 - Illustration picker with a live preview.
 - Category management: add, rename, reorder, delete. Reorder is what the POS
   grid renders, so it is managed explicitly rather than as an editable number.
-- Products are archived, never deleted — past receipts reference them by id.
+- Products can be deleted. Order lines denormalise name and price as sold, so
+  receipts and historical totals survive; a category split on a deleted product
+  falls back to **Uncategorised** rather than dropping its revenue.
+- Hiding a product from the POS is separate from deleting it and is reversible.
 - Filters: category chip, stock mode, listing status. All reflected in the URL.
 
 ### 3.5 Management Stock
@@ -111,11 +114,18 @@ Why the numbers are what they are.
 
 Sales analysis for a chosen period.
 
-- Date range with today / 7 day / 30 day presets, or a range picked by hand.
+- Date range with today / 7 day / 30 day / 12 month presets, or a range picked by
+  hand. An inverted hand-typed range is swapped, not reported as empty.
+- The trend chart covers **every period in the range**, including those with no
+  sales. A chart that skipped them would show a fortnight of trading for a
+  30-day report and read as though the rest of the month never happened.
+- Granularity follows the range: one bar per day up to 31 days, one bar per month
+  beyond it. The month is the unit the cafe actually reviews in, which is what
+  makes the monthly report a monthly report rather than 365 daily ones.
 - Every headline figure carries a percentage against the equivalent period
   immediately before it. A total on its own cannot be read.
-- Revenue per day, payment mix, revenue by category, top products, and takings
-  per cashier.
+- Revenue per day or per month, payment mix, revenue by category, top products,
+  and takings per cashier.
 - CSV export, quoted and BOM-prefixed so spreadsheets read it correctly.
 - An empty period reports zero and says so, rather than rendering broken UI.
 
@@ -141,7 +151,7 @@ These are the rules a backend must honour. They are not implementation detail.
 | **`minStock`** | A reorder *alert*, **not a sales block**. Items stay sellable to zero. |
 | **`costPerUnit`** | Rupiah for one unit (one gram, one millilitre). Recipes multiply by quantity. |
 | **Sale atomicity** | Recording the sale, decrementing stock, and writing the ledger is one operation. A shortfall must leave no receipt. |
-| **No hard deletes** | Products archive, users deactivate. History references them by id. |
+| **Users are never deleted** | Sales reference the cashier, so an account is deactivated instead. |
 | **Denormalised lines** | An order line stores name, price, and stock mode as sold. A two-year-old receipt shows what was charged. |
 | **Receipt numbers** | Sequential and human-readable, e.g. `MOKA-1042`. |
 | **Ingredient is deleted by renaming** | No ingredient is ever deleted; a rename keeps recipe rows valid. |

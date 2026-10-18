@@ -33,10 +33,13 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     /**
-     * `id` in Indonesian: the UI copy, currency, and dates are all Indonesian,
-     * so that is the language a screen reader should be given.
+     * `lang` describes the language the *words* are in, which is what a screen
+     * reader uses to choose a voice and a pronunciation dictionary. Every label,
+     * message, and date on screen is English, so this is `en` even though the
+     * money is formatted for Indonesia. A screen reader handed `id` here would
+     * read English copy with Indonesian phonetics.
      */
-    <html lang="id" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
         <a
           href="#main"

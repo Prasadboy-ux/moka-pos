@@ -330,8 +330,11 @@ Roughly in the order it comes up.
 - **Dark mode.** The palette and tokens exist; only the toggle is missing.
 - **PWA.** `appleWebApp` metadata is already set. An offline-capable installable
   build would suit a till with flaky wifi.
-- **Indonesian UI copy.** The copy is English while the currency, dates, and
-  locale are Indonesian. A copy pass, not a refactor.
+- **Indonesian copy.** The copy and the dates are English; the currency,
+  number grouping, and the `PPN` tax acronym stay Indonesian, which is correct
+  for the setting. Translating the UI would be a copy pass, not a refactor —
+  but `<html lang>` and the date locale would have to move with it, and
+  `smoke:a11y` asserts `lang`.
 
 ### 5. Worth deciding before writing the API
 
@@ -409,7 +412,9 @@ those screens needs a `Suspense` boundary, which the four route files now have.
 
 **Document and inputs**
 
-- `<html lang="id">`, matching the Indonesian copy, currency, and dates.
+- `<html lang="en">`, matching the English copy and dates. It follows the words,
+  not the money: the currency is Indonesian but no string a screen reader reads
+  is, so `id` would read English copy with Indonesian phonetics.
 - Skip link to `#main`, first tab stop, verified.
 - `theme-color` changed from the brand cyan to `#ffffff`, which is the page
   background; the cyan was only ever a header accent.

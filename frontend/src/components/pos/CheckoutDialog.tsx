@@ -26,7 +26,7 @@ import { formatIDR } from "@/lib/format";
 import { getRepositories } from "@/lib/repositories";
 import {
   PAYMENT_LABEL,
-  TAX_RATE_DEFAULT,
+  normalisePhone,
   type Order,
   type PaymentMethod,
 } from "@/types/pos";
@@ -44,6 +44,8 @@ interface CheckoutDialogProps {
   onOpenChange: (open: boolean) => void;
   lines: CartLine[];
   totals: CartTotals;
+  /** Read for the tax label. The constant would drift from the cart's own rate. */
+  taxRate: number;
   cashierId: string;
   cashierName: string;
   onCompleted: (order: Order) => void;
@@ -68,6 +70,7 @@ function CheckoutBody({
   onOpenChange,
   lines,
   totals,
+  taxRate,
   cashierId,
   cashierName,
   onCompleted,
@@ -76,6 +79,11 @@ function CheckoutBody({
   const [cashGiven, setCashGiven] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [withCustomer, setWithCustomer] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
 
   const cashValue = Number(cashGiven.replace(/\D/g, ""));
 
@@ -100,8 +108,21 @@ function CheckoutBody({
     return [...suggestions].sort((a, b) => a - b).slice(0, 4);
   }, [totals.total]);
 
+  /**
+   * Shown live under the phone field while it is being typed, so the cashier
+   * finds out a number is unusable before the sale is committed rather than
+   * after, when the customer is already waiting for a receipt that will not
+   * arrive.
+   */
+  const phonePreview = useMemo(() => {
+    if (!withCustomer || customerPhone.trim() === "") return null;
+    return normalisePhone(customerPhone);
+  }, [withCustomer, customerPhone]);
+
   const canSubmit =
-    !pending && lines.length > 0 && (method !== "cash" || cashValue >= totals.total);
+    !pending &&
+    lines.length > 0 &&
+    (method !== "cash" || cashValue >= totals.total);
 
   async function handleConfirm() {
     if (!canSubmit) return;
@@ -124,6 +145,18 @@ function CheckoutBody({
         paymentMethod: method,
         paidAmount,
         cashier: { id: cashierId, name: cashierName },
+        /**
+         * The repository normalises this and drops it if the number is unusable,
+         * so a half-typed field costs the sale nothing — it just means a walk-in
+         * order, which is the common case anyway.
+         */
+        customer: withCustomer
+          ? {
+              name: customerName,
+              phone: customerPhone,
+              email: customerEmail || null,
+            }
+          : null,
       });
 
       onCompleted(order);
@@ -244,7 +277,10 @@ function CheckoutBody({
             <dd className="tabular-nums">{formatIDR(totals.subtotal)}</dd>
           </div>
           <div className="flex justify-between text-muted-foreground">
-            <dt>Tax PPN {Math.round(TAX_RATE_DEFAULT * 100)}%</dt>
+            {/* The store's rate, not the constant: the two used to be read from
+                different places and would quietly disagree the day the rate
+                stops being 10%. */}
+            <dt>Tax PPN {Math.round(taxRate * 100)}%</dt>
             <dd className="tabular-nums">{formatIDR(totals.taxAmount)}</dd>
           </div>
           <div className="flex justify-between border-t pt-1.5 font-semibold">
@@ -252,6 +288,79 @@ function CheckoutBody({
             <dd className="tabular-nums">{formatIDR(totals.total)}</dd>
           </div>
         </dl>
+
+        {/*
+          Collapsed by default, and it stays that way on purpose: most sales are
+          a walk-in, so a phone field sitting on every checkout would be a field
+          that never gets filled in. It is here for the customer who asks for a
+          receipt to be sent.
+        */}
+        <div className="rounded-xl border">
+          <button
+            type="button"
+            onClick={() => setWithCustomer((value) => !value)}
+            aria-expanded={withCustomer}
+            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-offset-2"
+          >
+            Customer details
+            <span className="text-xs font-normal text-muted-foreground">
+              {withCustomer ? "Hide" : "Optional"}
+            </span>
+          </button>
+
+          {withCustomer ? (
+            <div className="space-y-3 border-t px-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="customer-name">Name</Label>
+                <Input
+                  id="customer-name"
+                  name="customer-name"
+                  autoComplete="name"
+                  placeholder="e.g. Dewi Lestari"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer-phone">WhatsApp number</Label>
+                <Input
+                  id="customer-phone"
+                  name="customer-phone"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder="08xx xxxx xxxx"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  aria-invalid={phonePreview === null}
+                />
+                {phonePreview === null ? (
+                  <p className="text-xs text-destructive">
+                    That number is not a valid Indonesian mobile number. The sale
+                    will still go through without it.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    The receipt will be addressed to {phonePreview}.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer-email">Email</Label>
+                <Input
+                  id="customer-email"
+                  name="customer-email"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="Optional"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         {error ? (
           <p role="alert" className="text-sm text-destructive">

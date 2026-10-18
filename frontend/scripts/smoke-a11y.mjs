@@ -30,7 +30,7 @@ try {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
 
   const lang = await page.getAttribute("html", "lang");
-  check("html lang is the UI language", lang === "id", `lang="${lang}"`);
+  check("html lang is the UI language", lang === "en", `lang="${lang}"`);
 
   const themeColor = await page
     .locator('meta[name="theme-color"]')

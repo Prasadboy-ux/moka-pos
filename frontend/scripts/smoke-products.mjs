@@ -119,27 +119,34 @@ try {
   const posText = await page.locator("main").innerText();
   check("created product shows on the POS", posText.includes("Test Cold Brew"));
 
-  // -------------------------------------------------- archive it again
+  // -------------------------------------------------- delete it again
   await page.goto(`${BASE}/dashboard/products`, { waitUntil: "networkidle" });
   await page.getByLabel("Search products").fill("Test Cold Brew");
   await page.waitForTimeout(600);
   await page.getByRole("button", { name: /Actions for Test Cold Brew/ }).click();
   await page.waitForTimeout(300);
-  await page.getByRole("menuitem", { name: "Archive" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.waitForSelector('[role="alertdialog"]');
-  check("archive asks for confirmation", (await page.locator('[role="alertdialog"]').count()) === 1);
+  check("delete asks for confirmation", (await page.locator('[role="alertdialog"]').count()) === 1);
   await page.locator('[role="alertdialog"] button').last().click();
   await page.waitForTimeout(1200);
-  const afterArchive = await page.locator("main").innerText();
-  check("archived product is gone from the listed view", !afterArchive.includes("Test Cold Brew"));
+  const afterDelete = await page.locator("main").innerText();
+  check("deleted product is gone from the listed view", !afterDelete.includes("Test Cold Brew"));
 
-  // switch the status filter to Hidden
+  // A delete is terminal, so it must not come back under the Hidden filter
+  // either — surviving there is what used to make this an archive.
   await page.getByRole("combobox").last().click();
   await page.waitForTimeout(300);
   await page.getByRole("option", { name: "Hidden" }).click();
   await page.waitForTimeout(500);
   const hiddenView = await page.locator("main").innerText();
-  check("archived product is still recoverable under Hidden", hiddenView.includes("Test Cold Brew"));
+  check("deleted product is gone from Hidden too", !hiddenView.includes("Test Cold Brew"));
+
+  // and off the POS
+  await page.goto(`${BASE}/dashboard/pos`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(1500);
+  const posAfterDelete = await page.locator("main").innerText();
+  check("deleted product is off the POS", !posAfterDelete.includes("Test Cold Brew"));
 
   // ---------------------------------------------------- cashier blocked
   // Only the session is dropped. The mock database also lives in localStorage, so

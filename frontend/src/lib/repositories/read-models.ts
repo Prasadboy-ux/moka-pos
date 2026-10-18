@@ -44,11 +44,16 @@ export interface LowStockItem {
 }
 
 export interface SalesTrendPoint {
-  /** yyyy-mm-dd */
+  /**
+   * `yyyy-mm-dd` for a day bucket, `yyyy-mm` for a month bucket. The report
+   * carries its own granularity so the axis knows which label to render.
+   */
   date: string;
   revenue: number;
   transactions: number;
 }
+
+export type TrendBucket = "day" | "month";
 
 export interface CategorySalesRow {
   categoryId: string;
@@ -98,6 +103,12 @@ export function dayKeyDaysAgo(days: number): string {
 
 export function todayKey(): string {
   return dayKeyDaysAgo(0);
+}
+
+/** yyyy-mm. The month a timestamp falls in, in local time. */
+export function monthKey(timestamp: number): string {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export function summarise(orders: Order[]): Kpi {
@@ -151,10 +162,89 @@ export function trend(orders: Order[], days = 7): SalesTrendPoint[] {
 }
 
 /**
+ * Past this span one bar per day stops being readable, so the chart switches to
+ * months. A month is the unit the cafe actually reviews in, so this is also the
+ * threshold that makes a monthly report a monthly report rather than 365 of them.
+ */
+const MONTH_BUCKET_AFTER_DAYS = 31;
+
+/**
+ * Trend across a whole date range, at the granularity the range can support.
+ *
+ * Unlike `trend`, which is the dashboard's "last N trading days" strip, this
+ * covers the range end to end and returns every period in it — including the ones
+ * with no sales. Skipping those would let a report for the last 30 days render as
+ * a fortnight of trading and read as though the rest of the month never happened.
+ */
+export function bucketTrend(
+  orders: Order[],
+  from: string,
+  to: string,
+): { bucket: TrendBucket; points: SalesTrendPoint[] } {
+  const bucket: TrendBucket =
+    spanInDays(from, to) > MONTH_BUCKET_AFTER_DAYS ? "month" : "day";
+
+  const keyOf = (timestamp: number) =>
+    bucket === "month" ? monthKey(timestamp) : toDayKey(timestamp);
+
+  const totals = new Map<string, SalesTrendPoint>();
+  for (const order of orders) {
+    const key = keyOf(new Date(order.createdAt).getTime());
+    const entry = totals.get(key) ?? { date: key, revenue: 0, transactions: 0 };
+    entry.revenue += order.total;
+    entry.transactions += 1;
+    totals.set(key, entry);
+  }
+
+  const points = periodKeys(from, to, bucket).map(
+    (key) => totals.get(key) ?? { date: key, revenue: 0, transactions: 0 },
+  );
+
+  return { bucket, points };
+}
+
+/** Every period key from `from` to `to` inclusive. Empty when the range is inverted. */
+function periodKeys(from: string, to: string, bucket: TrendBucket): string[] {
+  if (from > to) return [];
+
+  const keys: string[] = [];
+
+  if (bucket === "month") {
+    const last = monthKey(new Date(`${to}T00:00:00`).getTime());
+    for (let cursor = monthKey(new Date(`${from}T00:00:00`).getTime()); ; cursor = nextMonth(cursor)) {
+      keys.push(cursor);
+      if (cursor === last) return keys;
+    }
+  }
+
+  for (let cursor = from; cursor <= to; cursor = shiftDays(cursor, 1)) {
+    keys.push(cursor);
+  }
+  return keys;
+}
+
+function nextMonth(key: string): string {
+  const year = Number(key.slice(0, 4));
+  const month = Number(key.slice(5, 7));
+
+  return month === 12
+    ? `${year + 1}-01`
+    : `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
+/** Bucket key for a product that no longer exists, so its sales still total. */
+const UNCATEGORISED_ID = "__uncategorised__";
+
+/**
  * Order lines only carry product ids, so a category split has to be resolved
  * against the catalogue. That is why the product list is a parameter instead of
  * something looked up inside: the caller already has it, and a hidden lookup
  * would mean a silent second fetch.
+ *
+ * A product that has been deleted resolves to nothing, and its revenue is
+ * routed to an "Uncategorised" bucket rather than skipped — dropping it here
+ * would quietly make the category table disagree with the revenue total above
+ * it, which is the one comparison nobody can be expected to notice.
  */
 export function categorySales(
   orders: Order[],
@@ -167,8 +257,7 @@ export function categorySales(
 
   for (const order of orders) {
     for (const line of order.lines) {
-      const categoryId = categoryOf.get(line.productId);
-      if (!categoryId) continue;
+      const categoryId = categoryOf.get(line.productId) ?? UNCATEGORISED_ID;
 
       const entry = totals.get(categoryId) ?? { revenue: 0, itemsSold: 0 };
       entry.revenue += line.price * line.qty;
@@ -310,6 +399,8 @@ export interface SalesReport {
   previousKpi: Kpi;
   paymentBreakdown: PaymentBreakdownRow[];
   trend: SalesTrendPoint[];
+  /** Tells the axis whether `trend` keys are days or months. */
+  trendBucket: TrendBucket;
   byCategory: CategorySalesRow[];
   topProducts: ProductSalesRow[];
   byCashier: CashierSalesRow[];
@@ -333,11 +424,14 @@ export async function getSalesReport(from: string, to: string): Promise<SalesRep
     categories.list(),
   ]);
 
+  const { bucket, points } = bucketTrend(current, from, to);
+
   return {
     kpi: summarise(current),
     previousKpi: summarise(previous),
     paymentBreakdown: paymentBreakdown(current),
-    trend: trend(current, 14),
+    trend: points,
+    trendBucket: bucket,
     byCategory: categorySales(current, productList, categoryList),
     topProducts: productSales(current),
     byCashier: cashierSales(current),

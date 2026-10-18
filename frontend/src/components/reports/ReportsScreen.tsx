@@ -18,14 +18,16 @@ import {
   dayKeyDaysAgo,
   delta,
   getSalesReport,
+  toDayKey,
   todayKey,
   type CashierSalesRow,
   type CategorySalesRow,
   type ProductSalesRow,
   type SalesReport,
+  type TrendBucket,
 } from "@/lib/repositories/read-models";
 import { downloadCsv } from "@/lib/csv";
-import { formatDate, formatIDR, formatNumber } from "@/lib/format";
+import { formatDate, formatIDR, formatMonth, formatNumber } from "@/lib/format";
 import { PAYMENT_LABEL } from "@/types/pos";
 
 /**
@@ -37,12 +39,13 @@ import { PAYMENT_LABEL } from "@/types/pos";
  * the week before did.
  */
 
-type Preset = "today" | "7d" | "30d" | "custom";
+type Preset = "today" | "7d" | "30d" | "12m" | "custom";
 
 const PRESETS = [
   { key: "today", label: "Today" },
   { key: "7d", label: "Last 7 days" },
   { key: "30d", label: "Last 30 days" },
+  { key: "12m", label: "Last 12 months" },
 ] as const;
 
 function rangeFor(preset: Exclude<Preset, "custom">): { from: string; to: string } {
@@ -51,6 +54,18 @@ function rangeFor(preset: Exclude<Preset, "custom">): { from: string; to: string
       return { from: todayKey(), to: todayKey() };
     case "30d":
       return { from: dayKeyDaysAgo(29), to: todayKey() };
+    case "12m": {
+      /**
+       * Back to the first of the month 11 months back, so the range is twelve
+       * whole calendar months ending with the current one — which is the shape
+       * that makes the chart switch to monthly buckets.
+       */
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      start.setDate(1);
+      start.setMonth(start.getMonth() - 11);
+      return { from: toDayKey(start.getTime()), to: todayKey() };
+    }
     case "7d":
     default:
       return { from: dayKeyDaysAgo(6), to: todayKey() };
@@ -89,7 +104,16 @@ export function ReportsScreen() {
     return match?.key ?? "custom";
   }, [from, to, query.from, query.to]);
 
-  const { data: report, error, isLoading } = useAsync(() => loadReport(from, to), [from, to]);
+  /**
+   * The query gets the ordered range, not the raw one. A hand-typed range that
+   * arrives inverted would otherwise fetch an empty window while the header
+   * showed the swapped dates — a report that reads as "no sales" for a period
+   * the reader can plainly see sales on the adjacent card for.
+   */
+  const { data: report, error, isLoading } = useAsync(
+    () => loadReport(ordered.from, ordered.to),
+    [ordered.from, ordered.to],
+  );
 
   function applyPreset(key: Exclude<Preset, "custom">) {
     const range = rangeFor(key);
@@ -320,11 +344,15 @@ export function ReportsScreen() {
 
           <div className="grid gap-5 lg:grid-cols-3">
             <SectionCard
-              title="Revenue per day"
-              description="Each bar is scaled to the best day in the period"
+              title={report.trendBucket === "month" ? "Revenue per month" : "Revenue per day"}
+              description={
+                report.trendBucket === "month"
+                  ? "Each bar is scaled to the best month in the period"
+                  : "Each bar is scaled to the best day in the period"
+              }
               className="lg:col-span-2"
             >
-              <TrendBars report={report} />
+              <TrendBars report={report} bucket={report.trendBucket} />
             </SectionCard>
 
             <SectionCard title="Payment mix" description="Share of revenue in the period">
@@ -477,7 +505,7 @@ function DeltaTag({ value }: { value: number | null }) {
   );
 }
 
-function TrendBars({ report }: { report: SalesReport }) {
+function TrendBars({ report, bucket }: { report: SalesReport; bucket: TrendBucket }) {
   if (report.trend.length === 0) {
     return (
       <p className="px-5 py-10 text-center text-xs text-muted-foreground">
@@ -485,6 +513,12 @@ function TrendBars({ report }: { report: SalesReport }) {
       </p>
     );
   }
+
+  /**
+   * A month bucket carries `yyyy-mm`, which `formatDate` would pin to the first
+   * of the month and render as "1 Okt 2026". The key decides the label.
+   */
+  const label = bucket === "month" ? formatMonth : formatDate;
 
   const max = Math.max(...report.trend.map((point) => point.revenue), 1);
 
@@ -496,12 +530,12 @@ function TrendBars({ report }: { report: SalesReport }) {
         return (
           <li key={point.date} className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-3 text-xs">
-              <span className="font-medium">{formatDate(point.date)}</span>
+              <span className="font-medium">{label(point.date)}</span>
               <span className="tabular-nums text-muted-foreground">
                 {formatIDR(point.revenue)}
               </span>
             </div>
-            <Progress value={pct} aria-label={`${pct}% of the best day`} />
+            <Progress value={pct} aria-label={`${pct}% of the best ${bucket}`} />
             <p className="text-[11px] text-muted-foreground">
               {formatNumber(point.transactions)} transactions
             </p>

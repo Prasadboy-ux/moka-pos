@@ -62,6 +62,13 @@ The `mock/` directory keeps the same discipline internally:
 `DB_VERSION` reseeds when the shape changes, so a schema change never needs a
 migration for data that only ever existed in a browser.
 
+**`localStorage` mirrors the store from the first read, not the first write.** A
+fresh seed is written straight back as it is built. Persisting only on mutation
+would leave storage empty for a session that merely browsed, so the persisted
+document would disagree with what the screen is showing — and anything reaching
+the data through storage rather than through a repository (a second tab, a test)
+would read a store that does not exist yet.
+
 ## 3. Data model
 
 `src/types/pos.ts` and `src/types/auth.ts` are the source of truth for shapes.
@@ -95,8 +102,12 @@ the software.
 
 **Order lines are denormalised.** A line stores the name, price, and stock mode
 as they were when sold. A receipt printed in two years shows what was charged,
-not today's price. This is also why products archive and users deactivate rather
-than delete.
+not today's price. This is also why a product can be deleted outright: nothing
+downstream re-resolves the product to print or total a receipt. The single
+caller that did resolve it live — the category split in reports — routes an
+unknown product to **Uncategorised** so the totals still agree. Users are the
+opposite case and are never deleted: an order stores only the cashier's id, so
+losing the account would lose the name on the receipt.
 
 ## 4. Rules in code, not in components
 

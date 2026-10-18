@@ -28,13 +28,28 @@ A full `.dark` palette exists and is token-complete but has no toggle.
 
 ## 2. Locale
 
+Copy and dates are English; money stays Indonesian. That split is deliberate,
+not an oversight — rupiah is the real currency and the local grouping is the one
+staff and customers read without translating, while every label on screen is
+English and an English UI printing "18 Okt 2026" mixes two languages on the same
+line.
+
 | | |
 |---|---|
+| UI copy | English |
 | Currency | `Intl.NumberFormat("id-ID")` — `Rp 28.000` |
-| Dates | `Intl.DateTimeFormat("id-ID")` |
-| Tax | PPN 10% |
+| Plain numbers | `Intl.NumberFormat("id-ID")` — `28.000` |
+| Dates | `Intl.DateTimeFormat("en-GB")` — `28 Oct 2026`, `Oct 2026` |
+| Tax | PPN 10% (the local acronym, kept on purpose) |
 | Units | `gram`, `ml`, `pcs` |
-| `<html lang>` | `id` |
+| `<html lang>` | `en` |
+
+`lang` follows the **words**, not the money. It is what a screen reader uses to
+pick a voice and a pronunciation dictionary, and every string it would read is
+English. `<html lang="id">` would read English copy with Indonesian phonetics.
+
+`en-GB` rather than `en-US` for dates because day-first ordering keeps the shape
+staff already know.
 
 **Never hardcode a date or number format.** A bare `yyyy-mm-dd` parses as UTC
 midnight and renders as the previous day west of Greenwich — `formatDate` pins
@@ -181,8 +196,10 @@ replaces so nothing jumps.
 - Placeholders end in `…` and show an example: "e.g. 50000…", "Search menu…".
 - Brand names carry `translate="no"` so a page translator cannot mangle them.
 
-Copy is currently English while currency and dates are Indonesian. If it is
-translated, this is a copy pass, not a refactor.
+Copy is English throughout, and dates render in English. Currency, number
+grouping, and the `PPN` tax acronym stay Indonesian. If the copy is translated,
+this is a copy pass, not a refactor — but `lang` on `<html>` has to change with
+it, and `smoke:a11y` asserts the value.
 
 ## 11. Adding a screen
 

@@ -42,7 +42,16 @@ function load(): Database {
     }
   }
 
-  return buildSeed();
+  const fresh = buildSeed();
+  /**
+   * Written straight back, so storage mirrors the store from the very first
+   * read rather than only from the first write. A session that only browsed
+   * used to leave nothing behind, which made the persisted document disagree
+   * with what the screen was showing — and anything reading the store through
+   * storage rather than through a repository would find it empty.
+   */
+  writeStorage(fresh);
+  return fresh;
 }
 
 /** Current document. Read-only by convention; go through `mutate` to write. */
@@ -51,8 +60,7 @@ export function readDb(): Database {
   return cache;
 }
 
-function persist(db: Database): void {
-  cache = db;
+function writeStorage(db: Database): void {
   if (!canPersist()) return;
 
   try {
@@ -61,6 +69,11 @@ function persist(db: Database): void {
     // Private browsing or a full quota. The in-memory copy still works for this
     // session, which is enough to keep the screen usable.
   }
+}
+
+function persist(db: Database): void {
+  cache = db;
+  writeStorage(db);
 }
 
 /**

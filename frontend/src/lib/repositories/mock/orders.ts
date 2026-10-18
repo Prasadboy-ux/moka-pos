@@ -6,9 +6,11 @@ import { applySale } from "@/lib/repositories/mock/stock";
 import type { CreateOrderInput, OrderRepository } from "@/lib/repositories/types";
 import {
   calculateTax,
+  normalisePhone,
   roundIDR,
   TAX_RATE_DEFAULT,
   type Order,
+  type OrderCustomer,
   type OrderLine,
   type StockMode,
 } from "@/types/pos";
@@ -41,6 +43,31 @@ function buildLines(
       stockMode: product.stockMode,
     };
   });
+}
+
+/**
+ * Cleans up whatever the cashier typed into something a link can be built from.
+ *
+ * Normalised here rather than in the dialog because this is the only layer that
+ * every write passes through: once an order carries a half-typed or un-normalised
+ * number, nothing downstream can tell whether it is worth sending a receipt to.
+ *
+ * Returns null when there is nothing to send to, so an order never stores a
+ * customer object that cannot be acted on.
+ */
+function normaliseCustomer(input: CreateOrderInput): OrderCustomer | null {
+  const raw = input.customer;
+  if (!raw) return null;
+
+  const phone = normalisePhone(raw.phone);
+  if (!phone) return null;
+
+  const name = raw.name.trim();
+  const email = raw.email?.trim() || null;
+
+  // A number with no name still identifies the customer for sending purposes,
+  // but a name on its own cannot, so the number is the part that has to be there.
+  return { name: name || "Customer", phone, email };
 }
 
 export const orderRepository: OrderRepository = {
@@ -107,6 +134,7 @@ export const orderRepository: OrderRepository = {
         changeAmount: input.paidAmount - total,
         cashierId: input.cashier.id,
         cashierName: input.cashier.name,
+        customer: normaliseCustomer(input),
         createdAt: new Date().toISOString(),
       };
 

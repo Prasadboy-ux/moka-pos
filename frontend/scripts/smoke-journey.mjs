@@ -14,7 +14,9 @@ const results = [];
 const consoleErrors = [];
 
 function check(name, condition, detail = "") {
-  results.push({ name, ok: Boolean(condition), detail });
+  const ok = Boolean(condition);
+  results.push({ name, ok, detail });
+  return ok;
 }
 
 const browser = await chromium.launch();
@@ -30,6 +32,8 @@ const revenueToday = async () => {
   return Number(text.match(/REVENUE TODAY\s*\n\s*Rp\s*([\d.]+)/)?.[1]?.replace(/\./g, "") ?? "0");
 };
 
+const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 try {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /kasir \/ kasir123/ }).click();
@@ -41,6 +45,55 @@ try {
   await page.waitForTimeout(1200);
   const tileCount = await page.locator("main button[aria-label^='Add ']").count();
   check("POS renders sellable tiles", tileCount > 0, `${tileCount} tiles`);
+
+  // ------------------------------------------- the stepper cannot oversell
+  /**
+   * Read straight out of the store rather than hard-coding a product: the seed
+   * is fixture data, and a test that pins a product name breaks the moment the
+   * menu is reworked. The counted product with the smallest stock is used so the
+   * loop below stays short.
+   */
+  const counted = await page.evaluate(() => {
+    const db = JSON.parse(window.localStorage.getItem("moka-pos.db") ?? "{}");
+    const candidates = (db.products ?? [])
+      .filter((p) => p.stockMode === "direct" && p.isActive && typeof p.stock === "number" && p.stock > 0)
+      .sort((a, b) => a.stock - b.stock);
+    const product = candidates[0];
+    return product ? { id: product.id, name: product.name, stock: product.stock } : null;
+  });
+
+  if (check("a counted product is available to test the limit against", counted !== null, counted ? `${counted.name}: ${counted.stock} in stock` : "none seeded")) {
+    const tile = page.getByRole("button", { name: new RegExp(`^Add ${escape(counted.name)},`) });
+
+    await tile.click();
+    await page.waitForTimeout(300);
+
+    // Two taps past the shelf. Before the clamp this produced a cart the
+    // repository then refused at save time, after the customer had paid.
+    const plus = page.getByRole("button", { name: new RegExp(`^Increase ${escape(counted.name)}$`) });
+    for (let i = 0; i < counted.stock + 2; i += 1) {
+      await plus.click({ timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(60);
+    }
+
+    const cartText = await page.locator("main").innerText();
+    const qtyReadout = page.locator(`[data-cart-qty="${counted.id}"]`);
+    const cartQty = Number((await qtyReadout.innerText()).trim());
+
+    check(
+      "stepper stops at the shelf",
+      cartQty === counted.stock,
+      `qty=${cartQty} stock=${counted.stock}`,
+    );
+    check("the limit is explained, not silent", /All remaining stock is in this order/.test(cartText));
+    check("the stepper disables itself at the limit", await plus.isDisabled().catch(() => false));
+
+    await page.getByRole("button", { name: "Clear" }).click();
+    await page.waitForSelector('[role="alertdialog"]');
+    await page.locator('[role="alertdialog"] button').last().click();
+    await page.waitForTimeout(600);
+    check("cart is empty before the real sale", /Order is empty/.test(await page.locator("main").innerText()));
+  }
 
   // ------------------------------------------------------------- sell 2 cups
   for (let i = 0; i < 2; i++) {
@@ -54,14 +107,64 @@ try {
   const total = Number(summary.match(/Total\s*Rp\s*([\d.]+)/)?.[1]?.replace(/\./g, "") ?? "0");
   check("checkout totals the cart", total > 0, `Rp ${total}`);
 
+  // ---------------------------------------------- customer details are optional
+  check(
+    "customer details stay collapsed by default",
+    (await page.locator("#customer-phone").count()) === 0,
+  );
+
+  await page.getByRole("button", { name: /Customer details/ }).click();
+  await page.waitForTimeout(300);
+  check("customer fields appear on request", (await page.locator("#customer-phone").count()) === 1);
+
+  // Typed the way a customer would actually say it, with spaces and punctuation.
+  await page.locator("#customer-name").fill("Dewi Lestari");
+  await page.locator("#customer-phone").fill("0812 3450-1122");
+  await page.waitForTimeout(300);
+  check(
+    "the number is normalised before it is stored",
+    /6281234501122/.test(await page.locator('[role="dialog"]').innerText()),
+  );
+
   await page.locator("#cash-given").fill(String(total));
   await page.waitForTimeout(250);
   await page.getByRole("button", { name: /Complete sale/ }).click();
   await page.waitForTimeout(1500);
 
   const receipt = await page.locator("body").innerText();
-  check("receipt issued with a receipt number", /MOKA-\d+/.test(receipt), receipt.match(/MOKA-\d+/)?.[0] ?? "");
+  const receiptNo = receipt.match(/MOKA-\d+/)?.[0] ?? "";
+  check("receipt issued with a receipt number", receiptNo !== "", receiptNo);
+  check("the customer is named on the receipt", /Dewi Lestari/.test(receipt));
 
+  // ------------------------------------------------- the receipt can be sent
+  const wa = page.getByRole("link", { name: /Send WhatsApp/ });
+  check("receipt can be sent on WhatsApp", (await wa.count()) === 1);
+  check(
+    "the send link addresses the normalised number",
+    (await wa.getAttribute("href"))?.includes("/6281234501122") === true,
+    (await wa.getAttribute("href"))?.slice(0, 40) ?? "",
+  );
+
+  // -------------------------------------------------------------- walk-in sale
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(600);
+  await page.locator("main button[aria-label^='Add ']").first().click();
+  await page.waitForTimeout(300);
+  await page.getByRole("button", { name: /Charge|Checkout/ }).first().click().catch(() => {});
+  await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
+  const walkInSummary = await page.locator('[role="dialog"] dl').innerText();
+  const walkInTotal = Number(
+    walkInSummary.match(/Total\s*Rp\s*([\d.]+)/)?.[1]?.replace(/\./g, "") ?? "0",
+  );
+  await page.locator("#cash-given").fill(String(walkInTotal));
+  await page.waitForTimeout(250);
+  await page.getByRole("button", { name: /Complete sale/ }).click();
+  await page.waitForTimeout(1500);
+
+  check(
+    "a sale with no customer offers nothing to send",
+    (await page.getByRole("link", { name: /Send WhatsApp/ }).count()) === 0,
+  );
   await page.keyboard.press("Escape");
   await page.waitForTimeout(600);
 
