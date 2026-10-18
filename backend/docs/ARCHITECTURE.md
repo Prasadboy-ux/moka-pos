@@ -42,12 +42,30 @@ Express 5 forwards rejected promises from async handlers to that middleware, so
 route handlers contain no `try/catch` and no `asyncHandler` wrapper. A `throw` is
 enough.
 
-### Handlers read `req.validated`, never `req.query`
+### Handlers read parsed input, never `req.query`
 
 Everything in `req.query` arrives as a string, so `req.query.includeInactive ===
-false` is never true. The `validate()` middleware parses and coerces, and stores
-the result. A Zod failure throws before the handler runs, which means handlers
-contain no validation branches at all.
+false` is never true. `validate()` parses and coerces, and handlers read the
+result through `parsed()` / `routeId()`. A Zod failure throws before the handler
+runs, which means handlers contain no validation branches at all.
+
+The trap worth naming: **`z.coerce.boolean()` does not fix this, it makes it
+worse.** It applies JavaScript's `Boolean(value)`, so `?includeInactive=false`
+becomes `true` and every inactive product appears on the POS grid. Only the
+affirmative spellings count — see `queryBoolean` in `lib/schemas.ts`.
+
+### Literal paths are declared before parameterised ones
+
+`PUT /categories/order` and `PUT /categories/:id` are different verbs on
+different shapes, and Express matches in declaration order. Registering `:id`
+first would capture `"order"` as an id and answer 422 about an id the caller
+never sent. Same for `PATCH /products/:id/active` against `/products/:id`.
+
+### A search term is escaped, not trusted
+
+`?search=` becomes a Mongo `$regex`, so `escapeRegExp` strips the
+metacharacters. Without it a search for `.*` matches every product and
+`(a+)+b` is a denial-of-service vector.
 
 ### Money is integer rupiah
 

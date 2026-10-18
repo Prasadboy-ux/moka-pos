@@ -2,6 +2,9 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { databaseState } from '../db/connection.js';
 import { router as authRouter } from '../modules/auth/auth.routes.js';
+import { router as categoriesRouter } from '../modules/categories/categories.routes.js';
+import { router as ingredientsRouter } from '../modules/ingredients/ingredients.routes.js';
+import { router as productsRouter } from '../modules/products/products.routes.js';
 
 /**
  * The whole URL surface. One import per module — adding a feature means adding
@@ -22,3 +25,6 @@ router.get('/health', (_req: Request, res: Response): void => {
 });
 
 router.use(authRouter);
+router.use(categoriesRouter);
+router.use(ingredientsRouter);
+router.use(productsRouter);

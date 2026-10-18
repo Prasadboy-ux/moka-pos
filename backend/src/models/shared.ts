@@ -27,3 +27,13 @@ export const toApiJson = {
  * rather than a bare `findOne`.
  */
 export const USERNAME_COLLATION = { locale: 'en', strength: 2 } as const;
+
+/**
+ * Case-insensitive alphabetical ordering, the closest MongoDB gets to the
+ * frontend's `a.name.localeCompare(b.name)`.
+ *
+ * Strength 1 compares letters only, so "Iced Latte" and "iced latte" sort as
+ * neighbours rather than all capitals-then-all-lowercase the way a binary sort
+ * would. The result is a display order matching what the mock produced.
+ */
+export const NAME_COLLATION = { locale: 'en', strength: 1 } as const;

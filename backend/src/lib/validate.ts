@@ -4,12 +4,11 @@ import type { ZodType } from 'zod';
 /**
  * Request validation.
  *
- * Handlers never read `req.body` / `req.query` / `req.params` directly. They
- * read `req.validated`, which holds *parsed and coerced* values. That distinction
- * matters for query strings: everything in `req.query` arrives as a string, so
- * `req.query.includeInactive === false` is never true. The schemas below coerce
- * it, and a handler reading `req.validated.query.includeInactive` gets a real
- * boolean.
+ * Handlers never read `req.body` / `req.query` / `req.params` directly. They read
+ * the parsed values via `parsed()` / `routeId()`. That distinction matters for
+ * query strings: everything in `req.query` arrives as a string, so
+ * `req.query.includeInactive === false` is never true. The schemas coerce it,
+ * and a handler reading `parsed(req).query.includeInactive` gets a real boolean.
  *
  * A failed parse throws a `ZodError`, which the error middleware renders as a
  * 422 with per-field messages. Handlers therefore never contain validation
@@ -22,15 +21,7 @@ export type RequestSchemas = {
   params?: ZodType;
 };
 
-export type Validated<B = unknown, Q = unknown, P = unknown> = Request<
-  P,
-  unknown,
-  B,
-  Q
->;
-
 declare global {
-  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       validated?: { body: unknown; query: unknown; params: unknown };
@@ -50,15 +41,26 @@ export function validate(schemas: RequestSchemas): RequestHandler {
 }
 
 /**
- * Narrows the request for a handler that declares the schemas it was mounted
- * with. Throws if `validate` did not run, which is a wiring bug rather than a
- * client error, so it is a programming error rather than an `ApiError`.
+ * The parsed, coerced request parts, typed as the handler declares them.
+ *
+ * This is the only supported way for a handler to read input. Reaching for
+ * `req.validated?.body` instead means casting away an `undefined` that would then
+ * crash three lines later — and a handler reached without `validate()` mounted
+ * is a wiring bug, not a client error, so it throws a plain `Error` naming the
+ * route rather than a 422 blaming the caller.
  */
-export function validated<B, Q, P>(req: Request): Validated<B, Q, P> {
+export function parsed<B = unknown, Q = unknown, P = unknown>(
+  req: Request,
+): { body: B; query: Q; params: P } {
   if (!req.validated) {
     throw new Error(
-      'Request reached a handler without passing through validate(). Mount it on the route.',
+      'A handler read validated input but validate() is not mounted on its route.',
     );
   }
-  return req as Validated<B, Q, P>;
+  return req.validated as { body: B; query: Q; params: P };
+}
+
+/** The validated `:id` path parameter. */
+export function routeId(req: Request): string {
+  return parsed<unknown, unknown, { id: string }>(req).params.id;
 }
