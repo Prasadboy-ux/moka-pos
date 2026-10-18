@@ -1,0 +1,97 @@
+import { Schema, model } from 'mongoose';
+import { toApiJson } from './shared.js';
+
+/**
+ * A completed sale.
+ *
+ * `lines` is embedded and denormalised on purpose. `name`, `price` and
+ * `stockMode` are snapshots of what was charged, not references: a later price
+ * change or product deletion must not rewrite an old receipt, and a reprint
+ * years from now must still match. This is why there is no index on
+ * `lines.productId` — lines are never joined.
+ *
+ * `customer` is not listed in the API contract's suggested shape but the
+ * frontend `Order` type requires it (`OrderCustomer | null`) and the checkout
+ * dialog sends it, so it is stored and returned.
+ */
+const orderLineSchema = new Schema(
+  {
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    name: { type: String, required: true },
+    price: { type: Number, required: true, min: 0 },
+    qty: { type: Number, required: true, min: 0.001 },
+    stockMode: { type: String, enum: ['recipe', 'direct'], required: true },
+  },
+  { _id: false },
+);
+
+const customerSchema = new Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, default: '' },
+    email: { type: String, default: null },
+  },
+  { _id: false },
+);
+
+const orderSchema = new Schema(
+  {
+    receiptNo: { type: String, required: true },
+    lines: { type: [orderLineSchema], required: true },
+    subtotal: { type: Number, required: true, min: 0 },
+    taxRate: { type: Number, required: true, min: 0 },
+    taxAmount: { type: Number, required: true, min: 0 },
+    total: { type: Number, required: true, min: 0 },
+    paymentMethod: {
+      type: String,
+      enum: ['cash', 'qris', 'debit', 'credit'],
+      required: true,
+    },
+    paidAmount: { type: Number, required: true, min: 0 },
+    changeAmount: { type: Number, required: true, min: 0 },
+    cashierId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    cashierName: { type: String, required: true },
+    customer: { type: customerSchema, default: null },
+    createdAt: { type: Date, default: Date.now, required: true },
+  },
+  { toJSON: toApiJson, collection: 'orders' },
+);
+
+// A retried POST /api/orders must never mint a second receipt number.
+orderSchema.index({ receiptNo: 1 }, { unique: true });
+// The reports range-scan on this.
+orderSchema.index({ createdAt: -1 });
+orderSchema.index({ cashierId: 1 });
+
+export type OrderLine = {
+  productId: unknown;
+  name: string;
+  price: number;
+  qty: number;
+  stockMode: 'recipe' | 'direct';
+};
+
+export type OrderCustomer = {
+  name: string;
+  phone: string;
+  email: string | null;
+};
+
+export type Order = {
+  _id: unknown;
+  receiptNo: string;
+  lines: OrderLine[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  paymentMethod: 'cash' | 'qris' | 'debit' | 'credit';
+  paidAmount: number;
+  changeAmount: number;
+  cashierId: unknown;
+  cashierName: string;
+  customer: OrderCustomer | null;
+  createdAt: Date;
+};
+
+export const OrderModel = model('Order', orderSchema);

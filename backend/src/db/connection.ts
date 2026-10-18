@@ -14,10 +14,13 @@ export type DatabaseState =
 export async function connectDatabase(uri: string): Promise<void> {
   mongoose.set('strictQuery', true);
 
+  // Idempotent. Mongoose throws if asked to open a second connection with a
+  // different URI, which is exactly what happens when the seed runs inside a
+  // process that is already connected (the test suite, for one).
+  if (mongoose.connection.readyState === 1) return;
+
   await mongoose.connect(uri, {
     serverSelectionTimeoutMS: 10_000,
-    // Atlas terminates TLS; do not let a self-signed local cluster be the reason
-    // a connection is silently downgraded.
     autoIndex: true,
   });
 
