@@ -5,6 +5,10 @@ dist/
 build/
 coverage/
 
+# Written by backend/scripts/local-mongo.mjs. It points at an ephemeral port of
+# an in-process replica set, so it differs on every machine and every run.
+backend/.mongo-uri
+
 .env
 .env.local
 .env*.local

@@ -10,6 +10,21 @@ import { chromium } from "playwright";
  */
 
 const BASE = "http://localhost:3000";
+const API = "http://localhost:3001";
+
+/**
+ * Signs out for real.
+ *
+ * This used to clear `moka-pos.auth` from localStorage, because the mock kept
+ * the session in the browser. The session is now an httpOnly cookie the page
+ * cannot read or clear, so the only way to become signed out is to ask the
+ * server to drop it.
+ */
+async function signOut(page) {
+  await page.evaluate((api) => {
+    return fetch(`${api}/api/auth/logout`, { method: "POST", credentials: "include" });
+  }, API);
+}
 const results = [];
 const consoleErrors = [];
 
@@ -48,19 +63,35 @@ try {
 
   // ------------------------------------------- the stepper cannot oversell
   /**
-   * Read straight out of the store rather than hard-coding a product: the seed
-   * is fixture data, and a test that pins a product name breaks the moment the
-   * menu is reworked. The counted product with the smallest stock is used so the
-   * loop below stays short.
+   * Asked of the API rather than hard-coding a product name: the seed is fixture
+   * data, and a test that pins a product name breaks the moment the menu is
+   * reworked. The counted product with the smallest stock is used so the loop
+   * below stays short.
+   *
+   * This previously read `localStorage["moka-pos.db"]` — the mock's private
+   * store. That was the abstraction leaking: the test depended on how the data
+   * happened to be stored rather than on what the app does. Fetching the same
+   * public endpoint the app itself uses keeps the intent and drops the coupling,
+   * and the session cookie is sent automatically because `credentials` is set.
    */
-  const counted = await page.evaluate(() => {
-    const db = JSON.parse(window.localStorage.getItem("moka-pos.db") ?? "{}");
-    const candidates = (db.products ?? [])
-      .filter((p) => p.stockMode === "direct" && p.isActive && typeof p.stock === "number" && p.stock > 0)
+  const counted = await page.evaluate(async (api) => {
+    const response = await fetch(`${api}/api/products`, { credentials: "include" });
+    if (!response.ok) return null;
+
+    const products = await response.json();
+    const candidates = products
+      .filter(
+        (p) =>
+          p.stockMode === "direct" &&
+          p.isActive &&
+          typeof p.stock === "number" &&
+          p.stock > 0,
+      )
       .sort((a, b) => a.stock - b.stock);
+
     const product = candidates[0];
     return product ? { id: product.id, name: product.name, stock: product.stock } : null;
-  });
+  }, API);
 
   if (check("a counted product is available to test the limit against", counted !== null, counted ? `${counted.name}: ${counted.stock} in stock` : "none seeded")) {
     const tile = page.getByRole("button", { name: new RegExp(`^Add ${escape(counted.name)},`) });
@@ -174,7 +205,7 @@ try {
   check("cart cleared after the sale", /Order is empty/.test(cartAfter));
 
   // ------------------------------------------- admin sees it on the dashboard
-  await page.evaluate(() => window.localStorage.removeItem("moka-pos.auth"));
+  await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /admin \/ admin123/ }).click();
   await page.locator("#password").fill("admin123");

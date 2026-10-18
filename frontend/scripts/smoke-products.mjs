@@ -1,6 +1,21 @@
 import { chromium } from "playwright";
 
 const BASE = "http://localhost:3000";
+const API = "http://localhost:3001";
+
+/**
+ * Signs out for real.
+ *
+ * This used to clear `moka-pos.auth` from localStorage, because the mock kept
+ * the session in the browser. The session is now an httpOnly cookie the page
+ * cannot read or clear, so the only way to become signed out is to ask the
+ * server to drop it.
+ */
+async function signOut(page) {
+  await page.evaluate((api) => {
+    return fetch(`${api}/api/auth/logout`, { method: "POST", credentials: "include" });
+  }, API);
+}
 const results = [];
 const consoleErrors = [];
 
@@ -151,7 +166,7 @@ try {
   // ---------------------------------------------------- cashier blocked
   // Only the session is dropped. The mock database also lives in localStorage, so
   // clearing the whole thing would wipe accounts and stock created earlier.
-  await page.evaluate(() => window.localStorage.removeItem("moka-pos.auth"));
+  await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: /kasir \/ kasir123/ }).click();
   await page.locator("#password").fill("kasir123");
