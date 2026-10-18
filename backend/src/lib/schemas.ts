@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isDayString } from './dates.js';
 
 /**
  * Schema primitives shared across modules.
@@ -50,9 +51,15 @@ export const displayName = z
   .min(2, 'Name must be at least 2 characters.')
   .max(120, 'Name must be 120 characters or fewer.');
 
+/**
+ * A real calendar day in `yyyy-mm-dd` form.
+ *
+ * The regex alone would accept `2026-02-31`, which `Date` silently rolls into
+ * March and a report would then quietly span the wrong month.
+ */
 export const dayString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Dates must be in yyyy-mm-dd form.');
+  .refine(isDayString, 'Dates must be a real day in yyyy-mm-dd form.');
 
 /**
  * A boolean that survives the query string.

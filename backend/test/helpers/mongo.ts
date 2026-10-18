@@ -72,6 +72,8 @@ export async function prepareAccounts(): Promise<void> {
   kasirHash ??= await hashPassword(TEST_PASSWORD);
 }
 
+export { findByUsername } from '../../src/models/user.model.js';
+
 export type TestRole = 'admin' | 'kasir';
 
 /**

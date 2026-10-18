@@ -4,7 +4,11 @@ import { databaseState } from '../db/connection.js';
 import { router as authRouter } from '../modules/auth/auth.routes.js';
 import { router as categoriesRouter } from '../modules/categories/categories.routes.js';
 import { router as ingredientsRouter } from '../modules/ingredients/ingredients.routes.js';
+import { router as ordersRouter } from '../modules/orders/orders.routes.js';
 import { router as productsRouter } from '../modules/products/products.routes.js';
+import { router as shiftsRouter } from '../modules/shifts/shifts.routes.js';
+import { router as stockRouter } from '../modules/stock/stock.routes.js';
+import { router as usersRouter } from '../modules/users/users.routes.js';
 
 /**
  * The whole URL surface. One import per module — adding a feature means adding
@@ -28,3 +32,7 @@ router.use(authRouter);
 router.use(categoriesRouter);
 router.use(ingredientsRouter);
 router.use(productsRouter);
+router.use(stockRouter);
+router.use(ordersRouter);
+router.use(usersRouter);
+router.use(shiftsRouter);
