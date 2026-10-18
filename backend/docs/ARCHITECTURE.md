@@ -78,10 +78,32 @@ other even under concurrency. See `modules/orders/`.
 
 ### Sessions are cookies; roles are re-checked every request
 
-The session is a signed JWT in an httpOnly cookie. `requireSession` re-reads the
-user from the database on each request rather than trusting the token body, so
-deactivating an account takes effect immediately instead of at token expiry.
-Role checks happen on the route. Hiding a nav link is not authorisation.
+The session is a signed JWT in an httpOnly cookie. The token carries **only the
+user id** — `requireSession` re-reads the user from the database on each request
+rather than trusting the token body, so deactivating an account takes effect
+immediately instead of at token expiry. A staff member fired at closing time has
+to stop working now, not in twelve hours.
+
+Role checks happen on the route. Hiding a nav link is presentation, not
+authorisation.
+
+Three details that are easy to get wrong and are pinned in `lib/session.ts`:
+
+- **The algorithm is pinned to HS256** rather than read from the token header.
+  Without that, a token claiming `alg: none` would skip signature verification.
+- **Every jose failure becomes a 401**, never a 500. A malformed cookie is a
+  routine client state, and letting the error escape also tells an attacker
+  whether their forged token was structurally valid.
+- **`sameSite: 'lax'`, not `'none'`.** `none` requires `secure`, which requires
+  HTTPS, which breaks local development in a way that looks like login silently
+  doing nothing. The frontend and API are always same-*site* (different ports, or
+  `app.`/`api.` under one domain), so `lax` is sufficient. Deploying them on
+  genuinely different sites changes this.
+
+Login keeps the contract's three refusals distinct, and verifies the password
+*before* reporting that an account is deactivated — otherwise the endpoint
+becomes an oracle for which usernames exist. A missing user also pays the hash
+cost, so a wrong username and a wrong password take the same time to reject.
 
 ## Environment
 

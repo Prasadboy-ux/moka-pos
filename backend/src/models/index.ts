@@ -3,7 +3,14 @@
  * to walk and a new model cannot be added without registering it.
  */
 
-export { UserModel, findByUsername, type User } from './user.model.js';
+export {
+  UserModel,
+  findByUsername,
+  toSessionUser,
+  type Role,
+  type SessionUser,
+  type User,
+} from './user.model.js';
 export { CategoryModel, type Category } from './category.model.js';
 export { IngredientModel, type Ingredient } from './ingredient.model.js';
 export {

@@ -49,12 +49,46 @@ export function findByUsername(username: string) {
   return UserModel.findOne({ username }).collation(USERNAME_COLLATION);
 }
 
+export type Role = 'admin' | 'kasir';
+
+/**
+ * What the API is willing to say about a user.
+ *
+ * The contract's `User` shape has no password field at all, so this type cannot
+ * accidentally grow one. `passwordHash` is `select: false`, meaning it is not
+ * even loaded onto the document for a normal query — this is the second lock on
+ * the same door.
+ */
+export type SessionUser = {
+  id: string;
+  name: string;
+  username: string;
+  role: Role;
+  isActive: boolean;
+};
+
+export function toSessionUser(user: {
+  _id: unknown;
+  name: string;
+  username: string;
+  role: Role;
+  isActive: boolean;
+}): SessionUser {
+  return {
+    id: String(user._id),
+    name: user.name,
+    username: user.username,
+    role: user.role,
+    isActive: user.isActive,
+  };
+}
+
 export type User = {
   _id: unknown;
   name: string;
   username: string;
   passwordHash: string;
-  role: 'admin' | 'kasir';
+  role: Role;
   isActive: boolean;
   createdAt: Date;
 };
