@@ -412,7 +412,7 @@ function normaliseCustomer(input: CreateOrderInput) {
   return {
     name: raw.name.trim() || 'Customer',
     phone,
-    email: raw.email.trim() || null,
+    email: raw.email?.trim() || null,
   };
 }
 

@@ -22,7 +22,9 @@ export const createOrderInput = z.object({
     .object({
       name: z.string().trim().max(120).default(''),
       phone: z.string().trim().max(40).default(''),
-      email: z.string().trim().max(200).default(''),
+      // The checkout form sends `null` for an empty email rather than `""`, so
+      // the schema accepts both and the service collapses them to one shape.
+      email: z.string().trim().max(200).nullish().default(''),
     })
     .nullable()
     .optional(),

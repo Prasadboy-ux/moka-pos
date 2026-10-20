@@ -297,7 +297,13 @@ Server rules:
 {
   "lines": [{ "productId": "p-iced-americano", "qty": 2 }],
   "paymentMethod": "cash" | "qris" | "debit" | "credit",
-  "paidAmount": 70400
+  "paidAmount": 70400,
+  // optional; null/omitted for a walk-in sale
+  "customer": {
+    "name": "Dewi Lestari",
+    "phone": "6281234501122",
+    "email": null              // string or null
+  }
   // cashier is taken from the session and ignored in the body
 }
 ```
@@ -404,6 +410,7 @@ products         { _id, name, categoryId, price, image, stockMode,
 orders           { _id, receiptNo, lines: [{ productId, name, price, qty, stockMode }],
                    subtotal, taxRate, taxAmount, total, paymentMethod,
                    paidAmount, changeAmount, cashierId, cashierName, shiftId,
+                   customer: { name, phone, email } | null,
                    createdAt }
                  unique index on receiptNo
                  index on createdAt (the reports range-scan it)
