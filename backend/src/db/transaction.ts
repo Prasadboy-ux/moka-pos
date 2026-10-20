@@ -3,10 +3,12 @@ import mongoose, { type ClientSession } from 'mongoose';
 /**
  * Multi-document transactions.
  *
- * Required for two places, and nowhere else:
+ * Required for three places, and nowhere else:
  *   - `POST /api/orders`, which writes an order, decrements stock and appends
  *     ledger rows together or not at all.
  *   - `POST /api/stock/adjust`, which changes a level and records why.
+ *   - `POST /api/shifts/:id/close`, which sums the shift's cash sales and
+ *     stores the reconciliation on the shift itself.
  *
  * Both need every MongoDB deployment this service supports to be a replica set
  * or a sharded cluster. A standalone `mongod` rejects transactions, and the

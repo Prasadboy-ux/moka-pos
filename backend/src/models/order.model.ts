@@ -51,6 +51,13 @@ const orderSchema = new Schema(
     changeAmount: { type: Number, required: true, min: 0 },
     cashierId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     cashierName: { type: String, required: true },
+    /**
+     * The shift this sale was rung up under. Stamped at sale time and never
+     * rewritten — reconciliation counts cash by this field, so a shift closed
+     * yesterday still sums exactly the orders it sold. `null` only on history
+     * seeded from before shifts gated selling.
+     */
+    shiftId: { type: Schema.Types.ObjectId, ref: 'Shift', default: null },
     customer: { type: customerSchema, default: null },
     createdAt: { type: Date, default: Date.now, required: true },
   },
@@ -62,6 +69,8 @@ orderSchema.index({ receiptNo: 1 }, { unique: true });
 // The reports range-scan on this.
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ cashierId: 1 });
+// Closing a shift sums its cash sales by this.
+orderSchema.index({ shiftId: 1 });
 
 export type OrderLine = {
   productId: unknown;
@@ -90,6 +99,7 @@ export type Order = {
   changeAmount: number;
   cashierId: unknown;
   cashierName: string;
+  shiftId: unknown;
   customer: OrderCustomer | null;
   createdAt: Date;
 };

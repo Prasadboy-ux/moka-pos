@@ -3,6 +3,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { hashPassword } from '../src/lib/password.js';
+import { OrderModel } from '../src/models/order.model.js';
 import { ShiftModel } from '../src/models/shift.model.js';
 import {
   agentFor,
@@ -20,6 +21,31 @@ const app: Express = createApp();
 
 let admin: Awaited<ReturnType<typeof agentFor>>;
 let kasir: Awaited<ReturnType<typeof agentFor>>;
+
+/** A minimal cash order stamped with a shift, as the sale path would write it. */
+function cashOrder(
+  shiftId: string,
+  cashierId: string,
+  receiptNo: string,
+  total: number,
+): Record<string, unknown> {
+  return {
+    receiptNo,
+    lines: [],
+    subtotal: total,
+    taxRate: 0.1,
+    taxAmount: 0,
+    total,
+    paymentMethod: 'cash',
+    paidAmount: total,
+    changeAmount: 0,
+    cashierId,
+    cashierName: 'Siti Rahayu',
+    shiftId,
+    customer: null,
+    createdAt: new Date(),
+  };
+}
 
 beforeAll(async () => {
   await startTestDatabase();
@@ -356,6 +382,86 @@ describe('shifts', () => {
     expect(closed.body.status).toBe('closed');
     expect(closed.body.closingCounted).toBe(1200000);
     expect(closed.body.closedAt).toBeTruthy();
+  });
+
+  it('reconciles the drawer: float + cash sales against the counted amount', async () => {
+    const opened = await kasir.agent
+      .post('/api/shifts')
+      .send({ openingFloat: 500000 })
+      .expect(201);
+
+    // Two cash sales rung under this shift, as POST /api/orders would stamp them.
+    await OrderModel.create([
+      cashOrder(opened.body.id, kasir.user.id, 'MOKA-9001', 61600),
+      cashOrder(opened.body.id, kasir.user.id, 'MOKA-9002', 30800),
+    ]);
+
+    // 500,000 float + 92,400 cash = 592,400 expected; counted matches.
+    const closed = await kasir.agent
+      .post(`/api/shifts/${opened.body.id}/close`)
+      .send({ counted: 592400 })
+      .expect(200);
+
+    expect(closed.body.cashSales).toBe(92400);
+    expect(closed.body.expectedCash).toBe(592400);
+    expect(closed.body.variance).toBe(0);
+  });
+
+  it('excludes non-cash takings from the drawer count', async () => {
+    const opened = await kasir.agent
+      .post('/api/shifts')
+      .send({ openingFloat: 100000 })
+      .expect(201);
+
+    await OrderModel.create([
+      { ...cashOrder(opened.body.id, kasir.user.id, 'MOKA-9003', 50000), paymentMethod: 'qris' },
+    ]);
+
+    const closed = await kasir.agent
+      .post(`/api/shifts/${opened.body.id}/close`)
+      .send({ counted: 100000 })
+      .expect(200);
+
+    expect(closed.body.cashSales).toBe(0);
+    expect(closed.body.expectedCash).toBe(100000);
+    expect(closed.body.variance).toBe(0);
+  });
+
+  it('reports a shortage as a negative variance', async () => {
+    const opened = await kasir.agent
+      .post('/api/shifts')
+      .send({ openingFloat: 0 })
+      .expect(201);
+
+    await OrderModel.create([cashOrder(opened.body.id, kasir.user.id, 'MOKA-9004', 100000)]);
+
+    const closed = await kasir.agent
+      .post(`/api/shifts/${opened.body.id}/close`)
+      .send({ counted: 95000 })
+      .expect(200);
+
+    expect(closed.body.expectedCash).toBe(100000);
+    expect(closed.body.variance).toBe(-5000);
+  });
+
+  it('refuses to close another user’s shift unless admin', async () => {
+    const adminsShift = await admin.agent
+      .post('/api/shifts')
+      .send({ openingFloat: 0 })
+      .expect(201);
+
+    const refused = await kasir.agent
+      .post(`/api/shifts/${adminsShift.body.id}/close`)
+      .send({ counted: 0 })
+      .expect(403);
+
+    expect(refused.body.error).toBe('forbidden');
+
+    // The admin closes their own till.
+    await admin.agent
+      .post(`/api/shifts/${adminsShift.body.id}/close`)
+      .send({ counted: 0 })
+      .expect(200);
   });
 
   it('refuses a double close', async () => {

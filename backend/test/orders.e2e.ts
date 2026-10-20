@@ -62,6 +62,9 @@ beforeEach(async () => {
   admin = await agentFor(app, 'admin');
   kasir = await agentFor(app, 'kasir');
 
+  // A shift gates selling, so every sale test opens one the way the POS does.
+  await kasir.agent.post('/api/shifts').send({ openingFloat: 0 }).expect(201);
+
   const coffee = await CategoryModel.create({ name: 'Coffee', sortOrder: 1 });
   const retail = await CategoryModel.create({ name: 'Retail', sortOrder: 2 });
 
@@ -128,6 +131,47 @@ describe('POST /api/orders', () => {
       name: 'Classic Iced Caffe Latte',
     });
     latteId = String(latte!._id);
+  });
+
+  it('refuses a sale when the cashier has no open shift, and writes nothing', async () => {
+    const current = await kasir.agent.get('/api/shifts/current').expect(200);
+    await kasir.agent
+      .post(`/api/shifts/${current.body.id}/close`)
+      .send({ counted: 0 })
+      .expect(200);
+
+    const response = await kasir.agent
+      .post('/api/orders')
+      .send({
+        lines: [{ productId: latteId, qty: 1 }],
+        paymentMethod: 'cash',
+        paidAmount: 30800,
+      })
+      .expect(409);
+
+    expect(response.body.reason).toBe('no-open-shift');
+
+    // The refusal must leave no trace: no receipt, no stock movement.
+    expect(await OrderModel.countDocuments()).toBe(0);
+    expect(await StockMovementModel.countDocuments()).toBe(0);
+
+    const latte = await ProductModel.findOne({ name: 'Classic Iced Caffe Latte' });
+    expect(latte).toBeTruthy();
+  });
+
+  it('stamps the open shift onto the receipt', async () => {
+    const current = await kasir.agent.get('/api/shifts/current').expect(200);
+
+    const response = await kasir.agent
+      .post('/api/orders')
+      .send({
+        lines: [{ productId: latteId, qty: 1 }],
+        paymentMethod: 'cash',
+        paidAmount: 30800,
+      })
+      .expect(201);
+
+    expect(response.body.order.shiftId).toBe(current.body.id);
   });
 
   it('completes a sale and returns the receipt with its movements', async () => {

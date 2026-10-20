@@ -2,9 +2,12 @@ import { Schema, model } from 'mongoose';
 import { toApiJson } from './shared.js';
 
 /**
- * Cash-shift records. Nothing gates on these in v1 — closing stores a counted
- * float and no code compares it against cash sales inside the shift. Cash
- * reconciliation is explicitly out of scope in the API contract.
+ * Cash shifts. A shift gates selling (`POST /api/orders` refuses without one)
+ * and closing it reconciles the drawer.
+ *
+ * The three reconciliation fields are stored at close time, not derived on
+ * read: they are what the drawer was judged against when it was counted, and a
+ * later edit to order history must not rewrite yesterday's variance.
  */
 const shiftSchema = new Schema(
   {
@@ -20,6 +23,12 @@ const shiftSchema = new Schema(
       default: 'open',
       required: true,
     },
+    /** Cash takings inside this shift. Null while open. */
+    cashSales: { type: Number, default: null },
+    /** openingFloat + cashSales. Null while open. */
+    expectedCash: { type: Number, default: null },
+    /** counted − expected. Negative is short. Null while open. */
+    variance: { type: Number, default: null },
   },
   { toJSON: toApiJson, collection: 'shifts' },
 );
@@ -36,6 +45,9 @@ export type Shift = {
   closedAt: Date | null;
   closingCounted: number | null;
   status: 'open' | 'closed';
+  cashSales: number | null;
+  expectedCash: number | null;
+  variance: number | null;
 };
 
 export const ShiftModel = model('Shift', shiftSchema);

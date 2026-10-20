@@ -9,6 +9,7 @@ import { IdempotencyKeyModel } from '../../models/idempotency-key.model.js';
 import { IngredientModel } from '../../models/ingredient.model.js';
 import { OrderModel } from '../../models/order.model.js';
 import { ProductModel } from '../../models/product.model.js';
+import { ShiftModel } from '../../models/shift.model.js';
 import { StockMovementModel } from '../../models/stock-movement.model.js';
 import { type SessionUser } from '../../models/user.model.js';
 import type { CreateOrderInput, OrderQuery } from './orders.schemas.js';
@@ -102,6 +103,21 @@ async function runSale(
   const taxRate = env().TAX_RATE_DEFAULT;
 
   return withTransaction(async (session) => {
+    // --- 0. An open shift gates selling, for every role. An admin's cash sale
+    //        misses the drawer count just as badly as a cashier's. Checked inside
+    //        the transaction so a close committing mid-sale is seen, and the
+    //        shift's id is stamped on the receipt as history.
+    const shift = await ShiftModel.findOne({
+      userId: new Types.ObjectId(cashier.id),
+      status: 'open',
+    }).session(session);
+    if (!shift) {
+      throw ApiError.conflict(
+        'no-open-shift',
+        'Open a shift before taking payments.',
+      );
+    }
+
     // --- 1. Re-read every product. Prices come from storage, never the client.
     const productIds = [...new Set(input.lines.map((line) => line.productId))];
     const products = (await ProductModel.find({
@@ -143,7 +159,7 @@ async function runSale(
     const counter = await CounterModel.findOneAndUpdate(
       { _id: 'receipt' },
       { $inc: { seq: 1 } },
-      { new: true, upsert: true, session },
+      { returnDocument: 'after', upsert: true, session },
     );
     const receiptNo = `MOKA-${String(counter.seq).padStart(4, '0')}`;
 
@@ -162,6 +178,7 @@ async function runSale(
           changeAmount: input.paidAmount - total,
           cashierId: cashier.id,
           cashierName: cashier.name,
+          shiftId: shift._id,
           customer: normaliseCustomer(input),
           createdAt: new Date(),
         },

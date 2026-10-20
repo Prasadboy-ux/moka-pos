@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
+import { withTransaction } from '../../db/transaction.js';
 import { ApiError } from '../../lib/errors.js';
 import { roundIDR } from '../../lib/money.js';
+import { OrderModel } from '../../models/order.model.js';
 import { ShiftModel } from '../../models/shift.model.js';
 import { type SessionUser } from '../../models/user.model.js';
 import type {
@@ -12,13 +14,11 @@ import type {
 /**
  * Cash shifts.
  *
- * Records only. Nothing gates on them yet — a shift is not yet a precondition for
- * selling, and cash reconciliation is explicitly out of scope: closing stores a
- * counted float and no code compares it against cash sales inside the shift.
- *
- * They exist now because the reports screen splits takings per shift, and
- * retrofitting that onto orders sold before shifts existed is harder than having
- * the record from the start.
+ * A shift gates selling — `POST /api/orders` refuses without one — and closing
+ * it reconciles the drawer: cash sales inside the shift are summed, compared
+ * against the counted float, and the three figures are stored on the shift.
+ * They are snapshots, not derivations: a later edit to order history must not
+ * rewrite yesterday's variance.
  */
 
 export async function currentShift(cashier: SessionUser) {
@@ -64,21 +64,70 @@ export async function openShift(input: OpenShiftInput, cashier: SessionUser) {
   });
 }
 
-export async function closeShift(id: string, input: CloseShiftInput) {
-  const shift = await ShiftModel.findById(id);
-  if (!shift) throw ApiError.notFound('That shift no longer exists.');
+export async function closeShift(
+  id: string,
+  input: CloseShiftInput,
+  user: SessionUser,
+) {
+  const counted = roundIDR(input.counted);
 
-  if (shift.status === 'closed') {
-    throw ApiError.conflict(
-      'already-closed-shift',
-      'That shift is already closed.',
+  return withTransaction(async (session) => {
+    const shift = await ShiftModel.findById(id).session(session);
+    if (!shift) throw ApiError.notFound('That shift no longer exists.');
+
+    // A cashier closes their own till; an admin closes any — a manager
+    // counting down a drawer at close of day is the case this exists for.
+    if (user.role !== 'admin' && String(shift.userId) !== user.id) {
+      throw ApiError.forbidden(
+        'You can only close your own shift. Ask an administrator to close this one.',
+      );
+    }
+
+    if (shift.status === 'closed') {
+      throw ApiError.conflict(
+        'already-closed-shift',
+        'That shift is already closed.',
+      );
+    }
+
+    // Cash only: non-cash takings never touch the drawer. `total` is the amount
+    // that entered it — the change went back to the customer.
+    const [totals] = (await OrderModel.aggregate([
+      {
+        $match: {
+          shiftId: shift._id,
+          paymentMethod: 'cash',
+        },
+      },
+      { $group: { _id: null, sum: { $sum: '$total' } } },
+    ]).session(session)) as { sum: number }[];
+
+    const cashSales = roundIDR(totals?.sum ?? 0);
+    const expectedCash = roundIDR(shift.openingFloat + cashSales);
+
+    // Conditional on `open`, so a concurrent double-close has one winner even
+    // though both callers already saw the shift open a moment ago.
+    const closed = await ShiftModel.findOneAndUpdate(
+      { _id: shift._id, status: 'open' },
+      {
+        $set: {
+          status: 'closed',
+          closedAt: new Date(),
+          closingCounted: counted,
+          cashSales,
+          expectedCash,
+          variance: roundIDR(counted - expectedCash),
+        },
+      },
+      { returnDocument: 'after', session },
     );
-  }
+    if (!closed) {
+      throw ApiError.conflict(
+        'already-closed-shift',
+        'That shift is already closed.',
+      );
+    }
 
-  shift.status = 'closed';
-  shift.closedAt = new Date();
-  shift.closingCounted = roundIDR(input.counted);
-
-  await shift.save();
-  return shift;
+    return closed;
+  });
 }

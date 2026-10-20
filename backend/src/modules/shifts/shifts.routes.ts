@@ -55,7 +55,11 @@ async function open(req: Request, res: Response): Promise<void> {
 }
 
 async function close(req: Request, res: Response): Promise<void> {
-  res
-    .status(200)
-    .json(await closeShift(routeId(req), parsed<CloseShiftInput>(req).body));
+  res.status(200).json(
+    await closeShift(
+      routeId(req),
+      parsed<CloseShiftInput>(req).body,
+      sessionUser(req),
+    ),
+  );
 }

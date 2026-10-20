@@ -12,6 +12,7 @@ export const CONFLICT_REASONS = [
   'category-in-use',
   'already-open-shift',
   'already-closed-shift',
+  'no-open-shift',
   'username-taken',
 ] as const;
 
