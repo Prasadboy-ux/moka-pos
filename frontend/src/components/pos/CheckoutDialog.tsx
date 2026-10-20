@@ -49,6 +49,13 @@ interface CheckoutDialogProps {
   cashierId: string;
   cashierName: string;
   onCompleted: (order: Order) => void;
+  /**
+   * Called when the server refuses the sale with `409 no-open-shift` — the
+   * shift was closed while this checkout was open. The screen drops back to
+   * the shift gate; without this the dialog would sit on an error the cashier
+   * cannot act on.
+   */
+  onShiftRequired?: () => void;
 }
 
 /**
@@ -74,6 +81,7 @@ function CheckoutBody({
   cashierId,
   cashierName,
   onCompleted,
+  onShiftRequired,
 }: CheckoutDialogProps) {
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [cashGiven, setCashGiven] = useState("");
@@ -169,6 +177,15 @@ function CheckoutBody({
           : "Could not save the order. Check the connection and retry.",
       );
       setPending(false);
+
+      /**
+       * Checked structurally rather than by importing the repository's error
+       * class: screens only ever see a thrown Error, and the refusal code in
+       * its `reason` is what says "this is a shift problem, not a sale problem".
+       */
+      if ((cause as { reason?: string })?.reason === "no-open-shift") {
+        onShiftRequired?.();
+      }
     }
   }
 

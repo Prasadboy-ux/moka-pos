@@ -30,9 +30,29 @@ export function useQueryState(): [
     return result;
   }, [params]);
 
+  // `router.replace` re-renders with a fresh RSC payload even when the URL is
+  // unchanged, which hands `useSearchParams()` a new object identity. Closing
+  // over `params` directly would therefore give `setQuery` a new identity on
+  // every navigation — and any `useEffect` that depends on `[setQuery]` and
+  // calls it (the search-to-URL sync in POS and Transactions) would re-run
+  // forever, firing an RSC fetch per iteration.
+  //
+  // Writes also need a base that survives two calls in the same tick: typing
+  // a report's From then To date fires both before the first navigation lands,
+  // so a base re-read from `useSearchParams()` (or from `window.location`,
+  // which App Router does not update synchronously either) would build the
+  // second write on the first's stale base and silently drop the first field.
+  // A ref the callback updates itself — re-synced from `params` whenever an
+  // external navigation does land — gives both properties: a stable callback
+  // identity and a base that never loses an in-flight write.
+  const searchRef = React.useRef(params.toString());
+  React.useEffect(() => {
+    searchRef.current = params.toString();
+  }, [params]);
+
   const setQuery = React.useCallback(
     (patch: Record<string, string | null | undefined>) => {
-      const next = new URLSearchParams(params.toString());
+      const next = new URLSearchParams(searchRef.current);
 
       for (const [key, value] of Object.entries(patch)) {
         // Empty values are dropped rather than written as `?q=`, so a clean
@@ -45,9 +65,24 @@ export function useQueryState(): [
       }
 
       const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+      const target = query ? `${pathname}?${query}` : pathname;
+
+      // Advance the base before the guards so a second write in the same tick
+      // merges onto this one, and so a no-op against a not-yet-updated
+      // `window.location` still records what the URL is about to say.
+      searchRef.current = query;
+
+      // No-op guards: a replace with an unchanged URL still triggers a
+      // navigation + RSC fetch, which is how the loop above sustains itself.
+      const current =
+        typeof window === "undefined" ? "" : `${window.location.pathname}${window.location.search}`;
+      if (target === current) {
+        return;
+      }
+
+      router.replace(target, { scroll: false });
     },
-    [params, pathname, router],
+    [pathname, router],
   );
 
   return [state, setQuery];

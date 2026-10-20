@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Banknote, Loader2 } from "lucide-react";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { CheckoutDialog } from "@/components/pos/CheckoutDialog";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
+import { CloseShiftDialog, OpenShiftDialog } from "@/components/pos/ShiftDialogs";
+import { Button } from "@/components/ui/button";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useQueryState } from "@/hooks/useQueryState";
+import { formatDateTime, formatIDR } from "@/lib/format";
 import { getRepositories } from "@/lib/repositories";
 import {
   cartLimit,
@@ -39,7 +42,21 @@ async function loadMenu() {
 export function PosScreen() {
   const user = useAuthStore((state) => state.session?.user ?? null);
 
-const menu = useAsync(loadMenu);
+  const menu = useAsync(loadMenu);
+
+  /**
+   * The open shift gates selling, so the POS loads it alongside the menu.
+   * Wrapped in `{ shift }` because the API answers `null` for "no open shift" —
+   * a normal result, not a missing payload — and `useAsync` would otherwise
+   * read a settled null as still-loading forever.
+   *
+   * `userId` is ignored by the repository: the server reads the session.
+   */
+  const shiftState = useAsync(
+    async () => ({ shift: await getRepositories().shifts.current("") }),
+    [],
+  );
+  const shift = shiftState.data?.shift ?? null;
   const products = menu.data?.products ?? null;
   const categories: Category[] = menu.data?.categories ?? [];
   /**
@@ -71,6 +88,8 @@ const menu = useAsync(loadMenu);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
+  const [openShiftOpen, setOpenShiftOpen] = useState(false);
+  const [closeShiftOpen, setCloseShiftOpen] = useState(false);
 
 const lines = useCartStore((state) => state.lines);
   const taxRate = useCartStore((state) => state.taxRate);
@@ -131,7 +150,7 @@ const lines = useCartStore((state) => state.lines);
     menu.reload();
   }
 
-  if (menu.isLoading || !products) {
+  if (menu.isLoading || shiftState.isLoading || !products) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
@@ -140,42 +159,100 @@ const lines = useCartStore((state) => state.lines);
     );
   }
 
-  if (menu.error) {
+  if (menu.error || shiftState.error) {
     return (
       <p role="alert" className="py-20 text-center text-sm text-destructive">
-        {menu.error}
+        {menu.error ?? shiftState.error}
       </p>
     );
   }
 
-  return (
-    <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
-<ProductGrid
-        products={products}
-        categories={categories}
-        limits={limits}
-        activeCategory={category}
-        onCategoryChange={(value) => setQuery({ cat: value })}
-        search={search}
-        onSearchChange={setSearch}
-        onAdd={handleAdd}
-        qtyOf={qtyOf}
-      />
+  /**
+   * The gate. No open shift means no grid, no cart, no checkout — the only
+   * thing this till can do is open its drawer. The server refuses the sale
+   * too, so this is the fast path for the operator, not the security boundary.
+   */
+  if (!shift) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 text-center">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-muted">
+            <Banknote className="size-6 text-muted-foreground" aria-hidden />
+          </div>
+          <h2 className="text-lg font-semibold">Open a shift to sell</h2>
+          <p className="text-sm text-muted-foreground">
+            Every sale is recorded against your shift, and the drawer is counted
+            down against it when you close.
+          </p>
+          <Button type="button" onClick={() => setOpenShiftOpen(true)}>
+            Open shift
+          </Button>
+        </div>
 
-      <div className="h-fit rounded-xl border bg-card xl:sticky xl:top-4 xl:max-h-[calc(100vh-8rem)]">
-        <CartPanel
-          lines={lines}
-          limits={limits}
-          totals={totals}
-          taxRate={taxRate}
-          onSetQty={handleSetQty}
-          onRemove={remove}
-          onClear={clear}
-          onCheckout={() => setCheckoutOpen(true)}
+        <OpenShiftDialog
+          open={openShiftOpen}
+          onOpenChange={setOpenShiftOpen}
+          cashier={{ id: user?.id ?? "", name: user?.name ?? "" }}
+          onOpened={() => {
+            setOpenShiftOpen(false);
+            shiftState.reload();
+          }}
         />
       </div>
+    );
+  }
 
-<CheckoutDialog
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3">
+        <div className="flex items-center gap-2.5 text-sm">
+          <span
+            className="size-2 rounded-full bg-emerald-500"
+            aria-hidden
+          />
+          <span>Shift open since {formatDateTime(shift.openedAt)}</span>
+          <span className="text-muted-foreground">
+            · Float {formatIDR(shift.openingFloat)}
+          </span>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setCloseShiftOpen(true)}
+        >
+          Close shift
+        </Button>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+        <ProductGrid
+          products={products}
+          categories={categories}
+          limits={limits}
+          activeCategory={category}
+          onCategoryChange={(value) => setQuery({ cat: value })}
+          search={search}
+          onSearchChange={setSearch}
+          onAdd={handleAdd}
+          qtyOf={qtyOf}
+        />
+
+        <div className="h-fit rounded-xl border bg-card xl:sticky xl:top-4 xl:max-h-[calc(100vh-8rem)]">
+          <CartPanel
+            lines={lines}
+            limits={limits}
+            totals={totals}
+            taxRate={taxRate}
+            onSetQty={handleSetQty}
+            onRemove={remove}
+            onClear={clear}
+            onCheckout={() => setCheckoutOpen(true)}
+          />
+        </div>
+      </div>
+
+      <CheckoutDialog
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
         lines={lines}
@@ -184,6 +261,23 @@ const lines = useCartStore((state) => state.lines);
         cashierId={user?.id ?? ""}
         cashierName={user?.name ?? ""}
         onCompleted={handleCompleted}
+        onShiftRequired={() => {
+          // The shift was closed underneath this sale (another till, an admin).
+          // Drop back to the gate instead of leaving a checkout that cannot land.
+          setCheckoutOpen(false);
+          setReceipt(null);
+          shiftState.reload();
+        }}
+      />
+
+      <CloseShiftDialog
+        open={closeShiftOpen}
+        onOpenChange={setCloseShiftOpen}
+        shift={shift}
+        onClosed={() => {
+          setCloseShiftOpen(false);
+          shiftState.reload();
+        }}
       />
 
       <ReceiptModal

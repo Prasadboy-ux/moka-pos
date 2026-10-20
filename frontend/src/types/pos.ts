@@ -131,6 +131,8 @@ export interface Order {
   changeAmount: number;
   cashierId: string;
   cashierName: string;
+  /** The shift it was rung under. Null on history from before shifts gated sales. */
+  shiftId?: string | null;
   /** Null for a walk-in sale. */
   customer: OrderCustomer | null;
   createdAt: string;
@@ -166,6 +168,15 @@ export interface Shift {
   /** Cash counted at close. Null while the shift is open. */
   closingCounted: number | null;
   status: ShiftStatus;
+  /**
+   * Reconciliation, filled in at close by the server: cash takings inside the
+   * shift, `openingFloat + cashSales`, and `counted − expected` (negative is
+   * short). Null while open. Optional so shifts written before reconciliation
+   * existed still typecheck — treat missing as null.
+   */
+  cashSales?: number | null;
+  expectedCash?: number | null;
+  variance?: number | null;
 }
 
 export const TAX_RATE_DEFAULT = 0.1;
