@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { logger } from '../lib/logger.js';
 
 /**
  * MongoDB lifecycle.
@@ -25,10 +26,10 @@ export async function connectDatabase(uri: string): Promise<void> {
   });
 
   mongoose.connection.on('error', (error) => {
-    console.error('[mongo] connection error', error);
+    logger.error({ err: error }, 'mongo connection error');
   });
   mongoose.connection.on('disconnected', () => {
-    console.warn('[mongo] disconnected');
+    logger.warn('mongo disconnected');
   });
 }
 

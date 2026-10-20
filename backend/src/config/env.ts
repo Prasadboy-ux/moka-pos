@@ -50,6 +50,24 @@ const schema = z.object({
 
   /** Indonesian VAT. 0.1 = 10%. Matches TAX_RATE_DEFAULT in the frontend. */
   TAX_RATE_DEFAULT: z.coerce.number().min(0).max(1).default(0.1),
+
+  /**
+   * Pino level. Not part of the schema: the logger must survive a missing or
+   * nonsense env without taking the process down, so it reads process.env
+   * directly and falls back on its own.
+   */
+
+  /**
+   * Login attempts allowed per IP per 15 minutes. 30 bounds credential
+   * stuffing while leaving a busy shift (and the smoke suite) headroom.
+   */
+  RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(30),
+
+  /**
+   * Requests allowed per IP per minute across the whole API. A backstop
+   * against runaway clients, set far above what a real shop generates.
+   */
+  RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(2000),
 });
 
 export type Env = z.infer<typeof schema>;

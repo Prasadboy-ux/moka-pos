@@ -1,9 +1,13 @@
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
+import { pinoHttp } from 'pino-http';
 import { corsOrigins } from './config/env.js';
 import { errorHandler, notFoundHandler } from './lib/errors.middleware.js';
+import { logger } from './lib/logger.js';
+import { apiLimiter } from './lib/rate-limit.js';
 import { router as apiRouter } from './routes/index.js';
 
 /**
@@ -14,7 +18,8 @@ import { router as apiRouter } from './routes/index.js';
  * or opening a connection, which is why the two are separate files.
  *
  * Middleware order is load-bearing and reads top to bottom:
- *   helmet -> cors -> json -> cookies -> routes -> 404 -> error handler
+ *   helmet -> cors -> compression -> request log -> json -> cookies ->
+ *   rate limit -> routes -> 404 -> error handler
  */
 export function createApp(): Express {
   const app = express();
@@ -28,9 +33,23 @@ export function createApp(): Express {
   // Before the body parser so an OPTIONS preflight short-circuits without
   // buffering a body it will never read.
   app.use(cors({ origin: corsOrigins(), credentials: true }));
+  // Receipts, reports and CSV exports are the payloads worth shrinking; the
+  // JSON command traffic is too small to care about.
+  app.use(compression());
+  app.use(
+    pinoHttp({
+      logger,
+      // The health probe is polled by the platform every few seconds; logging
+      // it would drown every line that matters.
+      autoLogging: {
+        ignore: (req) => req.url === '/api/health',
+      },
+    }),
+  );
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 
+  app.use('/api', apiLimiter());
   app.use('/api', apiRouter);
 
   app.use(notFoundHandler);

@@ -6,7 +6,7 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 ## Status
 
 **Complete and live.** 34 contract endpoints plus `/api/health`, 9 Mongoose
-models, and 211 tests. The frontend in [`../frontend`](../frontend) resolves its
+models, and 219 tests. The frontend in [`../frontend`](../frontend) resolves its
 seven repositories to this API over an httpOnly cookie session.
 
 The API is specified in
@@ -15,11 +15,12 @@ this was built against. `test/contract.e2e.ts` asserts all 35 routes against tha
 document **transcribed by hand**, so the test verifies the contract rather than
 restating the code.
 
+Production hardening in place: login and API rate limits (env-tunable, disabled
+under `NODE_ENV=test`), pino structured logging, response compression, and
+concurrency tests proving two tills cannot oversell the last unit of stock.
+
 See [`docs/README.md`](docs/README.md) for the documentation map and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the code is arranged.
-
-Known gap: the oversell concurrency case — two tills racing for the last unit —
-is implemented via a conditional `$inc` decrement but has no automated test.
 
 ## Stack
 

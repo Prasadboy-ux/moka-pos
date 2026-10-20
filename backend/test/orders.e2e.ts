@@ -452,6 +452,91 @@ describe('POST /api/orders', () => {
     });
   });
 
+  /**
+   * The atomic guard in consumeStock is the only thing standing between two
+   * tills ringing the last unit of stock at the same moment. The sequential
+   * tests above exercise the readable pre-check; these fire real concurrent
+   * transactions so the `$inc` filtered on `stock >= qty` is what has to hold.
+   *
+   * Both refusal paths answer 409 insufficient-stock, so the assertions key on
+   * that rather than on which message won.
+   */
+  describe('concurrent sales cannot oversell', () => {
+    it('sells a direct product down to the last unit, refusing the rest', async () => {
+      // 10 bottles on hand; five tills each ring three. Only three sales fit.
+      const responses = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          kasir.agent.post('/api/orders').send({
+            lines: [{ productId: waterId, qty: 3 }],
+            paymentMethod: 'cash',
+            paidAmount: 16500,
+          }),
+        ),
+      );
+
+      const accepted = responses.filter((r) => r.status === 201);
+      const refused = responses.filter((r) => r.status === 409);
+
+      expect(accepted).toHaveLength(3);
+      expect(refused).toHaveLength(2);
+      for (const response of refused) {
+        expect(response.body.error).toBe('insufficient-stock');
+        expect(response.body.message).toMatch(/Mineral Water/);
+      }
+
+      // 10 - 3*3: one bottle remains, and only whole sales were counted.
+      expect((await ProductModel.findById(waterId))?.stock).toBe(1);
+      expect(await OrderModel.countDocuments()).toBe(3);
+      expect(
+        await StockMovementModel.countDocuments({
+          type: 'sale',
+          productId: (await ProductModel.findById(waterId))?._id,
+        }),
+      ).toBe(3);
+    });
+
+    it('refuses recipe sales that would drain a shared ingredient', async () => {
+      // 1000 ml of milk; one latte needs 180. Five fit (900), six do not.
+      const responses = await Promise.all(
+        Array.from({ length: 7 }, () =>
+          kasir.agent.post('/api/orders').send({
+            lines: [{ productId: latteId, qty: 1 }],
+            paymentMethod: 'cash',
+            paidAmount: 30800,
+          }),
+        ),
+      );
+
+      const accepted = responses.filter((r) => r.status === 201);
+      const refused = responses.filter((r) => r.status === 409);
+
+      expect(accepted).toHaveLength(5);
+      expect(refused).toHaveLength(2);
+      for (const response of refused) {
+        expect(response.body.error).toBe('insufficient-stock');
+        expect(response.body.message).toMatch(/Fresh Milk/);
+      }
+
+      const milk = await IngredientModel.findById(milkId);
+      expect(milk?.stock).toBe(1000 - 5 * 180);
+      expect(
+        await StockMovementModel.countDocuments({
+          type: 'sale',
+          ingredientId: milk?._id,
+        }),
+      ).toBe(5);
+
+      // Receipt numbers are allocated inside the same transaction: no gaps, no
+      // collisions, even when seven sales contend on the counter.
+      const receipts = await OrderModel.find({}).select('receiptNo').lean();
+      const numbers = receipts.map((order) =>
+        Number(order.receiptNo.replace('MOKA-', '')),
+      );
+      numbers.sort((a, b) => a - b);
+      expect(numbers).toEqual([2001, 2002, 2003, 2004, 2005]);
+    });
+  });
+
   describe('customer normalisation', () => {
     it('normalises an Indonesian number to digits a wa.me link can use', async () => {
       const response = await kasir.agent

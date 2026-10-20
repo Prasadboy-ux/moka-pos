@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { connectDatabase, disconnectDatabase } from './db/connection.js';
+import { logger } from './lib/logger.js';
 
 /**
  * Process entrypoint: load env, connect the database, bind the port, and make
@@ -12,13 +13,14 @@ async function main(): Promise<void> {
   const config = env();
 
   await connectDatabase(config.MONGODB_URI);
-  console.log('[mongo] connected');
+  logger.info('[mongo] connected');
 
   const server = createServer(createApp());
 
   server.listen(config.PORT, () => {
-    console.log(
-      `[api] listening on http://localhost:${config.PORT} (${config.NODE_ENV})`,
+    logger.info(
+      { port: config.PORT, env: config.NODE_ENV },
+      'api listening',
     );
   });
 
@@ -26,7 +28,7 @@ async function main(): Promise<void> {
   const shutdown = (signal: string): void => {
     if (closing) return;
     closing = true;
-    console.log(`[api] ${signal} received, shutting down`);
+    logger.info({ signal }, 'shutting down');
 
     server.close(() => {
       void disconnectDatabase().then(
@@ -44,6 +46,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('[api] failed to start', error);
+  logger.error({ err: error }, 'api failed to start');
   process.exit(1);
 });

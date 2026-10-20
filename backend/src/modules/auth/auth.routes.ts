@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from 'express';
+import { loginLimiter } from '../../lib/rate-limit.js';
 import { validate } from '../../lib/validate.js';
 import {
   SESSION_COOKIE,
@@ -11,7 +12,12 @@ import { authenticate } from './auth.service.js';
 
 export const router: Router = Router();
 
-router.post('/auth/login', validate({ body: loginSchema }), login);
+router.post(
+  '/auth/login',
+  loginLimiter(),
+  validate({ body: loginSchema }),
+  login,
+);
 router.post('/auth/logout', logout);
 router.get('/auth/me', requireSession, me);
 

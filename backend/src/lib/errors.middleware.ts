@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { Error as MongooseError } from 'mongoose';
 import { ZodError } from 'zod';
 import { ApiError } from './errors.js';
+import { logger } from './logger.js';
 
 /**
  * Translates anything thrown anywhere in the request pipeline into the one
@@ -61,7 +62,7 @@ export function notFoundHandler(
 
 export function errorHandler(
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction,
 ): void {
@@ -76,7 +77,10 @@ export function errorHandler(
   if (resolved.status >= 500) {
     // 5xx means we are the ones who are wrong. Log it properly; the client
     // gets a generic sentence so internals never leak.
-    console.error('[unhandled]', error);
+    logger.error(
+      { err: error, path: req.path, method: req.method },
+      'unhandled error',
+    );
     res.status(500).json({
       error: 'internal',
       message: 'Something went wrong on our side. Please try again.',
