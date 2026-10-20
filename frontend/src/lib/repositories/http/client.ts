@@ -17,8 +17,8 @@ import axios, { AxiosError, type AxiosInstance } from "axios";
  */
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-if (!BASE_URL) {
-  throw new Error(
+function missingApiUrl(): Error {
+  return new Error(
     "NEXT_PUBLIC_API_URL is not set. Copy .env.local.example to .env.local and point it at the API.",
   );
 }
@@ -31,12 +31,35 @@ if (!BASE_URL) {
  * to that decision — without it the browser stores the cookie and then declines
  * to send it, and login appears to work until the first authenticated request
  * fails.
+ *
+ * The instance is created on first use, not at module load: this module is
+ * imported by the auth store, which the layout pulls in, which every prerendered
+ * page evaluates — so a missing env var used to abort the whole build instead
+ * of only the request that needs it.
  */
-export const http: AxiosInstance = axios.create({
-  baseURL: `${BASE_URL.replace(/\/$/, "")}/api`,
-  withCredentials: true,
-  timeout: 20_000,
-  headers: { "Content-Type": "application/json" },
+let instance: AxiosInstance | null = null;
+
+function createInstance(): AxiosInstance {
+  if (!BASE_URL) throw missingApiUrl();
+
+  return axios.create({
+    baseURL: `${BASE_URL.replace(/\/$/, "")}/api`,
+    withCredentials: true,
+    timeout: 20_000,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+export const http: AxiosInstance = new Proxy({} as AxiosInstance, {
+  get(_target, property) {
+    instance ??= createInstance();
+
+    const value = instance[property as keyof AxiosInstance];
+
+    return typeof value === "function"
+      ? (value as (...a: unknown[]) => unknown).bind(instance)
+      : value;
+  },
 });
 
 /**
