@@ -16,6 +16,49 @@ async function signOut(page) {
     return fetch(`${api}/api/auth/logout`, { method: "POST", credentials: "include" });
   }, API);
 }
+
+/**
+ * Opens a shift for whoever is signed in.
+ *
+ * The POS grid only renders with an open shift (the till gate), so any suite
+ * asserting on the grid needs one first. Asked of the API exactly the way the
+ * app does it, and idempotent: an already-open shift is left alone.
+ */
+async function ensureShift(page) {
+  await page.evaluate(async (api) => {
+    const current = await fetch(`${api}/api/shifts/current`, { credentials: "include" });
+    if (current.ok && (await current.json())) return;
+    await fetch(`${api}/api/shifts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ openingFloat: 500000 }),
+    });
+  }, API);
+}
+/**
+ * Removes leftovers a previous run may have leaked.
+ *
+ * This suite creates a "Test Cold Brew" and deletes it at the end, but a run
+ * that dies between those two points leaves the product behind — which then
+ * breaks the seeded-count assertion and makes the delete locator resolve to
+ * two rows. Asked of the API the same way the app deletes, before any
+ * assertion reads the catalogue.
+ */
+async function cleanupLeftovers(page) {
+  await page.evaluate(async (api) => {
+    const response = await fetch(`${api}/api/products`, { credentials: "include" });
+    if (!response.ok) return;
+    const products = await response.json();
+    for (const product of products) {
+      if (product.name !== "Test Cold Brew") continue;
+      await fetch(`${api}/api/products/${product.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    }
+  }, API);
+}
 const results = [];
 const consoleErrors = [];
 
@@ -27,7 +70,16 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  const text = msg.text();
+  // The browser logs expected 401s (auth probe on the login page, before a
+  // session exists) 409s (the deliberate no-open-shift gate probe), and 422s (server-side refusals the suite asserts by message, like an over-withdrawal) as
+  // resource errors. All are asserted explicitly elsewhere in the
+  // suite, so they are filtered here to keep this check about real bugs.
+  if (text.includes("Failed to load resource") && /status of (401|409|422)/.test(text)) {
+    return;
+  }
+  consoleErrors.push(text);
 });
 page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
@@ -39,6 +91,8 @@ try {
   await page.getByRole("button", { name: /Sign in as Admin/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
   check("admin lands on /dashboard", page.url().endsWith("/dashboard"));
+
+  await cleanupLeftovers(page);
 
   // ------------------------------------------------------------- products
   await page.goto(`${BASE}/dashboard/products`, { waitUntil: "networkidle" });
@@ -125,10 +179,19 @@ try {
   const dialogGone = (await page.locator('[role="dialog"]').count()) === 0;
   check("valid product saves", dialogGone);
   const afterCreate = await page.locator("body").innerText();
-  check("new product listed after save", afterCreate.includes("Test Cold Brew"));
   check("toast confirms the save", /Product created/i.test(afterCreate));
 
+  // The new row can sort onto page 2 of the paginated table, so it is found
+  // the way a user would — by searching — rather than by trusting page 1.
+  await page.getByLabel("Search products").fill("Test Cold Brew");
+  await page.waitForTimeout(600);
+  const foundAfterCreate = await page.locator("main").innerText();
+  check("new product listed after save", foundAfterCreate.includes("Test Cold Brew"));
+  await page.getByLabel("Clear search").click();
+  await page.waitForTimeout(300);
+
   // ------------------------------------------------- appears on the POS
+  await ensureShift(page);
   await page.goto(`${BASE}/dashboard/pos`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
   const posText = await page.locator("main").innerText();

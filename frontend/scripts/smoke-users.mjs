@@ -16,6 +16,41 @@ async function signOut(page) {
     return fetch(`${api}/api/auth/logout`, { method: "POST", credentials: "include" });
   }, API);
 }
+
+/**
+ * Frees the username and display name this suite is about to create.
+ *
+ * Users are never hard-deleted (orders reference them), so a run that died
+ * between create and deactivate leaves `dewi` behind — and the next run's
+ * create is refused as a duplicate before any of the create assertions can
+ * run, while name-based locators later resolve to several rows. Renaming the
+ * leftovers through the same public endpoint the app uses clears both names
+ * without inventing a delete the API deliberately lacks. The account id keeps
+ * the replacement username unique across sweeps.
+ */
+async function freeUsername(page) {
+  await page.evaluate(async (api) => {
+    const response = await fetch(`${api}/api/users`, { credentials: "include" });
+    if (!response.ok) return;
+    const users = await response.json();
+    const leftovers = users.filter(
+      (user) => user.username.startsWith("dewi") || user.name.includes("Dewi Lestari"),
+    );
+    for (const leftover of leftovers) {
+      await fetch(`${api}/api/users/${leftover.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name: "Leftover Account",
+          username: `dewi-leftover-${leftover.id}`,
+          role: leftover.role,
+          isActive: leftover.isActive,
+        }),
+      });
+    }
+  }, API);
+}
 const results = [];
 const consoleErrors = [];
 
@@ -27,7 +62,18 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  const text = msg.text();
+  // The browser logs expected 401s (auth probe on the login page, before a
+  // session exists), 409s (the deliberate no-open-shift gate probe), and
+  // 422s (server-side refusals the suite asserts by message, like an
+  // over-withdrawal) as resource errors. All are asserted explicitly
+  // elsewhere in the suite, so they are filtered here to keep this check
+  // about real bugs.
+  if (text.includes("Failed to load resource") && /status of (401|409|422)/.test(text)) {
+    return;
+  }
+  consoleErrors.push(text);
 });
 page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
@@ -37,6 +83,8 @@ try {
   await page.locator("#password").fill("admin123");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
+
+  await freeUsername(page);
 
   await page.goto(`${BASE}/dashboard/users`, { waitUntil: "networkidle" });
   await page.waitForSelector("table tbody tr", { timeout: 15000 });
@@ -155,6 +203,7 @@ try {
   await page.locator("#password").fill("admin123");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
+
   await page.goto(`${BASE}/dashboard/users`, { waitUntil: "networkidle" });
   await page.waitForSelector("table tbody tr");
   await page.getByRole("button", { name: /Actions for Budi Santoso/ }).click();

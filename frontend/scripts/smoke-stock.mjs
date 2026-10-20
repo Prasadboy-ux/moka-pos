@@ -16,6 +16,26 @@ async function signOut(page) {
     return fetch(`${api}/api/auth/logout`, { method: "POST", credentials: "include" });
   }, API);
 }
+
+/**
+ * Opens a shift for whoever is signed in.
+ *
+ * The POS grid only renders with an open shift (the till gate), so any suite
+ * asserting on the grid needs one first. Asked of the API exactly the way the
+ * app does it, and idempotent: an already-open shift is left alone.
+ */
+async function ensureShift(page) {
+  await page.evaluate(async (api) => {
+    const current = await fetch(`${api}/api/shifts/current`, { credentials: "include" });
+    if (current.ok && (await current.json())) return;
+    await fetch(`${api}/api/shifts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ openingFloat: 500000 }),
+    });
+  }, API);
+}
 const results = [];
 const consoleErrors = [];
 
@@ -27,7 +47,16 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  const text = msg.text();
+  // The browser logs expected 401s (auth probe on the login page, before a
+  // session exists) 409s (the deliberate no-open-shift gate probe), and 422s (server-side refusals the suite asserts by message, like an over-withdrawal) as
+  // resource errors. All are asserted explicitly elsewhere in the
+  // suite, so they are filtered here to keep this check about real bugs.
+  if (text.includes("Failed to load resource") && /status of (401|409|422)/.test(text)) {
+    return;
+  }
+  consoleErrors.push(text);
 });
 page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
@@ -109,6 +138,7 @@ try {
   await page.waitForTimeout(400);
 
   // ------------------------------------------- a sale decrements stock
+  await ensureShift(page);
   await page.goto(`${BASE}/dashboard/pos`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
 

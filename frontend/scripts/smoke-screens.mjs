@@ -10,7 +10,28 @@ import { chromium } from "playwright";
  */
 
 const BASE = "http://localhost:3000";
+const API = "http://localhost:3001";
 const results = [];
+
+/**
+ * Opens a shift for whoever is signed in.
+ *
+ * The POS grid only renders with an open shift (the till gate), so any suite
+ * asserting on the grid needs one first. Asked of the API exactly the way the
+ * app does it, and idempotent: an already-open shift is left alone.
+ */
+async function ensureShift(page) {
+  await page.evaluate(async (api) => {
+    const current = await fetch(`${api}/api/shifts/current`, { credentials: "include" });
+    if (current.ok && (await current.json())) return;
+    await fetch(`${api}/api/shifts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ openingFloat: 500000 }),
+    });
+  }, API);
+}
 
 function check(name, condition, detail = "") {
   results.push({ name, ok: Boolean(condition), detail });
@@ -54,13 +75,14 @@ try {
   check("dashboard shows recent transactions", /Recent transactions/.test(dash));
 
   // ------------------------------------------- 3. Transaksi Penjualan
+  await ensureShift(page);
   await page.goto(`${BASE}/dashboard/pos`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1400);
   const tiles = await page.locator("main button[aria-label^='Add ']").count();
   check("POS renders sellable tiles", tiles === 20, `${tiles} tiles`);
 
   const methods = ["Cash", "QRIS", "Debit", "Credit"];
-  await page.locator("main button[aria-label^='Add ']").first().click();
+  await page.locator("main button[aria-label^='Add ']:not([disabled])").first().click();
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: /^Charge|Checkout/ }).first().click();
   await page.waitForSelector('[role="dialog"]');

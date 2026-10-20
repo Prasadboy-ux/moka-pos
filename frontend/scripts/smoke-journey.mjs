@@ -38,7 +38,16 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  const text = msg.text();
+  // The browser logs expected 401s (auth probe on the login page, before a
+  // session exists) 409s (the deliberate no-open-shift gate probe), and 422s (server-side refusals the suite asserts by message, like an over-withdrawal) as
+  // resource errors. All are asserted explicitly elsewhere in the
+  // suite, so they are filtered here to keep this check about real bugs.
+  if (text.includes("Failed to load resource") && /status of (401|409|422)/.test(text)) {
+    return;
+  }
+  consoleErrors.push(text);
 });
 page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
@@ -57,7 +66,44 @@ try {
   await page.waitForURL("**/dashboard/pos", { timeout: 15000 });
   check("cashier signed in", page.url().includes("/dashboard/pos"));
 
+  // ------------------------------------------------------ the till gate
+  /**
+   * Normalise first: a previous run that died mid-suite can leave this
+   * cashier's shift open, and the gate below can only be asserted on a till
+   * that has none. Closed through the API, the same public endpoint the app
+   * uses — counted 0, because the point is only the state, not the money.
+   */
+  await page.evaluate(async (api) => {
+    const response = await fetch(`${api}/api/shifts/current`, { credentials: "include" });
+    const shift = response.ok ? await response.json() : null;
+    if (!shift) return;
+    await fetch(`${api}/api/shifts/${shift.id}/close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ counted: 0 }),
+    });
+  }, API);
+
+  await page.reload({ waitUntil: "networkidle" });
   await page.waitForTimeout(1200);
+
+  check(
+    "the till refuses to sell without an open shift",
+    (await page.locator("main button[aria-label^='Add ']").count()) === 0,
+  );
+  check(
+    "the gate offers the one action available",
+    await page.getByRole("button", { name: "Open shift" }).isVisible(),
+  );
+
+  await page.getByRole("button", { name: "Open shift" }).click();
+  await page.locator("#opening-float").fill("500000");
+  await page.getByRole("dialog").getByRole("button", { name: "Open shift" }).click();
+  await page.getByText(/Shift open since/).waitFor({ timeout: 10000 });
+  check("opening a shift unblocks the till", true);
+
+  await page.waitForTimeout(800);
   const tileCount = await page.locator("main button[aria-label^='Add ']").count();
   check("POS renders sellable tiles", tileCount > 0, `${tileCount} tiles`);
 
@@ -128,7 +174,7 @@ try {
 
   // ------------------------------------------------------------- sell 2 cups
   for (let i = 0; i < 2; i++) {
-    await page.locator("main button[aria-label^='Add ']").first().click();
+    await page.locator("main button[aria-label^='Add ']:not([disabled])").first().click();
     await page.waitForTimeout(250);
   }
   await page.getByRole("button", { name: /Charge|Checkout/ }).first().click().catch(() => {});
@@ -179,7 +225,7 @@ try {
   // -------------------------------------------------------------- walk-in sale
   await page.keyboard.press("Escape");
   await page.waitForTimeout(600);
-  await page.locator("main button[aria-label^='Add ']").first().click();
+  await page.locator("main button[aria-label^='Add ']:not([disabled])").first().click();
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: /Charge|Checkout/ }).first().click().catch(() => {});
   await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
@@ -203,6 +249,29 @@ try {
   // The Charge button always renders "Charge Rp 0" while disabled, so the
   // empty state in the cart panel is the thing to assert on.
   check("cart cleared after the sale", /Order is empty/.test(cartAfter));
+
+  // -------------------------------------- close the shift, reconcile the drawer
+  /**
+   * The float opened with, plus both cash sales just rung up, is exactly what
+   * the drawer should hold — so a counted amount equal to it must come back
+   * balanced. The arithmetic belongs to the server; this only checks that the
+   * number it judged against is the right one.
+   */
+  const expectedCash = 500000 + total + walkInTotal;
+  await page.getByRole("button", { name: "Close shift" }).first().click();
+  await page.locator("#counted").fill(String(expectedCash));
+  await page.getByRole("dialog").getByRole("button", { name: "Close shift" }).click();
+  await page.waitForTimeout(1000);
+  const drawer = await page.getByRole("dialog").innerText();
+  check(
+    "closing the shift reconciles the drawer",
+    /Drawer balanced/.test(drawer),
+    drawer.match(/Variance[^\n]*/)?.[0] ?? drawer.slice(0, 80),
+  );
+
+  await page.getByRole("dialog").getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Open shift" }).waitFor({ timeout: 5000 });
+  check("a closed till returns to the gate", true);
 
   // ------------------------------------------- admin sees it on the dashboard
   await signOut(page);

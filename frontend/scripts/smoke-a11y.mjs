@@ -10,8 +10,29 @@ import { chromium } from "playwright";
  */
 
 const BASE = "http://localhost:3000";
+const API = "http://localhost:3001";
 const results = [];
 const consoleErrors = [];
+
+/**
+ * Opens a shift for whoever is signed in.
+ *
+ * The POS grid only renders with an open shift (the till gate), so any suite
+ * asserting on the grid needs one first. Asked of the API exactly the way the
+ * app does it, and idempotent: an already-open shift is left alone.
+ */
+async function ensureShift(page) {
+  await page.evaluate(async (api) => {
+    const current = await fetch(`${api}/api/shifts/current`, { credentials: "include" });
+    if (current.ok && (await current.json())) return;
+    await fetch(`${api}/api/shifts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ openingFloat: 500000 }),
+    });
+  }, API);
+}
 
 function check(name, condition, detail = "") {
   results.push({ name, ok: Boolean(condition), detail });
@@ -21,7 +42,16 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 
 page.on("console", (msg) => {
-  if (msg.type() === "error") consoleErrors.push(msg.text());
+  if (msg.type() !== "error") return;
+  const text = msg.text();
+  // The browser logs expected 401s (auth probe on the login page, before a
+  // session exists) 409s (the deliberate no-open-shift gate probe), and 422s (server-side refusals the suite asserts by message, like an over-withdrawal) as
+  // resource errors. All are asserted explicitly elsewhere in the
+  // suite, so they are filtered here to keep this check about real bugs.
+  if (text.includes("Failed to load resource") && /status of (401|409|422)/.test(text)) {
+    return;
+  }
+  consoleErrors.push(text);
 });
 page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
 
@@ -111,9 +141,10 @@ try {
   check("stock tab survives a reload", selectedTab === "Movements", selectedTab);
 
   // ---------------------------------------------- clear order is confirmed
+  await ensureShift(page);
   await page.goto(`${BASE}/dashboard/pos`, { waitUntil: "networkidle" });
   await page.waitForTimeout(1400);
-  await page.locator("main button[aria-label^='Add ']").first().click();
+  await page.locator("main button[aria-label^='Add ']:not([disabled])").first().click();
   await page.waitForTimeout(400);
   check("cart has a line", (await page.locator("main").innerText()).includes("Current order"));
 
@@ -139,7 +170,7 @@ try {
   check("confirming empties the cart", (await page.locator("main").innerText()).includes("Order is empty"));
 
   // ---------------------------------------------------- receipt print target
-  await page.locator("main button[aria-label^='Add ']").first().click();
+  await page.locator("main button[aria-label^='Add ']:not([disabled])").first().click();
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: /^Charge|Checkout/ }).first().click();
   await page.waitForSelector('[role="dialog"]');
