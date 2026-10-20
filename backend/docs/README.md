@@ -12,13 +12,14 @@ the frontend is what codes against it:
 |---|---|---|
 | **API contract** | [`../../frontend/docs/API-CONTRACT.md`](../../frontend/docs/API-CONTRACT.md) | Every endpoint, DTO, error code and business rule. **This is the spec.** Read it before writing any route. |
 | Product requirements | [`../../frontend/docs/PRD.md`](../../frontend/docs/PRD.md) | Roles, screens, and the business-rules table. |
-| Test plan | [`../../frontend/docs/TESTING.md`](../../frontend/docs/TESTING.md) | The 154-check suite the swap is validated against. |
+| Test plan | [`../../frontend/docs/TESTING.md`](../../frontend/docs/TESTING.md) | The 182-check browser suite this API is validated against. |
 | Design tokens | [`../../frontend/docs/DESIGN.md`](../../frontend/docs/DESIGN.md) | Currency, locale, PPN rate. |
+| Test conventions | [`../test/README.md`](../test/README.md) | Why the suite needs a replica set, and what to test where. |
 
 Keep one copy. Do not fork the contract into this folder — a second copy will
 drift and then both will be wrong.
 
-## What this folder will hold
+## What this folder holds
 
 | File | Purpose |
 |---|---|

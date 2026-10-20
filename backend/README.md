@@ -5,11 +5,21 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 
 ## Status
 
-In progress. The API is specified in
-[`../frontend/docs/API-CONTRACT.md`](../frontend/docs/API-CONTRACT.md);
-implementation is being built against it module by module. See
-[`docs/README.md`](docs/README.md) for the documentation map and
+**Complete and live.** 34 contract endpoints plus `/api/health`, 9 Mongoose
+models, and 211 tests. The frontend in [`../frontend`](../frontend) resolves its
+seven repositories to this API over an httpOnly cookie session.
+
+The API is specified in
+[`../frontend/docs/API-CONTRACT.md`](../frontend/docs/API-CONTRACT.md), which
+this was built against. `test/contract.e2e.ts` asserts all 35 routes against that
+document **transcribed by hand**, so the test verifies the contract rather than
+restating the code.
+
+See [`docs/README.md`](docs/README.md) for the documentation map and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the code is arranged.
+
+Known gap: the oversell concurrency case — two tills racing for the last unit —
+is implemented via a conditional `$inc` decrement but has no automated test.
 
 ## Stack
 
