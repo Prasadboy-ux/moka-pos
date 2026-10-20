@@ -5,8 +5,12 @@ The frontend codes against seven repository interfaces in
 HTTP, plus the rules the server must enforce so behaviour does not change when
 the swap happens.
 
-**Nothing here is implemented yet.** The app runs entirely against a mock. When
-the API lands, the change is confined to `src/lib/repositories/index.ts`.
+**This contract is implemented.** The API in
+[`../../backend`](../../backend/README.md) was built against this document, and
+`backend/test/contract.e2e.ts` asserts all 35 routes against it **transcribed by
+hand** — so the test checks the contract rather than restating the code. The
+frontend's `lib/repositories/index.ts` points at it, and the mock is retained
+only as a fallback for working without a database running.
 
 ## 1. Conventions
 
@@ -46,7 +50,7 @@ as a sentence with a next step where one exists — not "Invalid input".
 ```
 
 Reasons in use: `last-active-admin` · `category-in-use` · `already-open-shift` ·
-`already-closed-shift` · `username-taken`.
+`already-closed-shift` · `no-open-shift` · `username-taken`.
 
 ### Security rules the server owns
 
@@ -310,6 +314,10 @@ Server rules:
 
 Inside a single MongoDB transaction:
 
+0. The cashier must have an **open shift**. No open shift →
+   `409 conflict` reason `no-open-shift`, nothing written. This applies to
+   **every role, admins included** — an admin's cash sale misses the drawer
+   count just as badly as a cashier's.
 1. Re-read every line's product. Reject unknown ids.
 2. Recompute `subtotal`, `taxAmount` (PPN 10%, rounded to whole rupiah), and
    `total` from stored prices. **Never trust a total from the client.**
@@ -317,7 +325,8 @@ Inside a single MongoDB transaction:
    needs every ingredient to cover `recipe.qty × qty`. Otherwise →
    `409 insufficient-stock`, naming the short ingredient.
 4. Assign the next `receiptNo` (`MOKA-####`).
-5. Write the order with denormalised lines.
+5. Write the order with denormalised lines and the `shiftId` of the open shift
+   it was sold under (historical — a later close never rewrites it).
 6. Decrement stock and append the movements.
 
 If any step fails, **nothing is written.** This mirrors what the mock does with
@@ -339,7 +348,9 @@ duplicate charge. Keyed on the header, returning the original order.
 
 ## 9. Shifts
 
-`ShiftRepository` — records only; nothing gates on them yet.
+`ShiftRepository` — a shift **gates selling**: `POST /api/orders` refuses with
+`409 no-open-shift` until the cashier has one open, and closing one reconciles
+the drawer.
 
 | Method | Endpoint |
 |---|---|
@@ -350,15 +361,31 @@ duplicate charge. Keyed on the header, returning the original order.
 
 ```jsonc
 Shift { id, userId, userName, openedAt, openingFloat, closedAt | null,
-        closingCounted | null, status: "open" | "closed" }
+        closingCounted | null, status: "open" | "closed",
+        // reconciliation — filled in at close, null while open
+        cashSales | null, expectedCash | null, variance | null }
 ```
 
 - `409 already-open-shift` when the user has one open.
 - `409 already-closed-shift` on double close.
+- `403 forbidden` when a non-admin tries to close someone else's shift. Admins
+  may close any shift (a manager closing a till at end of day).
 - `userId` / `cashier.id` come from the session.
 
-Cash reconciliation is **not** in scope: closing stores a counted float, and
-nothing compares it against cash sales inside the shift.
+### Cash reconciliation
+
+Closing computes, from data the server owns:
+
+- `cashSales` — sum of `total` on orders with `paymentMethod: "cash"` and this
+  `shiftId`. Non-cash takings never touch the drawer, so they are excluded.
+- `expectedCash` — `openingFloat + cashSales`.
+- `variance` — `counted − expectedCash`. Negative is short; positive is over.
+
+These three are **stored on the shift at close time**, not recomputed on read:
+the figures are what the drawer was judged against when it was counted, and a
+later edit to history must not change yesterday's variance. The close response
+is the closed `Shift` including all three, so the UI can show the result without
+a second round-trip.
 
 ## 10. Suggested MongoDB shape
 
@@ -376,10 +403,12 @@ products         { _id, name, categoryId, price, image, stockMode,
 
 orders           { _id, receiptNo, lines: [{ productId, name, price, qty, stockMode }],
                    subtotal, taxRate, taxAmount, total, paymentMethod,
-                   paidAmount, changeAmount, cashierId, cashierName, createdAt }
+                   paidAmount, changeAmount, cashierId, cashierName, shiftId,
+                   createdAt }
                  unique index on receiptNo
                  index on createdAt (the reports range-scan it)
                  index on cashierId
+                 index on shiftId (reconciliation sums cash sales per shift)
                  NO index on lines.productId — lines are embedded and never joined
 
 stock_movements  { _id, type, ingredientId?, productId?, label, qty, unit,
@@ -387,7 +416,8 @@ stock_movements  { _id, type, ingredientId?, productId?, label, qty, unit,
                  index on createdAt desc, on ingredientId, on productId
 
 shifts           { _id, userId, userName, openedAt, openingFloat,
-                   closedAt?, closingCounted?, status }
+                   closedAt?, closingCounted?, status,
+                   cashSales?, expectedCash?, variance? }
                  index on { userId, status }
 ```
 
@@ -416,14 +446,23 @@ Stated explicitly so nobody builds it:
 
 ## 12. Acceptance for the swap
 
-The API is done when:
+The API was done when:
 
 1. A new implementation of the seven interfaces returns real data.
-2. `getRepositories()` points at it. **That is the only file changed.**
-3. `npm run smoke` passes **154/154 unchanged**.
+2. `getRepositories()` points at it. **That is the only file changed.** — 27 lines
+   in `index.ts`.
+3. `npm run smoke` passes unchanged.
+
+**All three met.** 182/182 checks pass against the live API.
 
 Point 3 is the real test. It covers catalogue CRUD, stock adjustments and their
 refusals, the ledger, a full sale through to the receipt, report ranges and CSV,
 account creation and deactivation, the role gate, and the print layout — against
-whatever the API does. If a screen had to be edited, the abstraction leaked, and
-that is worth knowing before it spreads.
+whatever the API does. No screen was edited, which is the evidence that the
+abstraction held.
+
+What *did* change was test setup, and it is worth recording: five suites used to
+clear `moka-pos.auth` from `localStorage` to sign out. The session is now an
+httpOnly cookie that the page cannot read or clear, so those suites call
+`POST /api/auth/logout`. The application contract was unaffected; only the tests
+had to learn the new mechanism.
