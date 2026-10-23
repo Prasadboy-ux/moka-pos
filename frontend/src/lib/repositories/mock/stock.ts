@@ -3,7 +3,7 @@
 import { mutate, readDb } from "@/lib/repositories/mock/db";
 import { clone, simulateLatency } from "@/lib/repositories/mock/helpers";
 import type { Database, StockRepository } from "@/lib/repositories/types";
-import type { StockMovement } from "@/types/pos";
+import type { Product, StockMovement } from "@/types/pos";
 
 /**
  * The single writer for stock numbers.
@@ -27,6 +27,36 @@ function recordMovement(
   // Newest first, which is the order every screen reads them in.
   db.movements.unshift(entry);
   return entry;
+}
+
+/**
+ * Opening level for a newly created direct product.
+ *
+ * The HTTP path takes the actor from the session. The mock has no session, so
+ * the opening row is attributed to a system actor rather than letting the
+ * ledger start without one.
+ */
+export function recordOpeningStock(
+  db: Database,
+  product: Product,
+  qty: number,
+): StockMovement | null {
+  if (product.stockMode !== "direct") return null;
+
+  product.stock = qty;
+  if (qty === 0) return null;
+
+  return recordMovement(db, {
+    type: "purchase",
+    ingredientId: null,
+    productId: product.id,
+    label: product.name,
+    qty,
+    unit: "pcs",
+    note: "Opening stock",
+    byUserId: "system",
+    byUserName: "System",
+  });
 }
 
 /**

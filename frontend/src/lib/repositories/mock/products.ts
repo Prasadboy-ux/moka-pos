@@ -2,13 +2,14 @@
 
 import { mutate, readDb } from "@/lib/repositories/mock/db";
 import { clone, simulateLatency, slugify, uniqueId } from "@/lib/repositories/mock/helpers";
+import { recordOpeningStock } from "@/lib/repositories/mock/stock";
 import type { ProductInput, ProductRepository } from "@/lib/repositories/types";
 import type { Product } from "@/types/pos";
 
 /**
- * Opening stock is carried by the product record on create, because there is no
- * ingredient ledger to route it through. Later changes go through
- * `stockRepository.adjust` so they are always audited.
+ * Opening stock is written through `recordOpeningStock` in the mock's stock
+ * module, so the ledger opens with the same count the product starts with.
+ * Later changes go through `stockRepository.adjust` so they are always audited.
  */
 
 /** Drops the fields that do not belong to the product's stock mode. */
@@ -26,7 +27,7 @@ function normalise(input: ProductInput, id: string): Product {
   if (input.stockMode === "direct") {
     return {
       ...base,
-      stock: input.stock ?? 0,
+      stock: 0,
       minStock: input.minStock ?? 0,
       recipe: [],
     };
@@ -67,6 +68,7 @@ export const productRepository: ProductRepository = {
       );
 
       db.products.push(product);
+      recordOpeningStock(db, product, input.stock ?? 0);
       return clone(product);
     });
   },

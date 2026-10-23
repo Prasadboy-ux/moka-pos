@@ -374,6 +374,14 @@ Ordered by what earns its keep first.
 
 ## Changelog
 
+### 2026-10-23 — Split-repo CI and mock ledger parity
+
+- Added `.github/workflows/ci.yml` so the standalone `fe-moka-pos` repository
+  runs lint, typecheck, unit tests, and build on every push.
+- The mock product repository now writes the opening count as a `purchase`
+  movement through `recordOpeningStock`, attributed to a system actor because
+  the mock has no session, matching the HTTP path's ledger behavior.
+
 ### 2026-10-23 — Remediation: unit tests, regressions, deployment entry
 
 The audit remediation is complete. Backend e2e is 224/224 across 10 files plus
