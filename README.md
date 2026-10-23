@@ -140,8 +140,11 @@ remediation. Still untracked and not created by this pass:
 
 ## Remaining work, in order
 
-1. **Re-run CI after pushing.** All local commands are green, and the workflow
-   now includes `npm test` for the frontend before Build.
+1. **Re-run CI once a monorepo remote exists.** All local commands are green,
+   and the workflow now includes `npm test` for the frontend before Build. The
+   frontend tree was synced to `fe-moka-pos` (`7418246`), but the old
+   `moka-pos` origin still returns "Repository not found", so the monorepo
+   workflow has never run.
 2. **Verify Vercel routing if that deployment is used.** Local tests prove the
    catch-all entry identity; they do not exercise Vercel's rewrite machinery.
 3. **Optional follow-ups.** See the review notes below; none blocks release.
