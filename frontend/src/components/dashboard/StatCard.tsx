@@ -40,7 +40,15 @@ export function StatCard({
           <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
             {label}
           </p>
-          <p className="mt-1 truncate text-xl font-bold tracking-tight tabular-nums">
+          {/*
+            `text-2xl` at the small end and a title attribute: a revenue figure
+            like "Rp 128.500.000" used to clip silently at text-xl with no way
+            to read the rest.
+          */}
+          <p
+            className="mt-1 truncate text-2xl font-bold tracking-tight tabular-nums"
+            title={value}
+          >
             {value}
           </p>
           {hint ? (

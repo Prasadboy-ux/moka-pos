@@ -18,7 +18,7 @@ import {
   dayKeyDaysAgo,
   delta,
   getSalesReport,
-  toDayKey,
+  monthStartMonthsAgo,
   todayKey,
   type CashierSalesRow,
   type CategorySalesRow,
@@ -54,18 +54,13 @@ function rangeFor(preset: Exclude<Preset, "custom">): { from: string; to: string
       return { from: todayKey(), to: todayKey() };
     case "30d":
       return { from: dayKeyDaysAgo(29), to: todayKey() };
-    case "12m": {
+    case "12m":
       /**
        * Back to the first of the month 11 months back, so the range is twelve
        * whole calendar months ending with the current one — which is the shape
        * that makes the chart switch to monthly buckets.
        */
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      start.setDate(1);
-      start.setMonth(start.getMonth() - 11);
-      return { from: toDayKey(start.getTime()), to: todayKey() };
-    }
+      return { from: monthStartMonthsAgo(11), to: todayKey() };
     case "7d":
     default:
       return { from: dayKeyDaysAgo(6), to: todayKey() };

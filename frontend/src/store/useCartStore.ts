@@ -81,6 +81,7 @@ interface CartState {
    */
   add: (product: Product, qty: number, limit: number | null) => void;
   setQty: (productId: string, qty: number, limit: number | null) => void;
+  setTaxRate: (taxRate: number) => void;
   remove: (productId: string) => void;
   clear: () => void;
   qtyOf: (productId: string) => number;
@@ -151,6 +152,8 @@ export const useCartStore = create<CartState>()((set, get) => ({
               ),
       };
     }),
+
+  setTaxRate: (taxRate) => set({ taxRate }),
 
   remove: (productId) =>
     set((state) => ({

@@ -43,28 +43,27 @@ export async function authenticate(input: LoginInput): Promise<SessionUser> {
   }
 
   if (!user.isActive) {
-    throw new ApiError(401, {
-      error: 'unauthenticated',
-      message:
-        'This account has been deactivated. Ask an administrator to restore it.',
-    });
+    throw ApiError.unauthenticated(
+      'This account has been deactivated. Ask an administrator to restore it.',
+      'inactive',
+    );
   }
 
   if (input.role !== undefined && input.role !== user.role) {
-    throw new ApiError(403, {
-      error: 'forbidden',
-      message: `You are signed in as a ${user.role}. Please pick ${user.role} and try again.`,
-    });
+    throw ApiError.forbidden(
+      `You are signed in as a ${user.role}. Please pick ${user.role} and try again.`,
+      'role-mismatch',
+    );
   }
 
   return toSessionUser(user);
 }
 
 function invalidCredentials(): ApiError {
-  return new ApiError(401, {
-    error: 'unauthenticated',
-    message: 'That username and password do not match an account.',
-  });
+  return ApiError.unauthenticated(
+    'That username and password do not match an account.',
+    'invalid',
+  );
 }
 
 /**

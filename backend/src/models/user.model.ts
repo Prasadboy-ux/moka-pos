@@ -1,4 +1,4 @@
-import { Schema, model } from 'mongoose';
+import { Schema, model, type ClientSession } from 'mongoose';
 import { toApiJson, USERNAME_COLLATION } from './shared.js';
 
 /**
@@ -45,8 +45,9 @@ userSchema.index(
  * match, so it would miss `ADMIN` for the account stored as `admin`, while the
  * unique index would still refuse to create a duplicate.
  */
-export function findByUsername(username: string) {
-  return UserModel.findOne({ username }).collation(USERNAME_COLLATION);
+export function findByUsername(username: string, session?: ClientSession) {
+  const query = UserModel.findOne({ username }).collation(USERNAME_COLLATION);
+  return session ? query.session(session) : query;
 }
 
 export type Role = 'admin' | 'kasir';

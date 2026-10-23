@@ -3,6 +3,7 @@
 import type { Repositories } from "@/lib/repositories/types";
 import {
   categoryRepository,
+  configRepository,
   ingredientRepository,
   productRepository,
   userRepository,
@@ -32,6 +33,7 @@ let instance: Repositories | null = null;
 
 export function getRepositories(): Repositories {
   instance ??= Object.freeze({
+    config: configRepository,
     categories: categoryRepository,
     ingredients: ingredientRepository,
     products: productRepository,
@@ -46,6 +48,7 @@ export function getRepositories(): Repositories {
 
 export type {
   Repositories,
+  ConfigRepository,
   CategoryRepository,
   IngredientRepository,
   ProductRepository,

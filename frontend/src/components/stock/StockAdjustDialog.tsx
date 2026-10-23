@@ -36,36 +36,32 @@ import type { Ingredient, MovementType, Product } from "@/types/pos";
  *
  * The reason is chosen rather than typed freeform, and the note is optional:
  * "waste" and "adjustment" are decisions someone will need to explain later, so
- * the ledger needs them separated. Sign is derived from the reason — purchases
- * add, waste removes, correction is either — so an admin cannot accidentally
- * record a purchase as a removal.
+ * the ledger needs them separated. Purchases and waste derive their sign from
+ * the reason; a correction keeps the sign the admin typed, because the whole
+ * point of a correction is that the recorded level can be wrong in either
+ * direction.
  */
 
 type Reason = Exclude<MovementType, "sale">;
 
-/** 0 means "either way": a correction keeps the direction the admin typed. */
 const REASONS: Array<{
   value: Reason;
   label: string;
-  sign: 1 | -1 | 0;
   hint: string;
 }> = [
   {
     value: "purchase",
     label: "Purchase",
-    sign: 1,
     hint: "Stock received from a supplier.",
   },
   {
     value: "waste",
     label: "Waste",
-    sign: -1,
     hint: "Spilled, expired, or dropped.",
   },
   {
     value: "adjustment",
     label: "Correction",
-    sign: 0,
     hint: "A recount disagreed with the recorded level.",
   },
 ];
@@ -74,7 +70,9 @@ const schema = z.object({
   target: z.enum(["ingredient", "product"]),
   targetId: z.string().min(1),
   reason: z.enum(["purchase", "waste", "adjustment"]),
-  qty: z.number({ error: "Enter a quantity" }).positive("Must be more than 0"),
+  qty: z
+    .number({ error: "Enter a quantity" })
+    .refine((value) => value !== 0, "Quantity cannot be zero"),
   note: z.string().max(240),
 });
 
@@ -138,37 +136,24 @@ function AdjustBody({
 
   const [reason, qty] = useWatch({ control, name: ["reason", "qty"] });
 
-  const sign = REASONS.find((r) => r.value === reason)?.sign ?? 0;
   const amount = Number.isFinite(qty) ? qty : 0;
 
   /**
-   * A correction can move stock either way, so it gets both projections rather
-   * than a guess. The reorder warning attaches to whichever outcome lands lower,
-   * since that is the one worth catching before saving.
+   * A correction keeps its sign. The old UI showed both an addition and a
+   * removal for every correction, then sent the positive one — so correcting a
+   * count downwards silently added stock. One signed delta and one projection is
+   * the only reading that matches what gets saved.
    */
-  const outcomes =
-    sign === 1
-      ? [{ level: current + amount, direction: "add" as const }]
-      : sign === -1
-        ? [{ level: current - amount, direction: "remove" as const }]
-        : [
-            { level: current + amount, direction: "add" as const },
-            { level: current - amount, direction: "remove" as const },
-          ];
+  const delta =
+    reason === "purchase"
+      ? Math.abs(amount)
+      : reason === "waste"
+        ? -Math.abs(amount)
+        : amount;
 
-  const lowestOutcome = outcomes.reduce((lowest, outcome) =>
-    outcome.level < lowest.level ? outcome : lowest,
-  );
-  const wouldWarn = lowestOutcome.level < minStock;
-
-  const projectionText = outcomes
-    .map(
-      (outcome) =>
-        `${formatNumber(outcome.level)} ${unit} ${
-          outcome.direction === "add" ? "added" : "removed"
-        }`,
-    )
-    .join(" · ");
+  const nextLevel = current + delta;
+  const wouldWarn = nextLevel < minStock;
+  const projectionText = `${formatNumber(nextLevel)} ${unit}`;
 
   async function onSubmit(values: Values) {
     setPending(true);
@@ -184,8 +169,7 @@ function AdjustBody({
         target: values.target,
         targetId: values.targetId,
         type: values.reason,
-        // A correction keeps whatever direction the admin typed.
-        qty: sign === 0 ? values.qty : sign * values.qty,
+        qty: delta,
         note:
           values.note.trim() ||
           REASONS.find((r) => r.value === values.reason)?.label ||
@@ -246,21 +230,34 @@ function AdjustBody({
 
         <div className="space-y-2">
           <Label htmlFor="adjust-qty">
-            Quantity {sign === -1 ? "removed" : "added"} ({unit})
+            {reason === "purchase"
+              ? `Quantity added (${unit})`
+              : reason === "waste"
+                ? `Quantity removed (${unit})`
+                : `Change (${unit})`}
           </Label>
           <Input
             id="adjust-qty"
             type="number"
             inputMode="decimal"
-            min={0}
+            min={reason === "adjustment" ? undefined : 0}
             step="any"
-            placeholder="0"
+            placeholder={reason === "adjustment" ? "e.g. -3…" : "0"}
             aria-invalid={Boolean(errors.qty)}
+            aria-describedby={
+              reason === "adjustment" ? "adjust-qty-hint" : undefined
+            }
             {...register("qty", { valueAsNumber: true })}
           />
+          {reason === "adjustment" ? (
+            <p id="adjust-qty-hint" className="text-xs text-muted-foreground">
+              Use a positive number to add stock, or a negative number to remove
+              it.
+            </p>
+          ) : null}
           <FieldError message={errors.qty?.message} />
 
-          {amount > 0 ? (
+          {delta !== 0 ? (
             <div
               className={
                 wouldWarn
@@ -274,7 +271,7 @@ function AdjustBody({
               <span>
                 New level: {projectionText}.
                 {wouldWarn
-                  ? ` The lower figure is below the reorder point of ${formatNumber(minStock)}.`
+                  ? ` That is below the reorder point of ${formatNumber(minStock)}.`
                   : ""}
               </span>
             </div>

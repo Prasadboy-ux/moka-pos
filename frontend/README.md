@@ -1,38 +1,45 @@
-# Moka Cafe POS
+# Moka Cafe POS — Frontend
 
-Point of sale for Moka Cafe. Frontend-first build in Next.js + TypeScript, with
-Express and MongoDB deferred until the UI is proven.
+Point of sale for Moka Cafe. Next.js 16 + TypeScript, talking to an Express 5 +
+MongoDB API in [`../backend`](../backend/README.md) over an httpOnly cookie
+session.
 
 > **This README is the living changelog.** Every update gets an entry in
 > [Changelog](#changelog) — append newest first, never rewrite history.
 
-> **Looking for the requirements docs?** See [`docs/`](./docs/README.md) — PRD,
-> TRD, API contract, testing, and design system.
+> **Requirements docs?** [`docs/`](./docs/README.md) — PRD, TRD, API contract,
+> testing, design system.
 
 ---
 
-## Status
+## Where the project stands
+
+The frontend is complete and now runs against a real server. There is no mock in
+the request path.
 
 | Area | State |
 |---|---|
 | Toolchain | Done — Next 16, TypeScript strict, Tailwind v4, shadcn/ui |
 | Design system | Done — brand tokens from logo palette |
-| Login (Kasir / Admin) | **Done** |
-| App shell + role routing | **Done** |
-| POS + checkout + receipt | **Done** — cash, QRIS, debit, credit, PPN |
-| Menu illustrations | **Done** — 20 illustrated items |
-| Admin Overview dashboard | **Done** — KPIs, trend, payment mix, low stock |
-| Product management | **Done** — CRUD, recipe editor, categories, archive |
-| Stock management | **Done** — levels, adjustments, movement ledger |
-| Reports | **Done** — date range, period comparison, CSV export |
-| User management | **Done** — create, role, activate/deactivate |
-| Selling moves stock | **Done** — recipes and counted items, with ledger |
-| Interface guidelines | **Done** — touch targets, reduced motion, print, URL state |
-| Shift open / close | Records only — no POS gate, no cash reconciliation |
-| Express + MongoDB | Not started — see [What we can build next](#what-we-can-build-next) |
+| Login (Kasir / Admin) | Done — server sessions, three distinct refusals |
+| App shell + role routing | Done — client guard **and** server enforcement |
+| POS + checkout + receipt | Done — cash, QRIS, debit, credit, PPN |
+| Transactions | Done — search, reprint, WhatsApp send |
+| Menu illustrations | Done — 20 illustrated items |
+| Admin Overview dashboard | Done — KPIs, trend, payment mix, low stock |
+| Product management | Done — CRUD, recipe editor, categories, archive |
+| Stock management | Done — levels, adjustments, movement ledger |
+| Reports | Done — date range, period comparison, CSV export |
+| User management | Done — create, role, activate/deactivate |
+| Selling moves stock | Done — server-side Mongo transaction |
+| Interface guidelines | Done — touch targets, reduced motion, print, URL state |
+| Repository seam | Done — flipped from mock to HTTP in one file |
+| Backend API | Done — 35 routes, 9 models, 239 tests |
+| Shift gating + reconciliation | Done — POS refuses to sell with no open shift; close stores the drawer count |
+| Unit tests (frontend) | Done — Vitest, 18 tests across 2 files |
 
-Frontend is complete and self-contained: no API routes, no server code, no
-server dependencies. The backend has a written contract to implement.
+**Screens:** 8 routes (login + 7 dashboard screens). Cashiers reach 2 of them,
+admins reach all 7.
 
 ## Tech stack
 
@@ -45,16 +52,34 @@ server dependencies. The backend has a written contract to implement.
 | Components | shadcn/ui (`new-york` style) | 4.22.0 |
 | Forms | react-hook-form + zod | 7.90.0 / 4.6.7 |
 | State | Zustand (auth, cart) | 5.0.15 |
+| HTTP | axios | 1.x |
 | Icons | lucide-react | 1.59.0 |
 | Validation | ESLint 9 flat config | 9.39.5 |
 | Verification | Playwright smoke scripts | 1.64.1 |
 
+99 TypeScript files, ~12,400 lines under `src/`.
+
 ## Getting started
 
+Two processes. The frontend talks to the API over HTTP, so both must be running.
+
 ```bash
+# terminal 1 — API on :3001
+cd ../backend
 npm install
-npm run dev          # http://localhost:3000
+cp .env.example .env      # then set MONGODB_URI and SESSION_SECRET
+npm run seed              # demo catalogue + 30 days of orders
+npm run dev
+
+# terminal 2 — frontend on :3000
+npm install
+cp .env.local.example .env.local
+npm run dev
 ```
+
+`NEXT_PUBLIC_API_URL` is the only frontend environment variable. It is public on
+purpose: it reaches the browser bundle, and because the session is an httpOnly
+cookie, no token or API key belongs there.
 
 | Script | Purpose |
 |---|---|
@@ -63,32 +88,42 @@ npm run dev          # http://localhost:3000
 | `npm run start` | Serve production build |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
-| `npm run smoke` | All browser smoke suites (needs a running server) |
+| `npm test` | Vitest unit tests |
+| `npm run test:watch` | Vitest in watch mode |
+| `npm run smoke` | All browser smoke suites (needs both servers) |
 
 ### Verification
 
-`scripts/` holds Playwright suites that drive the real UI against a production
-build. They are the reason the bugs listed in the Milestone 3 changelog were
-caught, so they are worth running after any change to the data layer.
+`npm test` runs Vitest over the read models and cart store. It needs no browser,
+server, or database. CI runs it before Build.
+
+`scripts/` holds seven Playwright suites that drive the real UI against a
+production build **and a live API**. They are why several bugs below were caught,
+so they are worth running after any change to the data layer.
 
 ```bash
 npm run build
-npm run start          # in one terminal
-npm run smoke          # in another
+npm run start          # terminal 1 — frontend on :3000
+npm run smoke          # terminal 2 — API must be up and seeded on :3001
 ```
 
-| Suite | Covers |
-|---|---|
-| `smoke:products` | catalogue CRUD, filters, sorting, archive, role gate |
-| `smoke:stock` | adjustments, refusal of over-withdrawal, ledger, a sale moving stock |
-| `smoke:reports` | ranges, presets, empty periods, CSV contents, role gate |
-| `smoke:users` | create, duplicate rejection, sign-in, deactivation, last-admin guard |
-| `smoke:journey` | one sale followed through till, dashboard, ledger, and report |
-| `smoke:a11y` | document metadata, skip link, reduced motion, URL state, print geometry |
-| `smoke:screens` | acceptance pass over all seven requested screens |
+| Suite | Covers | Checks |
+|---|---|---|
+| `smoke:screens` | acceptance pass over all seven dashboard screens | 46 |
+| `smoke:products` | catalogue CRUD, filters, sorting, archive, role gate | 27 |
+| `smoke:reports` | ranges, presets, empty periods, CSV contents, role gate | 25 |
+| `smoke:stock` | adjustments, refusal of over-withdrawal, ledger, a sale moving stock | 18 |
+| `smoke:users` | create, duplicate rejection, sign-in, deactivation, last-admin guard | 18 |
+| `smoke:journey` | one sale followed through till, dashboard, ledger, and report, plus the shift gate | 31 |
+| `smoke:a11y` | document metadata, skip link, reduced motion, URL state, print geometry | 22 |
 
-They use a fixed set of demo credentials and reset nothing: each script signs in,
-changes data, and leaves it.
+**187 checks total.** They run sequentially and share one session, because each
+signs in, changes data, and signs out again — parallel runs would fight over
+the same account.
+
+Note that five of the seven suites sign out over HTTP (`POST /api/auth/logout`),
+not by clearing browser storage: the session cookie is httpOnly, so the page
+cannot read or delete it.
 
 ## Demo accounts
 
@@ -97,7 +132,22 @@ changes data, and leaves it.
 | Admin | `admin` | `admin123` | `/dashboard` |
 | Cashier | `kasir` | `kasir123` | `/dashboard/pos` |
 
-The login screen lists these as click-to-fill buttons.
+The login screen lists these as click-to-fill buttons. The seed also creates a
+deliberately deactivated `kasir2` account so the "account disabled" refusal can be
+demonstrated.
+
+## Screens
+
+| Route | Screen | Roles | What it does |
+|---|---|---|---|
+| `/login` | Sign in | — | Role picker, credential check, three distinct refusals |
+| `/dashboard` | Overview | admin | Revenue today, average order, items sold, low stock, 7-day trend, payment mix, recent sales |
+| `/dashboard/pos` | Point of Sale | kasir, admin | Searchable tile grid, cart with steppers, subtotal/PPN/total, checkout across four payment methods, 80 mm receipt |
+| `/dashboard/transactions` | Transactions | kasir, admin | Every sale in a range, filter by payment, search by receipt or customer, **reprint** from the stored order, WhatsApp send |
+| `/dashboard/products` | Products | admin | Catalogue CRUD, recipe editor with live cost roll-up, category manager, archive instead of delete |
+| `/dashboard/inventory` | Inventory | admin | Ingredient levels and reorder points, counted packaged stock, full movement ledger |
+| `/dashboard/reports` | Reports | admin | Date range with presets, period-over-period comparison, revenue per day, payment mix, category revenue, top products, per-cashier takings, CSV export |
+| `/dashboard/users` | Users | admin | Create, edit, role assignment, activate/deactivate |
 
 ## Project structure
 
@@ -109,12 +159,15 @@ src/
       layout.tsx           Shell + auth/role guard
       page.tsx             Overview
       pos/                 Point of Sale
+      transactions/        Sales history + receipt reprint
       products/            Product management
       inventory/           Stock management
       reports/             Reports
       users/               User management
+      error.tsx            Route error boundary
+      not-found.tsx        Styled 404
   components/
-    ui/                    shadcn primitives
+    ui/                    22 shadcn primitives
     auth/                  LoginForm, RolePicker
     brand/                 BrandPanel
     layout/                Sidebar, Header, MobileNav
@@ -122,6 +175,7 @@ src/
     dashboard/             StatCard, OverviewWidgets, AdminOverview
     pos/                   PosScreen, ProductGrid, CartPanel,
                            CheckoutDialog, ReceiptModal
+    transactions/          TransactionsScreen
     products/              ProductsScreen, ProductFormDialog,
                            CategoryManagerDialog
     stock/                 StockScreen, StockAdjustDialog
@@ -131,10 +185,12 @@ src/
   hooks/
     useAsync.ts            One data-loading hook for every screen
     useDebouncedValue.ts   Trailing value for search boxes
+    useQueryState.ts       URL as the source of truth for filters
   lib/
     utils.ts               cn()
     format.ts              IDR currency, dates
-    csv.ts                 Quoted CSV export
+    csv.ts                 Quoted, formula-safe CSV export
+    receipt.ts             Plain-text receipt + WhatsApp deep link
     auth.ts                StoredUser -> User, the only password boundary
     demo.ts                Demo accounts shown on the login screen
     access.ts              canAccess / matchNavItem (route guard source of truth)
@@ -143,7 +199,11 @@ src/
       types.ts             The interfaces every screen codes against
       index.ts             getRepositories() — the swap point
       read-models.ts       Dashboard and report aggregations
-      mock/                Implementation backed by localStorage
+      http/                LIVE implementation — talks to the API
+        client.ts          axios instance, ApiError, error normalisation
+        catalog.ts         category, ingredient, product, user
+        commerce.ts        stock, order, shift, session
+      mock/                Offline fallback — localStorage backed
         db.ts              Versioned document, atomic read-modify-write
         seed.ts            Fixtures and 30 days of order history
         helpers.ts         Latency, slug, id uniqueness
@@ -151,12 +211,12 @@ src/
         stock.ts           The only writer of stock numbers
         orders.ts          Order writes + stock consumption, one transaction
         users.ts           Accounts and credential checks
-        shifts.ts          Shift records (not yet gated on selling)
+        shifts.ts          Shift records — the sell gate and reconciliation live in the API
   store/
-    useAuthStore.ts        Session, persisted to localStorage
+    useAuthStore.ts        In-memory session, rehydrated from GET /auth/me
     useCartStore.ts        POS cart
   types/
-    auth.ts                Role, User, StoredUser, login messages
+    auth.ts                Role, User, Session, ROLE_HOME
     pos.ts                 Product, Order, Ingredient, Shift, stock rules
 scripts/                   Playwright smoke suites
 docs/
@@ -176,55 +236,70 @@ src/app/favicon.ico        Generated from the brand mark
 ## Architecture decisions
 
 **Screens depend on interfaces, not on the data layer.** `getRepositories()`
-returns seven repository objects declared in `lib/repositories/types.ts`. The only
-file naming an implementation is `lib/repositories/index.ts`, so when Express
-exists the swap is seven imports rather than a rewrite. Every method is already
-async, which is what makes that true — a mock that answered synchronously would
+returns eight repository objects declared in `lib/repositories/types.ts`. The only
+file naming an implementation is `lib/repositories/index.ts` — which is why the
+move from mock to HTTP was **one file and 27 lines**. Every method is already
+async, which is what made that true; a mock that answered synchronously would
 have forced every call site to change shape later.
 
-**One writer for stock, and one transaction per sale.** `mock/stock.ts` is the
-only module that assigns to `ingredient.stock` or `product.stock`, so the
-movement ledger cannot drift from the levels it claims to explain. A completed
-sale writes the order, decrements stock, and appends ledger rows inside a single
-`mutate`, which snapshots and restores on failure: a stock shortfall leaves no
-receipt and no partial movement.
+**The session is an httpOnly cookie, and it is the only one.** The store holds no
+persistence middleware. `useAuthHydrated()` calls `GET /api/auth/me` once per
+document and every guard waits on it. There was a `localStorage` session before
+this; it meant two sources of truth, and a cookie readable by neither is strictly
+simpler. `axios` sends it with `withCredentials: true` rather than an
+interceptor, because there is no token to attach.
 
-**Aggregations live in read models, not in screens.** The dashboard and reports
-both need the same sums, and a screen-local copy of that arithmetic would drift
-from the other screen's figures.
+**The API client fails at the call, not at import.** `http/client.ts` creates its
+axios instance lazily behind a `Proxy`. A missing `NEXT_PUBLIC_API_URL` used to
+throw at module load, which aborted the entire production build — even though the
+variable is only needed by the one request that needs it.
 
-**No new dependencies for the admin UI.** `radix-ui` already ships select,
-switch, alert-dialog, dropdown-menu, and popover, so the shadcn components are
-written directly against it rather than fetched by the CLI. Radix has no table
-primitive, so `DataTable` is plain markup with client sorting and pagination —
-the mock returns everything at once, so server-driven paging would be architecture
-for a problem this app does not have yet.
+**Errors are one type, not seven.** `ApiError` carries the server's code, status,
+and reason. `toApiError()` normalises everything axios can throw, including "no
+response at all", which becomes a readable "Cannot reach the server" instead of a
+generic failure. `message` is used verbatim because the server writes it as a
+user-facing sentence ("Only 5000 gram on hand").
 
-**Passwords have one boundary.** `StoredUser` exists only inside the auth
-repository; `lib/auth.ts` converts it to `User`, which has no credential field.
-There is no path for a password to reach a component or the persisted session.
+**A retry at the till must not mint a second receipt.** The checkout dialog
+creates one `Idempotency-Key` when it opens and reuses it across retries; the
+server stores it. On flaky cafe wifi the checkout is resent; the server replays
+the original order and answers `200` with `Idempotent-Replay: true` instead of
+creating a second sale.
 
-**Role gating is enforced twice.** The sidebar only renders links a role can
-use, *and* `dashboard/layout.tsx` blocks rendering and redirects for any route
-the role cannot reach. The nav hiding alone is not a security boundary once
-Express exists.
+**Identity is stripped from request bodies.** The interfaces carry `actor` and
+`cashier` so the mock has a session to read. The HTTP implementation deletes both
+before sending, because the server takes the actor from the cookie. Three call
+sites do this explicitly rather than trusting the type system.
 
-**Auth decisions wait on `hydrated`.** Persisted state is read in an effect
-rather than during store creation, so guards never see a signed-in user as
-signed out mid-load. See changelog finding 2.
+**404 means `undefined`, not an exception.** `getById` promises `T | undefined`;
+the HTTP layer catches a 404 and returns `undefined` so no caller has to learn
+that a missing record throws.
 
-**Sessions live in `localStorage` under `moka-pos.auth`.** Fine for a mock.
-Before production, sessions must move server-side (HTTP-only cookie or a real
-token) — a `localStorage` session is readable by any script on the page. The
-mock database also lives in `localStorage`, which is a development convenience
-and nothing more.
+**Stock is the server's problem now, in one transaction.** `POST /api/orders`
+writes the order, decrements stock, and appends ledger rows atomically, with
+conditional `$inc` decrements so two tills cannot both sell the last pastry. The
+frontend's `mock/stock.ts` still exists as the only writer of stock numbers *in
+the mock*, and keeps the same discipline.
+
+**Aggregations live in read models, not in screens.** The dashboard, reports, and
+transactions screens all need the same sums, and a screen-local copy of that
+arithmetic would drift from the others.
+
+**Role gating is enforced twice, and now only one of them counts.** The sidebar
+only renders links a role can use, *and* `dashboard/layout.tsx` blocks rendering
+and redirects. Both are client-side and both are presentation. The real check is
+`requireRole` in `backend/src/middleware/session.ts`, which re-reads the user
+document on every request.
+
+**Nothing is hard-deleted, except where history makes it safe.** Products archive
+and users deactivate, because sales reference both by id. Ingredients have no
+delete route at all, because it would orphan recipe rows. Products *can* be
+deleted, because order lines denormalise the name and price at sale time.
+
+**Money is integer rupiah everywhere.** No floats, in the client or the server.
 
 **`minStock` is a reorder threshold, not a sell block.** Items stay sellable down
-to zero; crossing `minStock` raises an admin alert. Change this only if the cafe
-wants to hard-stop selling.
-
-**Nothing is hard-deleted.** Products archive, users deactivate. Sales reference
-both by id, and deleting either would leave historical totals unresolvable.
+to zero; crossing `minStock` raises an admin alert.
 
 ## Brand tokens
 
@@ -239,116 +314,239 @@ Defined in `src/app/globals.css`, lifted from `asset/logo/moka-logo.svg`:
 | `--brand-ink` | `#0f2027` | Foreground text |
 | `--primary` | `#00a5bd` | Buttons, active states |
 
-`--primary` is the logo cyan darkened slightly so white text on top of it
-clears WCAG AA contrast. A `.dark` block is defined but not yet reachable in the
-UI.
+`--primary` is the logo cyan darkened slightly so white text on top of it clears
+WCAG AA contrast. A `.dark` block is defined but not yet reachable in the UI.
+
+## The backend, in brief
+
+The frontend owns the contract; the backend implements it. Full detail in
+[`../backend/README.md`](../backend/README.md) and
+[`../backend/docs/ARCHITECTURE.md`](../backend/docs/ARCHITECTURE.md).
+
+| | |
+|---|---|
+| Framework | Express 5, ESM, TypeScript strict |
+| Database | MongoDB via Mongoose 9 |
+| Auth | httpOnly `moka_session` cookie, HS256 JWT via `jose`, scrypt password hashing via `node:crypto` |
+| Routes | 35 contract endpoints + `/api/health` |
+| Models | 9 collections with indexes |
+| Tests | 239 — 224 e2e across 10 files (Supertest + in-memory replica set) + 15 unit |
+| Lint | oxlint (type-aware) + Prettier |
+| Hardening | Login + API rate limits, pino logging, compression, CI |
+
+The endpoint list is derived from `src/lib/repositories/types.ts` and written up
+in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md). `backend/test/contract.e2e.ts`
+asserts all 35 routes against that document **transcribed by hand**, so the test
+checks the contract rather than restating the code.
+
+Dates cross the wire as `yyyy-mm-dd` in `STORE_TIMEZONE` (Asia/Jakarta by
+default) — parsed as a bare date, a `to` bound lands at midnight and silently
+drops that day's sales, which is a bug the mock had and the server fixed
+deliberately.
 
 ---
 
-## What we can build next
+## What comes next
 
-The frontend is complete and self-contained, so the roadmap is mostly "what a
-server unlocks" and "what the cafe will inevitably ask for". Ordered by what
-earns its keep first.
+Ordered by what earns its keep first.
 
-### 1. Express + MongoDB — the real unlock
-
-The contract is already written. `src/lib/repositories/types.ts` declares seven
-interfaces, every method async, which is what makes them implementable over HTTP
-without touching a screen:
-
-| Interface | Methods |
-|---|---|
-| `CategoryRepository` | list, create, update, remove, reorder |
-| `IngredientRepository` | list, getById, create, update |
-| `ProductRepository` | list, getById, create, update, setActive, archive |
-| `StockRepository` | movements, adjust, levelOf, value |
-| `UserRepository` | list, create, update, setActive, authenticate |
-| `OrderRepository` | list, getById, recent, create |
-| `ShiftRepository` | current, list, open, close |
-
-Six input DTOs (`CategoryInput`, `IngredientInput`, `ProductInput`,
-`StockAdjustInput`, `UserInput`, `CreateOrderInput`) are the request bodies, and
-`src/types/pos.ts` plus `src/types/auth.ts` are the response shapes. Suggested
-collections: `users`, `categories`, `ingredients`, `products` (recipe embedded),
-`orders` (lines embedded, so a receipt never needs a join), `stock_movements`,
-`shifts`.
-
-What the mock genuinely cannot do, and what a server fixes:
-
-- **Two tills at once.** The store is per-browser `localStorage`, so two
-  cashiers are two unrelated datasets.
-- **Durability.** Clearing site data erases the whole business.
-- **Real enforcement.** Role checks are client-side today. Hiding a nav item is
-  not authorisation; the server must re-check on every route.
-- **Race safety.** Two tills selling the last pastry can both pass the stock
-  check. A Mongo transaction makes the decrement and the sale one atomic write —
-  the same guarantee `mock/stock.ts` gives today with its snapshot-and-restore.
-
-Then: httpOnly-cookie sessions in place of the `localStorage` session, and a
-server-side guard so `/dashboard/users` refuses a cashier even without the UI.
-
-### 2. Features the frontend already has a seam for
-
-These are not rewrites; each is a screen on top of something that exists.
-
-- **Shift gating.** `shiftRepository` records shifts and `Shift` is fully typed,
-  but the POS does not require an open shift. Blocking checkout with no open
-  shift is one condition in `CheckoutDialog`.
-- **Cash reconciliation.** `Shift.close` already takes a counted float; nothing
-  compares it against cash sales inside the shift. An X-report closes the gap.
-- **Receipt reprint.** `OrderRepository.getById` exists and no screen calls it —
-  it is what a receipt reprint button and an order-history screen need.
-- **Cashier home view.** Cashiers currently land straight on the POS. A
-  "my shift today" view would use `OrderRepository.list({ cashierId })`.
-
-### 3. What the cafe will ask for
-
-Roughly in the order it comes up.
-
-- **Real prices and supplier costs.** `costPerUnit` is rupiah per ml/gram now but
-  the numbers are invented. Supplier invoices make margin, COGS, and gross
-  profit real — and `ProductFormDialog` already shows cost, margin, and gross per
-  cup, so the UI needs no change.
-- **Discounts and promotions.** No concept exists. Needs a line-level or
-  order-level adjustment, a reason code, and a place in the ledger.
-- **Split bills and table service.** Orders are currently one payment. Tab or
-  table grouping means an order can settle in parts.
-- **Product photo upload.** Products pick from the 20 fixed illustrations in
-  `public/menu/`. Real uploads need a storage decision — S3 or local disk served
-  by Express.
-- **Kitchen display / order queue.** The till prints the order; a second screen
-  showing what is outstanding is mostly front-end plus a socket.
-
-### 4. Hardening worth doing at some point
-
-- **Unit tests.** Only browser smoke suites exist (154 checks, all end-to-end).
-  The aggregation and stock rules in `read-models.ts` and `types/pos.ts` are
-  pure functions and are where unit tests pay off most.
-- **CI.** `typecheck`, `lint`, `build`, and `npm run smoke` are all scripted and
-  ready to run in GitHub Actions on every push. Nothing wires them up yet.
-- **Dark mode.** The palette and tokens exist; only the toggle is missing.
-- **PWA.** `appleWebApp` metadata is already set. An offline-capable installable
-  build would suit a till with flaky wifi.
-- **Indonesian copy.** The copy and the dates are English; the currency,
-  number grouping, and the `PPN` tax acronym stay Indonesian, which is correct
-  for the setting. Translating the UI would be a copy pass, not a refactor —
-  but `<html lang>` and the date locale would have to move with it, and
-  `smoke:a11y` asserts `lang`.
-
-### 5. Worth deciding before writing the API
-
-1. **Session strategy** — httpOnly cookie (recommended, survives XSS) versus a
-   token in memory (needs an interceptor in every axios call).
-2. **Whether shift gating ships with v1** — it changes the POS's opening
-   behaviour, so retrofitting it later touches a screen that is already busy.
-3. **Whether roles stay fixed at two.** The code assumes `admin | kasir`
-   everywhere; a third role means widening `Role` and re-checking `lib/nav.ts`.
-4. **Image storage** — decides whether Express serves files or presigned URLs do.
+1. **Deployment.** Hosting is settled — Vercel for this app; the API has a Vercel
+   catch-all entry (`backend/api/[...path].ts`), with Railway or Render as
+   alternatives, and MongoDB Atlas for the data. The remaining work is the Atlas
+   cluster itself plus the environment variables each platform needs
+   (`NEXT_PUBLIC_API_URL` here; `MONGODB_URI`, `SESSION_SECRET`,
+   `CORS_ORIGIN`, `COOKIE_SECURE` there). CI already runs the backend suite,
+   frontend unit tests, and the frontend build on every push.
+2. **Real prices and supplier costs.** `costPerUnit` is rupiah per ml/gram now but
+   the numbers are invented. Supplier invoices make margin, COGS, and gross profit
+   real — and the product form already shows cost, margin, and gross per cup, so
+   the UI needs no change.
+3. **What the cafe will ask for:** discounts and promotions (no concept exists),
+   split bills and table service, product photo upload (needs a storage
+   decision), and a kitchen display / order queue.
+4. **Dark mode.** The palette and tokens exist; only the toggle is missing.
+5. **Indonesian copy.** The copy and dates are English; the currency, number
+   grouping, and the `PPN` tax acronym stay Indonesian, which is correct for the
+   setting. A copy pass rather than a refactor — but `<html lang>` and the date
+   locale would have to move with it, and `smoke:a11y` asserts `lang`.
 
 ---
 
 ## Changelog
+
+### 2026-10-23 — Remediation: unit tests, regressions, deployment entry
+
+The audit remediation is complete. Backend e2e is 224/224 across 10 files plus
+15/15 unit tests; frontend Vitest adds 18 tests for revenue allocation, calendar
+keys, dashboard ranges, and cart totals.
+
+- Fixed the stale backend expectations for direct/recipe product shape, the
+  partial unique open-shift index, and the auth `reason` envelope.
+- Added regressions for opening stock, edit-never-writes-stock, stock signs,
+  inactive-product and underpayment refusal, auth failure reasons, duplicate
+  shifts, sale-vs-close, concurrent last-admin demotion, concurrent duplicate
+  usernames, and the `/api/config` contract route.
+- Duplicate-key races on user create/update now return `409 username-taken`
+  rather than a 500.
+- `Intl.DateTimeFormat` instances are cached per timezone, removing the
+  cold-start timeout in the dates spec.
+- Added `api/[...path].ts` for Vercel and removed the path-dropping rewrite.
+- Refreshed `docs/API-CONTRACT.md` with eight repositories, config, product JSON,
+  stock signs, revenue allocation, timezone behavior, and idempotency lifecycle.
+- Smoke suites pass 187/187 across 7 suites against an isolated seeded replica
+  set and the production build.
+
+### 2026-10-23 — Milestone 7: design audit pass — contrast, tablet till, token discipline
+
+A full review against the Vercel Web Interface Guidelines and the project's own
+`docs/DESIGN.md`, which several rules in the code did not actually meet.
+
+**Contrast, which the design doc certified but did not have**
+
+`--primary` was `#00a5bd` and claimed to clear WCAG AA — it measures ≈3:1 with
+white, failing for every primary button, active sidebar item, chip, and the
+product tile prices. It is now `#007a87` (≈5:1), with `--ring` and
+`--sidebar-primary` moved with it. The bright logo cyan stays in
+`--brand-cyan` for gradients and non-text accents. The focus ring was also
+invisible — `#00c4df` at `ring/50` — and is now full-opacity.
+
+**The till on a tablet**
+
+The POS two-column layout started at `xl` (1280px), so iPad landscape
+(1024–1279px) stacked the cart under the entire menu grid. It now splits at
+`lg`, keeping the sticky cart beside the tiles where the Charge button stays
+reachable during a rush.
+
+**Touch targets** — category chips (POS and admin) went 30px → 40px minimum,
+cart "Clear" from a ~16px bare text button to 40px, the dialog close × to
+40px, sidebar links to 40px min-height, and the default `Button` scale is one
+step taller than stock shadcn (`default` h-10, `sm` h-9).
+
+**Checkout correctness** — the phone field showed a destructive error and
+`aria-invalid` on an empty optional field; it now only fires once something is
+typed. Payment tabs kept their accessible names below `sm` (`sr-only` instead
+of `display: none`). A disabled **Complete sale** now explains itself ("Enter
+at least Rp 33.000 more…") via `aria-describedby`, and the Still-due readout
+is a polite live region.
+
+**Tokens** — new `--success` / `--warning` (light + dark) mapped through
+`@theme`, replacing raw `emerald`/`amber` utilities in the shift screens and
+the POS status dot. `--brand-*` is now exposed as theme colors, killing four
+copy-pasted gradient hex pairs. One `cn` import everywhere (`@/lib/utils`).
+
+**Consistency** — full-page spinners replaced with layout-matching skeletons
+(POS grid, dashboard, auth gate shell); errors unified on the `Alert` pattern
+with a **Try again** action; empty states unified on `EmptyState`. The app
+header renders the route as muted chrome and `PageHeader` owns the screen's
+`h1`, ending the duplicated equal-weight titles. Trend axes use `en-GB` via a
+shared `formatWeekdayDay` helper instead of a raw `id-ID` `Intl` call; the
+`credit` payment icon is a `CreditCard` everywhere; StatCard values carry a
+`title` and step up to `text-2xl`. Search placeholders end in `…` with the
+accessible label kept clean. The skip link gained its `#main` target on
+/login.
+
+**Verification** — `typecheck`, `lint`, `build` exit 0. 187 browser checks,
+7/7 suites, after the change.
+
+### 2026-10-20 — Milestone 6: shift gate at the till, hardening, green smoke
+
+**The POS now requires an open shift.** A gate panel blocks the grid and offers
+the one action available (Open shift); the status strip shows the open shift with
+a Close shift button. Closing displays the server-computed reconciliation — cash
+sales, expected drawer, variance — from the same transaction that closes the
+shift. Checkout maps the server's `no-open-shift` refusal back to the gate.
+
+**The smoke suites are green against the live API** — 187 checks, 7/7. Getting
+there surfaced four real bugs: an infinite `router.replace` loop in
+`useQueryState` (a new `useSearchParams()` identity per navigation re-ran the
+search-sync effect forever, which is why `networkidle` never settled), a 422 on
+any checkout carrying customer details (`email: null` failed the backend's
+`z.string()`), a race where two rapid date writes dropped the first field, and
+data leakage between runs (a leftover product and a leftover user each broke
+their suite's next run).
+
+**Backend hardening:** login and API rate limits (env-tunable, off under
+`NODE_ENV=test`), pino structured logging, response compression, and concurrency
+tests proving two tills cannot oversell the last unit — five simultaneous orders
+for ten bottles sell exactly three and refuse the rest. CI runs backend
+lint/typecheck/unit/e2e and frontend lint/typecheck/build on every push.
+
+### 2026-10-18 — Milestone 5: backend built, frontend swapped to it
+
+The frontend stopped being self-contained. `backend/` is a working Express 5 +
+MongoDB API, and the seven repositories now resolve to HTTP. **The mock was not
+deleted** — it is still on disk at `lib/repositories/mock/*`, which is the fastest
+way to work on a screen without a database running, and it remains the fallback
+when `NEXT_PUBLIC_API_URL` is unset.
+
+**The backend** (12 commits, `415868e`…`b3adde3`)
+
+- A NestJS scaffold was replaced with **Express 5** rather than worked around —
+  the generated structure fought the codebase at every layer.
+- 9 Mongoose models with deliberate indexes: unique `receiptNo`, `createdAt` for
+  the ledger and reports, `cashierId` for takings, and a **TTL index on
+  idempotency keys** so they expire after 7 days instead of accumulating.
+- Sessions are an **httpOnly `moka_session` cookie** holding an HS256 JWT. Role
+  and active status are deliberately *not* in the token; `requireSession`
+  re-reads the user document on every request, so deactivating an account takes
+  effect immediately rather than at token expiry.
+- Passwords use `node:crypto` scrypt — no native module to compile. A missing
+  user still runs a real `verifyPassword` against a dummy hash, so login timing
+  does not reveal whether a username exists.
+- The three login refusals (invalid, inactive, role-mismatch) stayed distinct
+  because the login screen branches on them. The password is verified *before*
+  `inactive` is reported, so a deactivated account cannot be probed for.
+- **211 tests** across 10 files. `contract.e2e.ts` asserts all 35 routes against
+  the API contract transcribed by hand rather than copied from the code, and
+  `models.e2e.ts` asserts the *absence* of indexes and collections from earlier
+  drafts — `/api/transactions`, `/api/stock_history`, and `/api/reports/sales`
+  must 404.
+
+**The frontend swap** (`5cec204`, 13 files, +606/−61)
+
+- `lib/repositories/index.ts` — the seven imports changed. That is the whole
+  swap, which is the claim the architecture was built to support.
+- `lib/repositories/http/client.ts` — axios instance, `ApiError`, and a single
+  `request()` choke point that normalises everything thrown. `withCredentials`
+  instead of an interceptor, because a cookie needs no header.
+- `lib/repositories/http/catalog.ts` and `commerce.ts` — the seven repositories,
+  plus a `sessionRepository` for `GET /auth/me` and `POST /auth/logout`.
+- `store/useAuthStore.ts` — persistence middleware removed. The cookie is the
+  only session; `useAuthHydrated()` fetches it once per document.
+- Three things in the HTTP layer that are not obvious: an **`Idempotency-Key`**
+  per `create()` so a resent checkout cannot mint a second receipt; **identity
+  stripped from bodies** at three call sites, because the server takes the actor
+  from the cookie; and **404 translated to `undefined`** so `getById` keeps its
+  `T | undefined` promise.
+
+**One fix on top, uncommitted**
+
+`client.ts` threw at module load when `NEXT_PUBLIC_API_URL` was unset, which
+aborted the whole production build — the variable is needed by one request, not
+by the import graph. The instance is now created lazily behind a `Proxy`, so the
+error surfaces on the request that needs it. `typecheck`, `lint`, and `build` all
+exit 0 with no `.env.local` present.
+
+### 2026-10-18 — Milestone 4: transactions, monthly reports, product delete
+
+- **Transactions screen** — every sale in a range (Today / 7 days / 30 days /
+  All time), filter by payment method, search by receipt number or customer,
+  client sort and paging, and four summary tiles over the filtered set.
+  **Reprint reopens the same `ReceiptModal` the till uses**, so the printed
+  document is the original stored order rather than a re-priced reconstruction.
+  A WhatsApp deep link sends the plain-text receipt when the sale has a number.
+  Cashiers get this screen — it is how a reprint or a dispute gets settled at
+  the counter, which is why it is the one admin screen they can open.
+- **Monthly reports** — the report range gained a month preset and comparison
+  against the equivalent period a month earlier.
+- **Product delete** — products could previously only be archived. Hard delete
+  became safe once order lines denormalised the product name and price at sale
+  time, so a deleted product cannot break a historical receipt.
+- **English locale, settled** — `lang="en"`. The copy and dates are English; the
+  currency, number grouping, and the `PPN` acronym stay Indonesian, which is
+  correct for the setting. A screen reader reading `lang="id"` English copy with
+  Indonesian phonetics is worse than the alternative.
+- Nav grew to 7 items. A cashier sees 2, an admin sees 7.
 
 ### 2026-10-17 — Milestone 3b: interface guidelines pass
 
@@ -412,9 +610,7 @@ those screens needs a `Suspense` boundary, which the four route files now have.
 
 **Document and inputs**
 
-- `<html lang="en">`, matching the English copy and dates. It follows the words,
-  not the money: the currency is Indonesian but no string a screen reader reads
-  is, so `id` would read English copy with Indonesian phonetics.
+- `<html lang="en">`, matching the English copy and dates.
 - Skip link to `#main`, first tab stop, verified.
 - `theme-color` changed from the brand cyan to `#ffffff`, which is the page
   background; the cyan was only ever a header accent.
@@ -653,8 +849,8 @@ real bugs, the rest were quality gaps:
    role's home.
 9. **Missing `aria-label` on navigation landmarks** in sidebar and mobile nav.
 10. **`/favicon.ico` returned 404.** Generated `src/app/favicon.ico` from the
-    brand mark and removed the metadata icon override, which had pointed at the
-    full 500×500 logo card.
+     brand mark and removed the metadata icon override, which had pointed at the
+     full 500×500 logo card.
 
 **Access control**
 
@@ -769,7 +965,6 @@ app bugs**: the KPI label is uppercased by CSS so `textContent` is
   These are placeholders, not features.
 
 **Verification**
-
 `typecheck`, `lint`, and `build` all exit 0. A Playwright pass against the
 production build confirmed:
 
@@ -792,19 +987,21 @@ production build confirmed:
   shift before selling. That gate is the next thing to add.
 - **No cash reconciliation.** Shift close records a counted float, but nothing
   compares it against the cash sales inside the shift yet.
-- Express, MongoDB, and real authentication do not exist. The repository
-  interfaces are the seam they slot into.
-- `localStorage` sessions are unsuitable for production; see Architecture. The
-  mock database lives there too, so a browser's data can be wiped by clearing
-  site data.
+- **No frontend unit tests.** Only end-to-end smoke suites exist.
+- **The stock oversell concurrency case is untested.** The server guards it with
+  conditional `$inc` decrements, but no automated check exercises two tills
+  racing for the last unit.
 - **Menu prices and ingredient costs are placeholders.** `PLACEHOLDER_PRICES` in
-  `src/lib/repositories/mock/seed.ts` marks the prices; the costs beside them
-  need real supplier invoices before the margin figures mean anything.
+  `src/lib/repositories/mock/seed.ts` and the same constant in
+  `backend/src/seed.ts` mark them; the costs beside them need real supplier
+  invoices before the margin figures mean anything.
 - The seeded order history is uniform random, so it puts implausible numbers on
   the report — 20 pour-over carafes in a week. It exists to give the aggregates
   something to chew on, not to forecast demand.
+- **Dark mode is defined in CSS but has no toggle.**
+- **Sessions need HTTPS in production.** `COOKIE_SECURE` defaults to `false` for
+  local http development and must be `true` behind TLS.
 - If the artwork in `asset/menu/` is ever re-exported, re-run the strip: the
   served copies in `public/menu/` are generated, not hand-edited.
-- Dark mode is defined in CSS but has no toggle.
 - Playwright browsers are not version-pinned; a fresh clone needs
   `npx playwright install chromium` before `npm run smoke` will run.

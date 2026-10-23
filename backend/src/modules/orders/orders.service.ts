@@ -4,6 +4,7 @@ import { withTransaction } from '../../db/transaction.js';
 import { dayRange } from '../../lib/dates.js';
 import { ApiError } from '../../lib/errors.js';
 import { calculateTax, normalisePhone, roundIDR } from '../../lib/money.js';
+import { isDuplicateKey } from '../../lib/mongo-errors.js';
 import { CounterModel } from '../../models/counter.model.js';
 import { IdempotencyKeyModel } from '../../models/idempotency-key.model.js';
 import { IngredientModel } from '../../models/ingredient.model.js';
@@ -22,6 +23,7 @@ type SellableProduct = {
   stockMode: 'recipe' | 'direct';
   stock?: number;
   recipe: { ingredientId: Types.ObjectId; qty: number }[];
+  isActive: boolean;
 };
 
 type SaleLine = {
@@ -107,10 +109,17 @@ async function runSale(
     //        misses the drawer count just as badly as a cashier's. Checked inside
     //        the transaction so a close committing mid-sale is seen, and the
     //        shift's id is stamped on the receipt as history.
-    const shift = await ShiftModel.findOne({
-      userId: new Types.ObjectId(cashier.id),
-      status: 'open',
-    }).session(session);
+    const shift = await ShiftModel.findOneAndUpdate(
+      {
+        userId: new Types.ObjectId(cashier.id),
+        status: 'open',
+      },
+      // Touch the shift inside this transaction. A concurrent close has to
+      // serialise behind this write, so it cannot read the shift's sales and
+      // commit a close while this receipt is still being written.
+      { $inc: { __v: 1 } },
+      { returnDocument: 'after', session },
+    );
     if (!shift) {
       throw ApiError.conflict(
         'no-open-shift',
@@ -133,6 +142,17 @@ async function runSale(
       }
     }
 
+    // Hiding a product removes it from the POS grid, but a tab left open from
+    // before the change can still POST its id. The menu, not the stale client,
+    // decides what is sellable.
+    const inactive = products.find((product) => !product.isActive);
+    if (inactive) {
+      throw ApiError.validation(
+        `${inactive.name} is no longer available. Remove it from the cart and try again.`,
+        { lines: `${inactive.name} has been hidden from the menu.` },
+      );
+    }
+
     // --- 2. Denormalised lines: name, price and mode as sold. A receipt printed
     //        in two years still shows what was charged, not today's price.
     const lines: SaleLine[] = input.lines.map((line) => {
@@ -151,6 +171,13 @@ async function runSale(
     );
     const taxAmount = calculateTax(subtotal, taxRate);
     const total = roundIDR(subtotal + taxAmount);
+
+    if (input.paidAmount < total) {
+      throw ApiError.validation(
+        `Payment is Rp ${roundIDR(total - input.paidAmount)} short of the total.`,
+        { paidAmount: `Collect at least Rp ${total}.` },
+      );
+    }
 
     // --- 3. Coverage across the whole cart, before anything moves.
     await assertCoverage(lines, byId);
@@ -425,8 +452,4 @@ async function findReplay(idempotencyKey: string): Promise<OrderResult | null> {
 
   // The ledger is re-readable on its own endpoint; a replay does not restate it.
   return { order, movements: [], replayed: true };
-}
-
-function isDuplicateKey(error: unknown): boolean {
-  return error instanceof Error && (error as { code?: unknown }).code === 11000;
 }

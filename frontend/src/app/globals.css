@@ -27,7 +27,13 @@
   --popover: #ffffff;
   --popover-foreground: #0f2027;
 
-  --primary: #00a5bd;
+  /**
+   * Darkened from the logo cyan so white text clears WCAG AA (≈5:1).
+   * The raw logo cyan stays available as --brand-cyan for gradients and
+   * non-text accents; --primary is what buttons, active nav, and tile
+   * prices sit on, and those carry white or near-white text.
+   */
+  --primary: #007a87;
   --primary-foreground: #ffffff;
 
   --secondary: #eef6f8;
@@ -42,9 +48,21 @@
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
 
+  /**
+   * Success / warning for stock health, shift variance, and drawer state.
+   * Values are the darker steps so they clear 4.5:1 as text on the page
+   * background — the same reason --primary is not the logo cyan.
+   */
+  --success: #15803d;
+  --success-foreground: #ffffff;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+
   --border: #e2e8f0;
   --input: #cbd5e1;
-  --ring: #00c4df;
+  /* Same value as --primary: a 3px full-opacity ring is visible; the old
+     bright cyan at 50% opacity was invisible against white. */
+  --ring: #007a87;
 
   --chart-1: #00c4df;
   --chart-2: #1b75bc;
@@ -54,7 +72,7 @@
 
   --sidebar: #ffffff;
   --sidebar-foreground: #0f2027;
-  --sidebar-primary: #00a5bd;
+  --sidebar-primary: #007a87;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #eef6f8;
   --sidebar-accent-foreground: #0f4c81;
@@ -87,6 +105,12 @@
 
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
+
+  /* Brighter steps for dark surfaces, where the light-mode values would sink. */
+  --success: #4ade80;
+  --success-foreground: #052e16;
+  --warning: #fbbf24;
+  --warning-foreground: #451a03;
 
   --border: #22343b;
   --input: #2b3f47;
@@ -125,7 +149,18 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
   --color-border: var(--border);
+
+  /* Brand palette exposed as utilities so gradients stop copy-pasting hex. */
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-ink: var(--brand-ink);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);

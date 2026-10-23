@@ -1,5 +1,9 @@
+import type { ClientSession } from 'mongoose';
+import { withTransaction } from '../../db/transaction.js';
 import { hashPassword } from '../../lib/password.js';
 import { ApiError } from '../../lib/errors.js';
+import { isDuplicateKey } from '../../lib/mongo-errors.js';
+import { CounterModel } from '../../models/counter.model.js';
 import { NAME_COLLATION } from '../../models/shared.js';
 import {
   type Role,
@@ -27,66 +31,108 @@ export async function getUser(id: string) {
 export async function createUser(input: CreateUserInput): Promise<SessionUser> {
   await assertUsernameFree(input.username);
 
-  const user = await UserModel.create({
-    name: input.name,
-    username: input.username.trim(),
-    passwordHash: await hashPassword(input.password),
-    role: input.role,
-    isActive: input.isActive,
-  });
+  try {
+    const user = await UserModel.create({
+      name: input.name,
+      username: input.username.trim(),
+      passwordHash: await hashPassword(input.password),
+      role: input.role,
+      isActive: input.isActive,
+    });
 
-  return toSessionUser(user);
+    return toSessionUser(user);
+  } catch (error) {
+    // Two creates can both pass the pre-check. The unique index is the real
+    // guard; map its duplicate-key error to the same 409 as the pre-check.
+    if (isDuplicateKey(error)) throw usernameTaken();
+    throw error;
+  }
 }
 
 export async function updateUser(
   id: string,
   input: UserInput,
 ): Promise<SessionUser> {
-  const user = await UserModel.findById(id);
-  if (!user) throw ApiError.notFound('That account no longer exists.');
+  // Hashing is deliberately outside the transaction: it is CPU work in Node,
+  // and holding a database transaction open while it runs would extend every
+  // lock the transaction touches.
+  const passwordHash = input.password
+    ? await hashPassword(input.password)
+    : null;
 
-  // Only a *different* account holding the name is a clash. Comparing by id is
-  // what lets an admin save a user without renaming them.
-  const clash = await findByUsername(input.username.trim());
-  if (clash && String(clash._id) !== String(user._id)) {
-    throw usernameTaken();
-  }
+  return withTransaction(async (session) => {
+    const user = await UserModel.findById(id).session(session);
+    if (!user) throw ApiError.notFound('That account no longer exists.');
 
-  // Demoting the last active admin would strand the account with no way to
-  // manage users, so it is checked alongside deactivation.
-  if (user.role === 'admin' && input.role !== 'admin') {
-    await assertNotLastAdmin(id);
-  }
+    // Only a *different* account holding the name is a clash. Comparing by id
+    // is what lets an admin save a user without renaming them.
+    const clash = await findByUsername(input.username.trim(), session);
+    if (clash && String(clash._id) !== String(user._id)) {
+      throw usernameTaken();
+    }
 
-  user.name = input.name;
-  user.username = input.username.trim();
-  user.role = input.role;
-  user.isActive = input.isActive;
+    // Demoting or deactivating the last active admin would strand the account
+    // with no way to manage users. The guard write serialises these checks, so
+    // two admins editing each other cannot both see "one other admin remains"
+    // and commit a change that leaves zero.
+    const removingAdmin =
+      user.role === 'admin' && (input.role !== 'admin' || !input.isActive);
+    if (removingAdmin) {
+      await lockAdminMutations(session);
+      await assertNotLastAdmin(id, session);
+    }
 
-  // Absent or blank means unchanged, so an edit form can be saved without
-  // retyping a password it has no way to display.
-  if (input.password) {
-    user.passwordHash = await hashPassword(input.password);
-  }
+    user.name = input.name;
+    user.username = input.username.trim();
+    user.role = input.role;
+    user.isActive = input.isActive;
+    if (passwordHash) user.passwordHash = passwordHash;
 
-  await user.save();
-  return toSessionUser(user);
+    try {
+      await user.save({ session });
+    } catch (error) {
+      // Another update can take the name between our check and this write.
+      // The unique index is the arbiter; answer 409 instead of a 500.
+      if (isDuplicateKey(error)) throw usernameTaken();
+      throw error;
+    }
+
+    return toSessionUser(user);
+  });
 }
 
 export async function setUserActive(
   id: string,
   isActive: boolean,
 ): Promise<SessionUser> {
-  const user = await UserModel.findById(id);
-  if (!user) throw ApiError.notFound('That account no longer exists.');
+  return withTransaction(async (session) => {
+    const user = await UserModel.findById(id).session(session);
+    if (!user) throw ApiError.notFound('That account no longer exists.');
 
-  if (!isActive && user.role === 'admin') {
-    await assertNotLastAdmin(id);
-  }
+    if (!isActive && user.role === 'admin') {
+      await lockAdminMutations(session);
+      await assertNotLastAdmin(id, session);
+    }
 
-  user.isActive = isActive;
-  await user.save();
-  return toSessionUser(user);
+    user.isActive = isActive;
+    await user.save({ session });
+    return toSessionUser(user);
+  });
+}
+
+/**
+ * A single row every admin-changing transaction writes before it counts.
+ *
+ * Two transactions that both take this lock cannot run their "are there other
+ * admins?" check against the same snapshot. The second waits, then re-reads the
+ * first one's committed change during a retry.
+ */
+async function lockAdminMutations(session: ClientSession): Promise<void> {
+  await CounterModel.findOneAndUpdate(
+    { _id: 'user-admin-guard' },
+    { $inc: { seq: 1 } },
+    { upsert: true, returnDocument: 'after', session },
+  );
 }
 
 /**
@@ -95,12 +141,15 @@ export async function setUserActive(
  * Without this, deactivating or demoting the last admin locks everyone out, and
  * the only way back is editing the database by hand.
  */
-async function assertNotLastAdmin(excludeId: string): Promise<void> {
+async function assertNotLastAdmin(
+  excludeId: string,
+  session: ClientSession,
+): Promise<void> {
   const otherActiveAdmins = await UserModel.countDocuments({
     _id: { $ne: excludeId },
     role: 'admin',
     isActive: true,
-  });
+  }).session(session);
 
   if (otherActiveAdmins === 0) {
     throw ApiError.conflict(

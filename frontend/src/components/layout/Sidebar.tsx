@@ -20,7 +20,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar md:flex">
       <div className="flex h-16 items-center gap-3 px-5">
-        <div className="flex size-9 items-center justify-center rounded-lg bg-linear-to-br from-[#00c4df] to-[#0f4c81]">
+        <div className="flex size-9 items-center justify-center rounded-lg bg-linear-to-br from-brand-cyan to-brand-navy">
           <Image
             src="/brand/moka-mark.svg"
             alt="Moka Cafe logo"
@@ -48,7 +48,7 @@ export function Sidebar() {
               href={item.href}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                "flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none",
                 isActive
                   ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"

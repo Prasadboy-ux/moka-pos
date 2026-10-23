@@ -26,6 +26,17 @@ import type {
  */
 
 /** Shape of the whole store. Bumped through `DB_VERSION` on schema changes. */
+export interface AppConfig {
+  /** PPN rate the server charges, so the cart total matches the receipt. */
+  taxRate: number;
+  /** IANA zone the API uses to bucket days for reports. */
+  storeTimezone: string;
+}
+
+export interface ConfigRepository {
+  get(): Promise<AppConfig>;
+}
+
 export interface Database {
   version: number;
   categories: Category[];
@@ -175,9 +186,10 @@ export interface UserRepository {
   authenticate(
     username: string,
     password: string,
+    role?: Role,
   ): Promise<
     | { ok: true; user: User }
-    | { ok: false; reason: "invalid" | "inactive" }
+    | { ok: false; reason: "invalid" | "inactive" | "role-mismatch" }
   >;
 }
 
@@ -191,6 +203,11 @@ export interface CreateOrderInput {
   paymentMethod: PaymentMethod;
   paidAmount: number;
   cashier: { id: string; name: string };
+  /**
+   * Stable across retries of one checkout attempt. The HTTP repository sends it
+   * as `Idempotency-Key`; the mock ignores it because it cannot be replayed.
+   */
+  idempotencyKey?: string;
   /**
    * Omitted for a walk-in. Carried on the order so the receipt can be sent after
    * the customer has left, and so the transaction screen can be searched by the
@@ -233,6 +250,7 @@ export interface ShiftRepository {
 }
 
 export interface Repositories {
+  config: ConfigRepository;
   categories: CategoryRepository;
   ingredients: IngredientRepository;
   products: ProductRepository;

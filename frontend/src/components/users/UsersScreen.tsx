@@ -226,7 +226,8 @@ export function UsersScreen() {
       <FilterBar
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search by name or username"
+        searchPlaceholder="Search by name or username…"
+        searchLabel="Search by name or username"
         options={[]}
         active={null}
         onActiveChange={() => {}}

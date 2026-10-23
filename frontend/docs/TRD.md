@@ -17,7 +17,7 @@ built, so a change can be made without rediscovering the reasoning.
 | Icons | `lucide-react` | ^1.59.0 | Tree-shaken, one package |
 | Forms | react-hook-form + zod | ^7.90.0 / ^4.6.7 | `zodResolver`; schemas colocated with forms |
 | Client state | zustand | ^5.0.15 | Two stores only: auth session, POS cart |
-| HTTP | axios | ^1.20.0 | Installed, **zero usages** — the prepared seam for Express |
+| HTTP | axios | ^1.20.0 | The live transport — `lib/repositories/http/` |
 | Lint | ESLint flat config | ^9.39.5 | `eslint-config-next`, native flat exports |
 | Verification | Playwright | ^1.64.1 | Smoke suites against the production build |
 
@@ -25,10 +25,9 @@ Node `>= 20.9` is required by Next 16.
 
 ## 2. The central constraint
 
-**No backend exists.** The app is complete and runs entirely in the browser, but
-every byte of data lives in `localStorage`.
-
-That forced one architectural decision, and everything else follows from it.
+**One implementation swap must be able to change where every byte of data comes
+from.** That was designed for from the first milestone, and it is the reason the
+move from `localStorage` to the Express API was a one-file change.
 
 ### The repository seam
 
@@ -36,18 +35,21 @@ Screens depend on interfaces, never on a data source.
 
 ```
 src/lib/repositories/
-  types.ts       Seven interfaces + six input DTOs. The contract.
+  types.ts       Eight interfaces + six input DTOs. The contract.
   index.ts       getRepositories(). The ONLY file naming an implementation.
   read-models.ts Dashboard and report aggregations (pure functions).
-  mock/          Implementation, backed by a versioned localStorage document.
+  http/          LIVE implementation. client.ts + catalog.ts + commerce.ts.
+  mock/          Offline fallback, backed by a versioned localStorage document.
 ```
 
-`getRepositories()` returns a frozen singleton of seven repository objects. When
-the Express API arrives, **the seven imports in `index.ts` change and no screen
-does.** Every method is already `async`, so callers are written for a network
-round trip rather than for a synchronous object read.
+`getRepositories()` returns a frozen singleton of eight repository objects.
+Swapping implementations means changing the eight imports in `index.ts` and
+nothing else — which is exactly what happened when the API landed. Every method
+is `async`, so callers were written for a network round trip rather than for a
+synchronous object read, and no call site changed shape.
 
-The `mock/` directory keeps the same discipline internally:
+The `mock/` directory is retained as a fallback for working on a screen without
+a database running. It keeps the same discipline internally:
 
 | Module | Owns |
 |---|---|
@@ -72,7 +74,30 @@ would read a store that does not exist yet.
 ## 3. Data model
 
 `src/types/pos.ts` and `src/types/auth.ts` are the source of truth for shapes.
-The backend should mirror them.
+The backend mirrors them in Mongoose schemas.
+
+### The live HTTP layer
+
+| Module | Owns |
+|---|---|
+| `http/client.ts` | Lazy axios instance, `ApiError`, one `request()` choke point, error normalisation |
+| `http/catalog.ts` | `category`, `ingredient`, `product`, `user` repositories |
+| `http/commerce.ts` | `stock`, `order`, `shift`, and `session` repositories |
+
+Four decisions in this layer are not obvious from the code alone:
+
+- **The session is an httpOnly cookie**, so axios sends it with
+  `withCredentials: true` and there is no interceptor and no `Authorization`
+  header anywhere.
+- **The client is lazy.** The axios instance is created behind a `Proxy` on first
+  property access. Constructing it at module load threw on a missing
+  `NEXT_PUBLIC_API_URL` and aborted the whole production build, even though the
+  variable is needed by exactly one request.
+- **`Idempotency-Key` is generated per `create()` call**, so a checkout resent on
+  flaky cafe wifi replays the original order instead of minting a second receipt.
+- **Identity is stripped from request bodies.** `actor` and `cashier` exist on the
+  interfaces so the mock has a session to read; the HTTP layer deletes both before
+  sending, because the server takes the actor from the cookie.
 
 ```
 Category    { id, name, sortOrder }
@@ -84,7 +109,8 @@ Order       { id, receiptNo, lines[], subtotal, taxRate, taxAmount, total,
 OrderLine   { productId, name, price, qty, stockMode }
 StockMovement { id, type, ingredientId|null, productId|null, label, qty, unit, note,
                 createdAt, byUserId, byUserName }
-Shift       { id, userId, userName, openedAt, openingFloat, closedAt, closingCounted, status }
+Shift       { id, userId, userName, openedAt, openingFloat, closedAt, closingCounted,
+              status, cashSales?, expectedCash?, variance? }
 User        { id, name, username, role, isActive }
 StoredUser  extends User with `password` — never leaves the auth repository
 ```
@@ -127,18 +153,23 @@ would drift from the figures on the other screen.
 
 ### One writer for stock
 
-`mock/stock.ts` is the only module that assigns to `ingredient.stock` or
-`product.stock`. Everything else routes through it. That is what makes the
-movement ledger a complete history rather than a log that can quietly fall out of
-step with the numbers it claims to explain.
+On the server, `backend/src/modules/stock/` is the only place that writes
+`ingredient.stock` or `product.stock`. Everything else routes through it. That is
+what makes the movement ledger a complete history rather than a log that can
+quietly fall out of step with the numbers it claims to explain.
+
+In the mock fallback, the same role belongs to `mock/stock.ts`.
 
 ### Sale atomicity
 
-`orderRepository.create()` writes the order, consumes stock, and appends ledger
-rows inside a single `mutate`. `mutate` snapshots the document first and restores
-it if the callback throws, so a stock shortfall leaves **no receipt, no
-movement, and no partial state**. The same guarantee must come from a MongoDB
-transaction.
+`POST /api/orders` writes the order, consumes stock, and appends ledger rows in
+**one MongoDB transaction**, with conditional `$inc` decrements. A stock shortfall
+rolls the whole thing back: **no receipt, no movement, no partial state**. The
+conditional decrement is what stops two tills from both selling the last pastry —
+both would read the same level, and only one `$inc` would satisfy its guard.
+
+The mock gives the same guarantee with a snapshot-and-restore `mutate`, which is
+why the rule was testable before the server existed.
 
 ## 5. Shared hooks
 
@@ -158,7 +189,7 @@ transaction.
 | `PageHeader` | Title, description, one primary action |
 | `ui/toast` | One polite live region; the no-op fallback means a missing provider can never break a screen |
 
-21 shadcn primitives in `components/ui`, hand-authored against the installed
+22 shadcn primitives in `components/ui`, hand-authored against the installed
 `radix-ui` rather than fetched by the CLI — no network, no lockfile churn.
 `DataTable` is plain markup because Radix has no table primitive.
 
@@ -167,13 +198,17 @@ transaction.
 ```
 /                        redirect → role home, or /login
 /login                   sign-in
-/dashboard               AdminOverview
-/dashboard/pos           PosScreen          (kasir + admin)
-/dashboard/products      ProductsScreen     (admin)
-/dashboard/inventory     StockScreen       (admin)
-/dashboard/reports       ReportsScreen     (admin)
-/dashboard/users         UsersScreen       (admin)
+/dashboard               AdminOverview                    (admin)
+/dashboard/pos           PosScreen                        (kasir + admin)
+/dashboard/transactions  TransactionsScreen               (kasir + admin)
+/dashboard/products      ProductsScreen                   (admin)
+/dashboard/inventory     StockScreen                      (admin)
+/dashboard/reports       ReportsScreen                    (admin)
+/dashboard/users         UsersScreen                      (admin)
 ```
+
+Cashiers reach two screens, not one. Transactions is theirs because reprinting a
+receipt and looking up a disputed sale happen at the counter.
 
 `lib/nav.ts` is the single source of truth for role-to-route permissions.
 `lib/access.ts` resolves a pathname to its nav entry and answers `canAccess`.
@@ -189,15 +224,20 @@ The layout guard **blocks rendering** rather than only redirecting — redirecti
 alone paints the forbidden page for one frame, which flashes admin content to a
 cashier.
 
-Every auth decision waits on a `hydrated` flag. Zustand rehydration is
-asynchronous, so on a hard load the store reads empty; a guard that looked
-immediately would bounce a signed-in user to `/login`.
+Every auth decision waits on a `hydrated` flag. It used to mean "Zustand has
+finished rehydrating from `localStorage`"; it now means "`GET /api/auth/me` has
+answered". The reason is the same — a guard that looked before the session was
+known would bounce a signed-in user to `/login` on a hard load.
+
+**The client-side guard is presentation, not authorisation.** The check that
+actually matters is `requireRole` in `backend/src/middleware/session.ts`, which
+re-reads the user document on every request.
 
 ## 8. Performance decisions
 
 | Decision | Reason |
 |---|---|
-| Client-side sorting and pagination | The mock returns everything at once. Server-driven paging would be architecture for a problem this app does not have. It moves into the repository later, not into every screen. |
+| Client-side sorting and pagination | The API returns a whole range at once. Server-driven paging would be architecture for a problem this app does not have. It belongs in the repository, not in every screen. |
 | No virtualisation | 20 menu tiles is well under the ~50-item threshold. |
 | Menu art as plain `<img>` | `next/image` refuses SVG optimisation without `dangerouslyAllowSVG`; these are ~1 KB trusted local assets that gain nothing from rasterising. |
 | No layout reads in render | No `getBoundingClientRect` / `offsetHeight` during render. |
@@ -209,7 +249,10 @@ Verified by `smoke:a11y` (22 checks), not just intended.
 
 - Every icon-only button has `aria-label`; decorative icons are `aria-hidden`.
 - Async feedback uses `role="alert"` or an `aria-live="polite"` region.
-- `lang="id"` matches the copy, currency, and dates.
+- `lang="en"` matches the copy and the dates. The currency, number grouping, and
+  the `PPN` tax acronym stay Indonesian, which is correct for the setting — but
+  `id` would make a screen reader pronounce English copy with Indonesian
+  phonetics.
 - A skip link to `#main`, verified as the first tab stop.
 - `touch-action: manipulation` and `-webkit-tap-highlight-color: transparent` —
   no double-tap delay, no grey flash.
@@ -251,20 +294,30 @@ npm run start        # required before the smoke suites
 npm run smoke        # all 7 suites, sequential
 ```
 
-154 checks across 7 suites. See [`TESTING.md`](./TESTING.md).
+The smoke suites need the API up and seeded on `http://localhost:3001` as well —
+five of the seven sign out over HTTP, because the session cookie is httpOnly and
+the page cannot clear it.
+
+187 checks across 7 suites, plus 18 Vitest unit tests. See
+[`TESTING.md`](./TESTING.md).
 
 Playwright browsers are not version-pinned; a fresh clone needs
 `npx playwright install chromium`.
 
-## 12. Frontend → backend plan
+## 12. The frontend → backend swap
 
-| Step | Change |
-|---|---|
-| 1 | Write the API against `docs/API-CONTRACT.md`. |
-| 2 | Add an `http/` implementation of the seven repositories. |
-| 3 | Point `getRepositories()` at it — **one file changes**. |
-| 4 | Replace the `localStorage` session with an httpOnly cookie, and add a server-side route guard. |
-| 5 | Re-run the suites. They should pass unchanged; that is the acceptance test for the swap. |
+**Complete.** Recorded here because the plan was the acceptance test for the
+architecture, and its outcome is the evidence that the seam held.
 
-Step 5 is the real check on whether the seam held. If a screen needed editing,
-the abstraction leaked somewhere it should not have.
+| Step | Change | Result |
+|---|---|---|
+| 1 | Write the API against `docs/API-CONTRACT.md`. | Done — 35 routes in `../backend` |
+| 2 | Add an `http/` implementation of the eight repositories. | Done — 342 lines across 3 files |
+| 3 | Point `getRepositories()` at it — **one file changes**. | Done — 27 lines in `index.ts` |
+| 4 | Replace the `localStorage` session with an httpOnly cookie, and add a server-side route guard. | Done — `moka_session` + `requireRole` |
+| 5 | Re-run the suites unchanged. | Done — they pass against the live API |
+
+Step 5 is the real check on whether the seam held. No screen was edited, which
+is the point: if a screen had needed editing, the abstraction would have leaked
+somewhere it should not have. The one thing that did change shape was test
+setup — the suites had to learn to sign out over HTTP.

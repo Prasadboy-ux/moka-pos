@@ -90,7 +90,24 @@ try {
   await page.waitForSelector("table tbody tr", { timeout: 15000 });
 
   const text = await page.locator("main").innerText();
-  check("accounts listed", /Budi Santoso/.test(text) && /Siti Rahayu/.test(text) && /Andi Wijaya/.test(text));
+  // The table paginates, and users are never hard-deleted, so an interrupted
+  // run's leftovers can push a seed account onto page 2. Find each name the
+  // way a user would rather than trusting the first page.
+  const searchFor = async (term) => {
+    await page.getByLabel("Search by name or username").fill(term);
+    await page.waitForTimeout(500);
+    const found = await page.locator("main").innerText();
+    await page.getByLabel("Clear search").click();
+    await page.waitForTimeout(300);
+    return found;
+  };
+  const budi = await searchFor("Budi");
+  const siti = await searchFor("Siti");
+  const andi = await searchFor("Andi");
+  check(
+    "accounts listed",
+    /Budi Santoso/.test(budi) && /Siti Rahayu/.test(siti) && /Andi Wijaya/.test(andi),
+  );
   check("usernames shown", /kasir2/.test(text));
   check("roles shown", /Admin/.test(text) && /Cashier/.test(text));
   check("deactivated account flagged", /Deactivated/.test(text));

@@ -167,8 +167,15 @@ describe('indexes', () => {
     expect(await indexNames('stock_movements')).toContain('createdAt_-1');
   });
 
-  it('indexes shifts by user and status together', async () => {
-    expect(await indexNames('shifts')).toContain('userId_1_status_1');
+  it('enforces one open shift per user with a partial unique index', async () => {
+    const db = mongoose.connection.db;
+    if (!db) throw new Error('not connected');
+    const indexes = await db.collection('shifts').indexes();
+    const index = indexes.find((entry) => entry.name === 'userId_1');
+
+    expect(index).toBeDefined();
+    expect(index?.unique).toBe(true);
+    expect(index?.partialFilterExpression).toEqual({ status: 'open' });
   });
 
   it('does not index order lines by product, since lines are never joined', async () => {

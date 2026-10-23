@@ -163,6 +163,70 @@ describe('POST /api/stock/adjust', () => {
     expect(movement?.qty).toBe(-250);
   });
 
+  it('rejects a purchase whose sign says stock leaves', async () => {
+    const response = await admin.agent
+      .post('/api/stock/adjust')
+      .send({
+        target: 'ingredient',
+        targetId: beansId,
+        type: 'purchase',
+        qty: -10,
+        note: 'Delivery',
+      })
+      .expect(422);
+
+    expect(response.body.fields).toHaveProperty('qty');
+    expect(await StockMovementModel.countDocuments()).toBe(0);
+    expect((await IngredientModel.findById(beansId))?.stock).toBe(5000);
+  });
+
+  it('rejects waste whose sign says stock arrives', async () => {
+    const response = await admin.agent
+      .post('/api/stock/adjust')
+      .send({
+        target: 'ingredient',
+        targetId: beansId,
+        type: 'waste',
+        qty: 10,
+        note: 'Spilled',
+      })
+      .expect(422);
+
+    expect(response.body.fields).toHaveProperty('qty');
+    expect(await StockMovementModel.countDocuments()).toBe(0);
+    expect((await IngredientModel.findById(beansId))?.stock).toBe(5000);
+  });
+
+  it('accepts a signed correction in either direction', async () => {
+    await admin.agent
+      .post('/api/stock/adjust')
+      .send({
+        target: 'ingredient',
+        targetId: beansId,
+        type: 'adjustment',
+        qty: -100,
+        note: 'Stocktake shortfall',
+      })
+      .expect(201);
+    await admin.agent
+      .post('/api/stock/adjust')
+      .send({
+        target: 'ingredient',
+        targetId: beansId,
+        type: 'adjustment',
+        qty: 250,
+        note: 'Found in the store room',
+      })
+      .expect(201);
+
+    expect((await IngredientModel.findById(beansId))?.stock).toBe(5150);
+
+    const movements = await StockMovementModel.find({ type: 'adjustment' })
+      .sort({ qty: 1 })
+      .lean();
+    expect(movements.map((movement) => movement.qty)).toEqual([-100, 250]);
+  });
+
   it('refuses to drive stock negative, and says how much is on hand', async () => {
     const response = await admin.agent
       .post('/api/stock/adjust')

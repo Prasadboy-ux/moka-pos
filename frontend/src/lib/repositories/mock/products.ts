@@ -77,7 +77,16 @@ export const productRepository: ProductRepository = {
       const index = db.products.findIndex((p) => p.id === id);
       if (index === -1) throw new Error("Product not found.");
 
+      const existing = db.products[index]!;
       const updated = normalise(input, id);
+
+      // Editing a product must not rewrite stock. The count moves through
+      // `stockRepository.adjust`, which records why; this form only changes the
+      // catalogue fields around it.
+      if (updated.stockMode === "direct") {
+        updated.stock = existing.stock ?? 0;
+      }
+
       db.products[index] = updated;
       return clone(updated);
     });

@@ -1,10 +1,13 @@
 import { Types } from 'mongoose';
+import { withTransaction } from '../../db/transaction.js';
 import { ApiError } from '../../lib/errors.js';
 import { escapeRegExp } from '../../lib/schemas.js';
 import { CategoryModel } from '../../models/category.model.js';
 import { IngredientModel } from '../../models/ingredient.model.js';
 import { ProductModel } from '../../models/product.model.js';
 import { NAME_COLLATION } from '../../models/shared.js';
+import type { SessionUser } from '../../models/user.model.js';
+import { recordOpeningStock } from '../stock/stock.service.js';
 import type {
   ProductInput,
   ProductQuery,
@@ -35,12 +38,17 @@ export async function getProduct(id: string) {
   return product;
 }
 
-export async function createProduct(input: ProductInput) {
+export async function createProduct(input: ProductInput, actor: SessionUser) {
   await assertCategoryExists(input.categoryId);
   await assertRecipeIngredientsExist(input);
 
-  const created = await ProductModel.create(normalise(input));
-  return created;
+  return withTransaction(async (session) => {
+    const [created] = await ProductModel.create([normaliseCreate(input)], {
+      session,
+    });
+    await recordOpeningStock(created, input.stock ?? 0, actor, session);
+    return created;
+  });
 }
 
 export async function updateProduct(id: string, input: ProductInput) {
@@ -50,10 +58,14 @@ export async function updateProduct(id: string, input: ProductInput) {
   await assertCategoryExists(input.categoryId);
   await assertRecipeIngredientsExist(input);
 
-  // Replaced wholesale rather than merged: switching stockMode has to clear the
-  // fields that no longer apply, or a product that was counted would keep a
-  // stale stock level next to a recipe it no longer uses.
-  product.set(normalise(input));
+  // Editing a product never writes stock. The opening level was recorded as a
+  // ledger movement at creation; later counts belong to `/stock/adjust`, and
+  // letting this form overwrite the number would break that audit trail.
+  product.set(normaliseUpdate(input));
+  if (input.stockMode !== 'direct') {
+    product.set('stock', undefined);
+    product.set('minStock', undefined);
+  }
   await product.save();
 
   return product;
@@ -92,9 +104,31 @@ export async function removeProduct(id: string): Promise<void> {
 /**
  * Projects the input onto the fields that belong to the chosen stock mode, so a
  * product never carries a stock level it does not use or an empty recipe it does.
+ *
+ * Creation is the only path allowed to set `stock`: it is the opening count and
+ * `recordOpeningStock` turns it into a ledger movement. Updates deliberately
+ * omit it so a product edit cannot rewrite inventory behind the ledger's back.
  */
-function normalise(input: ProductInput) {
-  const base = {
+function normaliseCreate(input: ProductInput) {
+  return {
+    ...normaliseBase(input),
+    ...(input.stockMode === 'direct'
+      ? { minStock: input.minStock ?? 0, recipe: [] }
+      : { recipe: toRecipe(input) }),
+  };
+}
+
+function normaliseUpdate(input: ProductInput) {
+  return {
+    ...normaliseBase(input),
+    ...(input.stockMode === 'direct'
+      ? { minStock: input.minStock ?? 0, recipe: [] }
+      : { recipe: toRecipe(input) }),
+  };
+}
+
+function normaliseBase(input: ProductInput) {
+  return {
     name: input.name,
     categoryId: new Types.ObjectId(input.categoryId),
     price: input.price,
@@ -102,25 +136,13 @@ function normalise(input: ProductInput) {
     stockMode: input.stockMode,
     isActive: input.isActive,
   };
+}
 
-  if (input.stockMode === 'direct') {
-    return {
-      ...base,
-      stock: input.stock ?? 0,
-      minStock: input.minStock ?? 0,
-      // A direct product has no recipe. Any supplied rows are discarded rather
-      // than stored and silently ignored, which would read as data loss later.
-      recipe: [],
-    };
-  }
-
-  return {
-    ...base,
-    recipe: input.recipe.map((item) => ({
-      ingredientId: new Types.ObjectId(item.ingredientId),
-      qty: item.qty,
-    })),
-  };
+function toRecipe(input: ProductInput) {
+  return input.recipe.map((item) => ({
+    ingredientId: new Types.ObjectId(item.ingredientId),
+    qty: item.qty,
+  }));
 }
 
 async function assertCategoryExists(categoryId: string): Promise<void> {

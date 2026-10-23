@@ -252,9 +252,9 @@ export function CloseShiftDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {variance === 0 ? (
-                <Check className="size-5 text-emerald-600" aria-hidden />
+                <Check className="size-5 text-success" aria-hidden />
               ) : (
-                <Scale className="size-5 text-amber-600" aria-hidden />
+                <Scale className="size-5 text-warning" aria-hidden />
               )}
               {variance === 0 ? "Drawer balanced" : "Drawer not balanced"}
             </DialogTitle>
@@ -291,7 +291,7 @@ export function CloseShiftDialog({
               <dd
                 className={
                   variance === 0
-                    ? "font-semibold text-emerald-600 tabular-nums"
+                    ? "font-semibold text-success tabular-nums"
                     : "font-semibold text-destructive tabular-nums"
                 }
               >

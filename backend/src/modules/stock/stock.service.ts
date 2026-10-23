@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { withTransaction } from '../../db/transaction.js';
 import { ApiError } from '../../lib/errors.js';
 import { roundIDR } from '../../lib/money.js';
@@ -90,6 +90,52 @@ export async function stockValue() {
     retailValue: roundIDR(retailValue),
     total: roundIDR(ingredientsValue + retailValue),
   };
+}
+
+/**
+ * Writes the opening level for a newly created direct product.
+ *
+ * Product creation is the one stock change that does not start from
+ * `POST /api/stock/adjust`, because the product does not exist to adjust yet.
+ * It still routes through this module so the opening count is a `purchase`
+ * movement in the ledger rather than a number that appears from nowhere.
+ *
+ * Recipe products have no stock of their own, so the level write is skipped and
+ * the caller keeps their ingredients as the only stock account.
+ */
+type DirectProductDocument = {
+  _id: unknown;
+  name: string;
+  stockMode: 'recipe' | 'direct';
+  stock?: number | null;
+  save(options: { session: ClientSession }): Promise<unknown>;
+};
+
+export async function recordOpeningStock(
+  product: DirectProductDocument,
+  qty: number,
+  actor: SessionUser,
+  session: ClientSession,
+): Promise<void> {
+  if (product.stockMode !== 'direct') return;
+
+  product.stock = qty;
+  await product.save({ session });
+
+  if (qty === 0) return;
+
+  const movement = new StockMovementModel({
+    type: 'purchase',
+    ingredientId: null,
+    productId: product._id,
+    label: product.name,
+    qty,
+    unit: 'pcs',
+    note: 'Opening stock',
+    byUserId: actor.id,
+    byUserName: actor.name,
+  });
+  await movement.save({ session });
 }
 
 /**

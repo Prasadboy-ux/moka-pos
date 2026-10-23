@@ -26,10 +26,19 @@ export function Header() {
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b bg-background px-4 sm:px-6">
-      <div className="min-w-0" translate="no">
-        <h1 className="truncate text-base font-bold tracking-tight sm:text-lg">
+      {/**
+       * Chrome, not the page heading. PageHeader owns the real `<h1>` for a
+       * screen; repeating it here at the same size stacked a duplicate title
+       * a few pixels above it. The header keeps the route name as muted
+       * context for screens that have no PageHeader (the till).
+       */}
+      <div className="min-w-0">
+        <p
+          translate="no"
+          className="truncate text-sm font-semibold tracking-tight text-muted-foreground sm:text-base"
+        >
           {current?.label ?? "Moka Cafe"}
-        </h1>
+        </p>
         {current?.description ? (
           <p className="hidden truncate text-xs text-muted-foreground sm:block">
             {current.description}
@@ -50,7 +59,7 @@ export function Header() {
 
         <Separator orientation="vertical" className="hidden h-8 sm:block" />
 
-        <Button variant="ghost" size="sm" onClick={handleLogout}>
+        <Button variant="ghost" onClick={handleLogout}>
           <LogOut className="size-4" aria-hidden />
           <span className="hidden sm:inline">Sign out</span>
           <span className="sr-only sm:hidden">Sign out</span>

@@ -292,6 +292,46 @@ describe('POST /api/orders', () => {
     });
   });
 
+  describe('menu and payment guards', () => {
+    it('refuses a product hidden after the tab was opened', async () => {
+      await ProductModel.updateOne(
+        { _id: waterId },
+        { $set: { isActive: false } },
+      );
+
+      const response = await kasir.agent
+        .post('/api/orders')
+        .send({
+          lines: [{ productId: waterId, qty: 1 }],
+          paymentMethod: 'qris',
+          paidAmount: 5500,
+        })
+        .expect(422);
+
+      expect(response.body.error).toBe('validation');
+      expect(response.body.fields).toHaveProperty('lines');
+      expect(await OrderModel.countDocuments()).toBe(0);
+      expect(await StockMovementModel.countDocuments()).toBe(0);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(10);
+    });
+
+    it('refuses an underpayment and leaves the stock alone', async () => {
+      const response = await kasir.agent
+        .post('/api/orders')
+        .send({
+          lines: [{ productId: waterId, qty: 1 }],
+          paymentMethod: 'cash',
+          paidAmount: 5499,
+        })
+        .expect(422);
+
+      expect(response.body.fields).toHaveProperty('paidAmount');
+      expect(await OrderModel.countDocuments()).toBe(0);
+      expect(await StockMovementModel.countDocuments()).toBe(0);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(10);
+    });
+  });
+
   describe('stock coverage', () => {
     it('refuses a recipe product whose ingredient is short, naming it', async () => {
       // 1000 ml on hand; six lattes need 1080.
@@ -534,6 +574,57 @@ describe('POST /api/orders', () => {
       );
       numbers.sort((a, b) => a - b);
       expect(numbers).toEqual([2001, 2002, 2003, 2004, 2005]);
+    });
+  });
+
+  describe('a shift closing around a sale', () => {
+    /**
+     * A close and a sale contend on the shift. Whichever commits second must see
+     * the other: either the sale is refused for having no open shift, or it is
+     * on the receipt and in `cashSales`. A close that silently missed it would
+     * reconcile the drawer against takings it never counted.
+     */
+    it('never closes over a sale', async () => {
+      let accepted = 0;
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const current = await kasir.agent.get('/api/shifts/current').expect(200);
+        const shift =
+          current.body ??
+          (
+            await kasir.agent
+              .post('/api/shifts')
+              .send({ openingFloat: 0 })
+              .expect(201)
+          ).body;
+
+        const [sale, close] = await Promise.all([
+          kasir.agent.post('/api/orders').send({
+            lines: [{ productId: waterId, qty: 1 }],
+            paymentMethod: 'cash',
+            paidAmount: 5500,
+          }),
+          kasir.agent
+            .post(`/api/shifts/${shift.id}/close`)
+            .send({ counted: 0 }),
+        ]);
+
+        expect(close.status).toBe(200);
+
+        if (sale.status === 201) {
+          accepted += 1;
+          expect(close.body.cashSales).toBe(5500);
+          expect(close.body.expectedCash).toBe(5500);
+        } else {
+          expect(sale.status).toBe(409);
+          expect(sale.body.reason).toBe('no-open-shift');
+          expect(close.body.cashSales).toBe(0);
+        }
+      }
+
+      expect(await OrderModel.countDocuments()).toBe(accepted);
+      expect(await StockMovementModel.countDocuments()).toBe(accepted);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(10 - accepted);
     });
   });
 

@@ -5,9 +5,10 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 
 ## Status
 
-**Complete and live.** 34 contract endpoints plus `/api/health`, 9 Mongoose
-models, and 219 tests. The frontend in [`../frontend`](../frontend) resolves its
-seven repositories to this API over an httpOnly cookie session.
+**Complete and live.** 35 contract endpoints plus `/api/health`, 9 Mongoose
+models, and 239 tests (15 unit, 224 end-to-end). The frontend in
+[`../frontend`](../frontend) resolves its eight repositories to this API over an
+httpOnly cookie session.
 
 The API is specified in
 [`../frontend/docs/API-CONTRACT.md`](../frontend/docs/API-CONTRACT.md), which

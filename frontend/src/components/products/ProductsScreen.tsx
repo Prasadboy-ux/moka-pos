@@ -347,7 +347,8 @@ export function ProductsScreen() {
       <FilterBar
         search={search}
         onSearchChange={setSearch}
-        searchPlaceholder="Search products"
+        searchPlaceholder="Search products…"
+        searchLabel="Search products"
         options={categoryOptions}
         active={categoryId}
         onActiveChange={(value) => setQuery({ cat: value })}

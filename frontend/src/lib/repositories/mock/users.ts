@@ -77,7 +77,7 @@ export const userRepository: UserRepository = {
     });
   },
 
-  async authenticate(username, password) {
+  async authenticate(username, password, role) {
     await simulateLatency(600);
 
     const match = findByUsername(readDb(), username);
@@ -86,6 +86,9 @@ export const userRepository: UserRepository = {
     }
     if (!match.isActive) {
       return { ok: false as const, reason: "inactive" as const };
+    }
+    if (role !== undefined && match.role !== role) {
+      return { ok: false as const, reason: "role-mismatch" as const };
     }
 
     return { ok: true as const, user: toPublicUser(match) };

@@ -2,7 +2,7 @@
 
 import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 
 export interface FilterOption {
   value: string
@@ -21,7 +21,13 @@ export interface FilterOption {
 interface FilterBarProps {
   search: string
   onSearchChange: (value: string) => void
+  /** Shown in the field. Ends in `…` with an example, per DESIGN.md §10. */
   searchPlaceholder?: string
+  /**
+   * Accessible name. Kept separate from the placeholder so the ellipsis in the
+   * example never becomes part of what a screen reader announces as the field.
+   */
+  searchLabel?: string
   options: FilterOption[]
   active: string | null
   onActiveChange: (value: string | null) => void
@@ -32,7 +38,8 @@ interface FilterBarProps {
 export function FilterBar({
   search,
   onSearchChange,
-  searchPlaceholder = "Search",
+  searchPlaceholder = "Search…",
+  searchLabel,
   options,
   active,
   onActiveChange,
@@ -51,17 +58,17 @@ export function FilterBar({
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
-            className="pr-9 pl-9"
+            aria-label={searchLabel ?? searchPlaceholder}
+            className="pr-10 pl-9"
           />
           {search ? (
             <button
               type="button"
               onClick={() => onSearchChange("")}
               aria-label="Clear search"
-              className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              <X className="size-4" />
+              <X className="size-4" aria-hidden />
             </button>
           ) : null}
         </div>
@@ -72,7 +79,7 @@ export function FilterBar({
       {options.length > 0 ? (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by category">
           {options.map((option) => {
-            const isActive = option.value === active;
+            const isActive = option.value === active
 
             return (
               <button
@@ -81,10 +88,12 @@ export function FilterBar({
                 onClick={() => onActiveChange(isActive ? null : option.value)}
                 aria-pressed={isActive}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+                  /* 40px min-height matches the POS chips: same control, same
+                     floor, one behaviour on both sides of the app. */
+                  "inline-flex min-h-10 items-center gap-1.5 rounded-full border px-4 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
                   isActive
                     ? "border-primary bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:border-primary hover:text-foreground"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/50 hover:text-foreground"
                 )}
               >
                 {option.label}

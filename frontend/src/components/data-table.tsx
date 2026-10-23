@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/dashboard/StatCard"
-import { cn } from "cn"
+import { cn } from "@/lib/utils"
 import { formatNumber } from "@/lib/format"
 
 export interface Column<T> {
@@ -41,6 +41,8 @@ interface DataTableProps<T> {
   emptyDescription?: string
   /** Pass a lucide icon to replace the default empty-state glyph. */
   emptyIcon?: LucideIcon
+  /** Accessible name for the table, announced in place of column headers alone. */
+  label?: string
   /**
    * Optional whole-row click target. Deliberately not the default: a clickable
    * row is not reachable by keyboard, so prefer a real button inside the row.
@@ -74,6 +76,7 @@ export function DataTable<T>({
   emptyTitle = "Nothing to show",
   emptyDescription = "There is no data for the current filters.",
   emptyIcon,
+  label,
   onRowClick,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = React.useState<string | null>(null);
@@ -135,7 +138,7 @@ export function DataTable<T>({
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-xl border">
-        <Table>
+        <Table aria-label={label}>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {columns.map((column) => {
@@ -249,7 +252,9 @@ function TableSkeleton<T>({ columns, rows }: { columns: Column<T>[]; rows: numbe
       <div className="overflow-x-auto rounded-xl border">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-muted/30">
+            {/* Same treatment as the live header (transparent, bordered) so
+                swapping out of the skeleton does not flash a grey strip. */}
+            <tr className="border-b">
               {columns.map((column) => (
                 <th
                   key={column.key}

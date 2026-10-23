@@ -20,6 +20,9 @@ export function RecentOrdersTable({ orders }: { orders: Order[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
+        {/* A caption names the table for screen readers; column headers alone
+            announce as an anonymous grid of cells. */}
+        <caption className="sr-only">Recent transactions</caption>
         <thead>
           <tr className="border-b text-left text-xs tracking-wide text-muted-foreground uppercase">
             <th scope="col" className="px-5 py-3 font-medium">

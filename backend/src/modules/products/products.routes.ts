@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { idParam } from '../../lib/schemas.js';
 import { parsed, routeId, validate } from '../../lib/validate.js';
-import { requireRole, requireSession } from '../../middleware/session.js';
+import {
+  requireRole,
+  requireSession,
+  sessionUser,
+} from '../../middleware/session.js';
 import {
   productInput,
   productQuery,
@@ -69,7 +73,11 @@ async function get(req: Request, res: Response): Promise<void> {
 }
 
 async function create(req: Request, res: Response): Promise<void> {
-  res.status(201).json(await createProduct(parsed<ProductInput>(req).body));
+  res
+    .status(201)
+    .json(
+      await createProduct(parsed<ProductInput>(req).body, sessionUser(req)),
+    );
 }
 
 async function update(req: Request, res: Response): Promise<void> {

@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "smoke": "node scripts/smoke-all.mjs",
     "smoke:products": "node scripts/smoke-products.mjs",
     "smoke:stock": "node scripts/smoke-stock.mjs",
@@ -24,6 +26,7 @@
     "clsx": "^2.1.1",
     "cn": "^0.5.0",
     "lucide-react": "^1.59.0",
+    "motion": "^14.6.0",
     "next": "^16.4.2",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
@@ -44,7 +47,8 @@
     "eslint-config-next": "^16.4.2",
     "playwright": "^1.64.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
   },
   "allowScripts": {
     "unrs-resolver@1.12.2": true

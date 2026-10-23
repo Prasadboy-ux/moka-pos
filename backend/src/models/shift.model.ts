@@ -33,8 +33,12 @@ const shiftSchema = new Schema(
   { toJSON: toApiJson, collection: 'shifts' },
 );
 
-// Supports "does this user have a shift open?" and "list this user's shifts".
-shiftSchema.index({ userId: 1, status: 1 });
+// A user can have at most one open shift. The partial index makes that a
+// database rule, not a check-then-insert race two concurrent taps can slip past.
+shiftSchema.index(
+  { userId: 1 },
+  { unique: true, partialFilterExpression: { status: 'open' } },
+);
 
 export type Shift = {
   _id: unknown;

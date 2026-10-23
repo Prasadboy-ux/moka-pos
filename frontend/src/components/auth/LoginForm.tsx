@@ -62,17 +62,11 @@ export function LoginForm() {
     const result = await getRepositories().users.authenticate(
       values.username,
       values.password,
+      values.role,
     );
 
     if (!result.ok) {
       setFormError(LOGIN_ERROR_MESSAGE[result.reason]);
-      return;
-    }
-
-    // The role is a claim about the account, not a choice, so a mismatch is
-    // refused here rather than silently downgrading the session.
-    if (result.user.role !== values.role) {
-      setFormError(LOGIN_ERROR_MESSAGE["role-mismatch"]);
       return;
     }
 
@@ -90,8 +84,12 @@ export function LoginForm() {
   return (
     <div className="w-full max-w-md space-y-7">
       <div className="space-y-3 text-center lg:text-left">
+        {/*
+          Small screens get the logo row; large screens get the tracked eyebrow.
+          Both used to render at once and print "Moka Cafe" twice.
+        */}
         <div className="flex items-center justify-center gap-3 lg:hidden">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-linear-to-br from-[#00c4df] to-[#0f4c81] shadow-sm">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-linear-to-br from-brand-cyan to-brand-navy shadow-sm">
             <Image
               src="/brand/moka-mark.svg"
               alt="Moka Cafe logo"
@@ -101,12 +99,14 @@ export function LoginForm() {
               className="size-6"
             />
           </div>
-          <span translate="no" className="text-base font-bold tracking-tight">Moka Cafe</span>
+          <span translate="no" className="text-base font-bold tracking-tight">
+            Moka Cafe
+          </span>
         </div>
 
         <p
           translate="no"
-          className="text-xs font-semibold tracking-[0.3em] text-primary uppercase"
+          className="hidden text-xs font-semibold tracking-[0.3em] text-primary uppercase lg:block"
         >
           Moka Cafe
         </p>
@@ -170,7 +170,7 @@ export function LoginForm() {
               type="button"
               onClick={() => setShowPassword((prev) => !prev)}
               aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               {showPassword ? (
                 <EyeOff className="size-4" aria-hidden />
@@ -190,7 +190,7 @@ export function LoginForm() {
           {isSubmitting ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Signing in...
+              Signing in…
             </>
           ) : (
             <>

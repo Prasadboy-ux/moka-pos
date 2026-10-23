@@ -47,7 +47,7 @@ export function CartPanel({
           <button
             type="button"
             onClick={() => setConfirmClear(true)}
-            className="rounded text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+            className="flex min-h-10 items-center rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
           >
             Clear
           </button>
@@ -117,6 +117,7 @@ export function CartPanel({
                       size="icon"
                       className="size-10"
                       aria-label={`Increase ${line.name}`}
+                      aria-describedby={atLimit ? `limit-${line.productId}` : undefined}
                       disabled={atLimit}
                       onClick={() => onSetQty(line.productId, line.qty + 1)}
                     >
@@ -135,7 +136,10 @@ export function CartPanel({
                 </div>
 
                 {atLimit ? (
-                  <p className="mt-1.5 text-[11px] font-medium text-muted-foreground">
+                  <p
+                    id={`limit-${line.productId}`}
+                    className="mt-1.5 text-[11px] font-medium text-muted-foreground"
+                  >
                     All remaining stock is in this order
                   </p>
                 ) : null}

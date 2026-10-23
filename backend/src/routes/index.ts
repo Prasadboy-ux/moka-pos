@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
+import { env } from '../config/env.js';
 import { databaseState } from '../db/connection.js';
 import { router as authRouter } from '../modules/auth/auth.routes.js';
 import { router as categoriesRouter } from '../modules/categories/categories.routes.js';
@@ -26,6 +27,20 @@ router.get('/health', (_req: Request, res: Response): void => {
   res
     .status(db === 'up' ? 200 : 503)
     .json({ status: db === 'up' ? 'ok' : 'degraded', db });
+});
+
+/**
+ * Store-wide settings the POS needs before it can price a cart.
+ *
+ * Public because it holds no secrets and the tax rate is printed on every
+ * receipt anyway. The server is still the authority at checkout: this only keeps
+ * the displayed total from drifting from what will be charged.
+ */
+router.get('/config', (_req: Request, res: Response): void => {
+  res.status(200).json({
+    taxRate: env().TAX_RATE_DEFAULT,
+    storeTimezone: env().STORE_TIMEZONE,
+  });
 });
 
 router.use(authRouter);

@@ -65,3 +65,19 @@ const monthFormatter = new Intl.DateTimeFormat("en-GB", {
 export function formatMonth(value: string): string {
   return monthFormatter.format(new Date(`${value}-01T00:00:00`));
 }
+
+const weekdayDayFormatter = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short",
+  day: "numeric",
+});
+
+/**
+ * Compact weekday + day for dashboard trend axes ("Mon 14"). Pinned to local
+ * time for the same reason as `formatDate`, and `en-GB` so an English UI never
+ * prints "18 Okt".
+ */
+export function formatWeekdayDay(value: Date | string): string {
+  const date =
+    typeof value === "string" ? new Date(`${value}T00:00:00`) : value;
+  return weekdayDayFormatter.format(date);
+}

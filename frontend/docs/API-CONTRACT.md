@@ -1,14 +1,15 @@
 # API Contract — what the frontend expects
 
-The frontend codes against seven repository interfaces in
-`src/lib/repositories/types.ts`. This document is those interfaces expressed as
-HTTP, plus the rules the server must enforce so behaviour does not change when
-the swap happens.
+The frontend codes against eight repository interfaces in
+`src/lib/repositories/types.ts` — config plus seven data repositories. This
+document is those interfaces expressed as HTTP, plus the rules the server must
+enforce so behaviour does not change when the swap happens.
 
 **This contract is implemented.** The API in
 [`../../backend`](../../backend/README.md) was built against this document, and
-`backend/test/contract.e2e.ts` asserts all 35 routes against it **transcribed by
-hand** — so the test checks the contract rather than restating the code. The
+`backend/test/contract.e2e.ts` asserts all 35 contract routes against it
+**transcribed by hand** — so the test checks the contract rather than restating
+the code. `/api/health` is operational and deliberately outside that count. The
 frontend's `lib/repositories/index.ts` points at it, and the mock is retained
 only as a fallback for working without a database running.
 
@@ -67,7 +68,23 @@ These are the ones a client must never be trusted on:
 5. **Price on an order line is historical.** Store what was charged; a later
    price change must not rewrite old receipts.
 
-## 2. Authentication
+## 2. Store config
+
+`ConfigRepository`
+
+### `GET /api/config` → `200`
+
+```jsonc
+{ "taxRate": 0.1, "storeTimezone": "Asia/Jakarta" }
+```
+
+Public: it holds no secrets, and the tax rate is printed on every receipt
+anyway. The POS reads it before pricing a cart so the displayed total cannot
+drift from what checkout charges, and so report day labels use the store's
+calendar rather than the browser's. The server remains the authority at
+checkout — this endpoint is for display, not trust.
+
+## 3. Authentication
 
 Recommended: **httpOnly cookie session**. It survives XSS better than a token in
 `localStorage`, and requires no interceptor on every request. If a bearer token
@@ -105,7 +122,7 @@ wrong, so usernames cannot be enumerated.
 Replaces reading the persisted session from `localStorage`. Called once on app
 load; every guard waits on it — the same reason the mock has a `hydrated` flag.
 
-## 3. Categories
+## 4. Categories
 
 `CategoryRepository`
 
@@ -128,7 +145,7 @@ order the POS grid and every filter use.
 `remove` must refuse with `409 category-in-use` while any product still
 references the category. The UI disables the button, but the server enforces it.
 
-## 4. Ingredients
+## 5. Ingredients
 
 `IngredientRepository`
 
@@ -153,7 +170,7 @@ unit has a ledger entry.
 wrong: a 250 g bag at Rp 95,000 is `380` per gram, not `0.095`. The previous
 mock had this wrong and every margin read as 100%.
 
-## 5. Products
+## 6. Products
 
 `ProductRepository`
 
@@ -173,8 +190,8 @@ ProductInput {
   price: number            // rupiah
   image: string            // public path, e.g. "/menu/coffee/iced_americano.svg"
   stockMode: "recipe" | "direct"
-  stock?: number           // required when direct
-  minStock?: number        // required when direct
+  stock?: number           // optional; defaults to 0 when direct
+  minStock?: number        // optional; defaults to 0 when direct
   recipe: RecipeItem[]     // required and non-empty when recipe
   isActive: boolean
 }
@@ -182,11 +199,36 @@ ProductInput {
 
 Query defaults: `includeInactive` false — only active products unless asked.
 
+**The response is mode-specific.** A `direct` product always has numeric
+`stock` and `minStock`; a `recipe` product has neither property at all (not
+`null`, not `0`) and always has a non-empty `recipe`. A recipe product that
+carries a stock level is one that can oversell while looking fine.
+
+```jsonc
+// direct
+{ id, name, categoryId, price, image, stockMode: "direct",
+  stock: 36, minStock: 24, recipe: [], isActive: true }
+
+// recipe
+{ id, name, categoryId, price, image, stockMode: "recipe",
+  recipe: [{ ingredientId, qty }], isActive: true }
+```
+
 Server-side validation the client also enforces, so both fail the same way:
 
 - `recipe` mode: at least one ingredient, and no duplicate `ingredientId`.
-- `direct` mode: `stock` and `minStock` present.
+- `direct` mode: `stock` and `minStock` default to `0` when omitted.
 - `recipe` is ignored (stored empty) in `direct` mode.
+- Switching a direct product to recipe unsets `stock` and `minStock`; switching
+  it back does not resurrect the old count.
+
+**Product edits write stock in exactly one place.** `POST /api/products` is the
+only edit path that accepts `stock`, and it treats the value as the *opening*
+count: a non-zero direct product creates a `purchase` movement in the same
+transaction, so every unit on hand has a ledger row. `PUT /api/products/:id`
+never writes stock — a later count belongs to `POST /api/stock/adjust`, and
+letting the product form overwrite it would break the audit trail. A zero-stock
+create writes no movement. After creation, the only other writer is a sale.
 
 `remove` is separate from `setActive` on purpose: `setActive` is the reversible
 "not selling this today" state, and `remove` is the terminal one. They are not the
@@ -202,7 +244,7 @@ A deleted product must be attributed to an `Uncategorised` bucket there rather
 than skipped, so the category table keeps agreeing with the revenue total above
 it.
 
-## 6. Stock
+## 7. Stock
 
 `StockRepository`
 
@@ -238,6 +280,10 @@ Server rules:
 
 - `type: "sale"` is **not accepted** here. Sales write their movements as part of
   `POST /api/orders`.
+- The sign must agree with the reason: `purchase` needs `qty > 0`, `waste` needs
+  `qty < 0`, and `adjustment` is signed either way because a recount can be
+  wrong in either direction. Zero is rejected. A mismatch is `422 validation`
+  with `fields.qty`, and writes nothing.
 - A movement that would drive stock below zero → `422 validation`, with the
   amount on hand in `message`. The stock screen relies on this message.
 - `target: "product"` requires `stockMode: "direct"`. A recipe product has no
@@ -255,7 +301,7 @@ price. They are reported separately and only summed for a rough figure — the U
 labels the combined number "treat as an order of magnitude", and that labelling
 should survive into the API consumer.
 
-## 7. Users
+## 8. Users
 
 `UserRepository`
 
@@ -281,7 +327,7 @@ Server rules:
 - **No delete endpoint.** Orders reference the cashier by id; deactivation is how
   someone leaves.
 
-## 8. Orders
+## 9. Orders
 
 `OrderRepository`
 
@@ -324,9 +370,13 @@ Inside a single MongoDB transaction:
    `409 conflict` reason `no-open-shift`, nothing written. This applies to
    **every role, admins included** — an admin's cash sale misses the drawer
    count just as badly as a cashier's.
-1. Re-read every line's product. Reject unknown ids.
+1. Re-read every line's product. Reject unknown ids, and reject an inactive
+   product with `422 validation` naming it: a tab left open from before the
+   change must not sell something the menu has hidden.
 2. Recompute `subtotal`, `taxAmount` (PPN 10%, rounded to whole rupiah), and
-   `total` from stored prices. **Never trust a total from the client.**
+   `total` from stored prices. **Never trust a total from the client.** A
+   `paidAmount` below the computed total is `422 validation` with
+   `fields.paidAmount`; stock and the receipt counter stay untouched.
 3. Validate coverage. A `direct` product needs `stock >= qty`; a `recipe` product
    needs every ingredient to cover `recipe.qty × qty`. Otherwise →
    `409 insufficient-stock`, naming the short ingredient.
@@ -334,11 +384,23 @@ Inside a single MongoDB transaction:
 5. Write the order with denormalised lines and the `shiftId` of the open shift
    it was sold under (historical — a later close never rewrites it).
 6. Decrement stock and append the movements.
+7. Insert the idempotency key, if one was supplied, in the same transaction.
 
 If any step fails, **nothing is written.** This mirrors what the mock does with
 its snapshot-and-restore `mutate`, and the reason the until's stock numbers can
 be trusted. A partial write here means a receipt exists for stock that was never
 sold, or stock was consumed by an order that does not exist.
+
+### Gross revenue in the breakdowns
+
+`order.total` is gross — it includes PPN — while `line.price × line.qty` is
+pre-tax. Category and product report rows must allocate the order total in
+proportion to those line weights, giving leftover rupiah to the largest
+fractional shares. Summing line prices instead made every breakdown understate
+revenue by that order's tax; proportional allocation makes the category and
+product totals equal the KPI revenue exactly, with no lost or invented rupiah.
+This is implemented in `src/lib/repositories/read-models.ts`
+(`allocateGrossRevenue`).
 
 ### `from` / `to` are inclusive, `yyyy-mm-dd`
 
@@ -346,13 +408,30 @@ sold, or stock was consumed by an order that does not exist.
 date a `to` lands at midnight, so a range ending today silently drops that day's
 sales. Apply `<= to 23:59:59.999` or translate to `< to+1day`.
 
+Both bounds are resolved in the **store's** timezone (`STORE_TIMEZONE`, returned
+as `storeTimezone` by `GET /api/config`), not the server's or browser's. In
+Asia/Jakarta, a sale at 23:30 local is 16:30 UTC the same day and must fall in
+that day's range. The frontend mirrors the zone with
+`NEXT_PUBLIC_STORE_TIMEZONE`; keep the two equal. The dashboard asks for today
+plus the previous six store days, and both day and month trend buckets use the
+same calendar.
+
 ### Idempotency
 
 Accept an `Idempotency-Key` header on `POST /api/orders`. A mobile till on flaky
 wifi will retry, and a retry that creates a second receipt is a real-world
-duplicate charge. Keyed on the header, returning the original order.
+duplicate charge.
 
-## 9. Shifts
+- The first request writes the order and the key together, and answers `201`.
+- A replay answers `200` with the original `order`, an empty `movements` array
+  (the ledger has its own endpoint), and `Idempotent-Replay: true`.
+- A blank header is treated as absent, so two deliberate sales are still two
+  sales.
+- Concurrent retries of one key race on the unique key index; the loser returns
+  the winner's receipt rather than charging twice.
+- Replaying does not decrement stock again.
+
+## 10. Shifts
 
 `ShiftRepository` — a shift **gates selling**: `POST /api/orders` refuses with
 `409 no-open-shift` until the cashier has one open, and closing one reconciles
@@ -393,7 +472,7 @@ later edit to history must not change yesterday's variance. The close response
 is the closed `Shift` including all three, so the UI can show the result without
 a second round-trip.
 
-## 10. Suggested MongoDB shape
+## 11. Suggested MongoDB shape
 
 ```
 users            { _id, name, username, passwordHash, role, isActive, createdAt }
@@ -436,7 +515,7 @@ Note there is **no inventory collection**. `Ingredient.stock` and direct-product
 `Product.stock` are current levels on their own documents; `stock_movements` is the
 history. The ledger is the audit trail, not the source of truth.
 
-## 11. What the frontend does not need from the server
+## 12. What the frontend does not need from the server
 
 Stated explicitly so nobody builds it:
 
@@ -451,16 +530,17 @@ Stated explicitly so nobody builds it:
 - **Route-level guards** — the client keeps its own; the server just has to
   agree.
 
-## 12. Acceptance for the swap
+## 13. Acceptance for the swap
 
 The API was done when:
 
-1. A new implementation of the seven interfaces returns real data.
+1. A new implementation of the eight interfaces returns real data.
 2. `getRepositories()` points at it. **That is the only file changed.** — 27 lines
    in `index.ts`.
 3. `npm run smoke` passes unchanged.
 
-**All three met.** 182/182 checks pass against the live API.
+**All three met.** At the time of the swap, 182/182 checks passed against the
+live API; the current suite is 187/187.
 
 Point 3 is the real test. It covers catalogue CRUD, stock adjustments and their
 refusals, the ledger, a full sale through to the receipt, report ranges and CSV,

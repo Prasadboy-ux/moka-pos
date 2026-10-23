@@ -1,8 +1,10 @@
 import type { User } from "@/types/auth";
 import type { Category, Ingredient, Product } from "@/types/pos";
 import type {
+  AppConfig,
   CategoryInput,
   CategoryRepository,
+  ConfigRepository,
   IngredientInput,
   IngredientRepository,
   ProductInput,
@@ -12,6 +14,10 @@ import type {
   UserRepository,
 } from "../types";
 import { ApiError, http, query, request } from "./client";
+
+export const configRepository: ConfigRepository = {
+  get: () => request<AppConfig>(() => http.get("/config")),
+};
 
 export const categoryRepository: CategoryRepository = {
   list: () => request<Category[]>(() => http.get("/categories")),
@@ -96,24 +102,30 @@ export const userRepository: UserRepository = {
     request<User>(() => http.patch(`/users/${id}/active`, { isActive })),
 
   /**
-   * The API distinguishes three refusals; this interface has two. `invalid`
-   * covers both a wrong password and an unknown username — the server sends the
-   * same message for those two on purpose, so nothing is lost. `role-mismatch`
-   * cannot arise here because this method is not given a role to compare.
+   * The role is sent with the credentials so the server can refuse a mismatch
+   * before it sets a session cookie. Without it, the browser could hold a valid
+   * session for the wrong role while the form still showed an error.
    */
-  async authenticate(username: string, password: string) {
+  async authenticate(username: string, password: string, role?) {
     try {
       const { user } = await request<{ user: User }>(() =>
-        http.post("/auth/login", { username, password }),
+        http.post("/auth/login", { username, password, role }),
       );
       return { ok: true as const, user };
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      if (!(error instanceof ApiError)) throw error;
+
+      if (error.status === 401) {
         return {
           ok: false as const,
-          reason: /deactivat/i.test(error.message) ? ("inactive" as const) : ("invalid" as const),
+          reason: error.reason === "inactive" ? "inactive" : "invalid",
         };
       }
+
+      if (error.status === 403 && error.reason === "role-mismatch") {
+        return { ok: false as const, reason: "role-mismatch" as const };
+      }
+
       throw error;
     }
   },

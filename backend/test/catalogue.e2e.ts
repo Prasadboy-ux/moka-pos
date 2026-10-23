@@ -6,6 +6,7 @@ import { hashPassword } from '../src/lib/password.js';
 import { CategoryModel } from '../src/models/category.model.js';
 import { IngredientModel } from '../src/models/ingredient.model.js';
 import { ProductModel } from '../src/models/product.model.js';
+import { StockMovementModel } from '../src/models/stock-movement.model.js';
 import {
   agentFor,
   createUser,
@@ -411,6 +412,7 @@ describe('products', () => {
 
     expect(response.body.stockMode).toBe('recipe');
     expect(response.body).not.toHaveProperty('stock');
+    expect(response.body).not.toHaveProperty('minStock');
     expect(response.body.recipe).toHaveLength(2);
   });
 
@@ -434,6 +436,100 @@ describe('products', () => {
 
     expect(response.body.stock).toBe(9);
     expect(response.body.recipe).toEqual([]);
+  });
+
+  it('records opening stock as a purchase movement on create', async () => {
+    const snack = await CategoryModel.findOne({ name: 'Snack' });
+
+    const created = await admin.agent
+      .post('/api/products')
+      .send({
+        name: 'Butter Croissant',
+        categoryId: String(snack!._id),
+        price: 22000,
+        image: '/menu/snack/butter_croissant.svg',
+        stockMode: 'direct',
+        stock: 9,
+        minStock: 12,
+        recipe: [],
+      })
+      .expect(201);
+
+    const movement = await StockMovementModel.findOne({
+      productId: created.body.id,
+    });
+
+    expect(movement).toMatchObject({
+      type: 'purchase',
+      qty: 9,
+      unit: 'pcs',
+      note: 'Opening stock',
+      byUserName: 'Budi Santoso',
+    });
+  });
+
+  it('writes no opening movement for a recipe product or zero stock', async () => {
+    const recipe = await admin.agent
+      .post('/api/products')
+      .send(recipeProduct())
+      .expect(201);
+
+    const snack = await CategoryModel.findOne({ name: 'Snack' });
+    const direct = await admin.agent
+      .post('/api/products')
+      .send({
+        name: 'Plain Croissant',
+        categoryId: String(snack!._id),
+        price: 22000,
+        image: '/menu/snack/butter_croissant.svg',
+        stockMode: 'direct',
+        recipe: [],
+      })
+      .expect(201);
+
+    expect(direct.body.stock).toBe(0);
+    expect(direct.body.minStock).toBe(0);
+    expect(
+      await StockMovementModel.countDocuments({
+        productId: { $in: [recipe.body.id, direct.body.id] },
+      }),
+    ).toBe(0);
+  });
+
+  it('does not change stock through a product edit', async () => {
+    const snack = await CategoryModel.findOne({ name: 'Snack' });
+
+    const created = await admin.agent
+      .post('/api/products')
+      .send({
+        name: 'Butter Croissant',
+        categoryId: String(snack!._id),
+        price: 22000,
+        image: '/menu/snack/butter_croissant.svg',
+        stockMode: 'direct',
+        stock: 9,
+        minStock: 12,
+        recipe: [],
+      })
+      .expect(201);
+
+    const response = await admin.agent
+      .put(`/api/products/${created.body.id}`)
+      .send({
+        name: 'Butter Croissant',
+        categoryId: String(snack!._id),
+        price: 24000,
+        image: '/menu/snack/butter_croissant.svg',
+        stockMode: 'direct',
+        stock: 999,
+        minStock: 4,
+        recipe: [],
+      })
+      .expect(200);
+
+    expect(response.body.stock).toBe(9);
+    expect(response.body.minStock).toBe(4);
+    expect((await ProductModel.findById(created.body.id))?.stock).toBe(9);
   });
 
   it('discards a recipe supplied to a direct product', async () => {
@@ -543,14 +639,16 @@ describe('products', () => {
   });
 
   describe('stockMode switch', () => {
-    it('clears the fields the new mode does not use', async () => {
+    it('clears the fields the new mode does not use without writing stock', async () => {
       const created = await admin.agent
         .post('/api/products')
         .send(recipeProduct())
         .expect(201);
 
       // Switch it to a counted good. A stale recipe left behind would look like
-      // data loss to whoever opened the product next.
+      // data loss to whoever opened the product next. The supplied stock is an
+      // opening level, and edits are not allowed to write one: the ledger only
+      // learns about stock through create and `/stock/adjust`.
       const response = await admin.agent
         .put(`/api/products/${created.body.id}`)
         .send({
@@ -565,10 +663,57 @@ describe('products', () => {
         .expect(200);
 
       expect(response.body.recipe).toEqual([]);
-      expect(response.body.stock).toBe(12);
+      expect(response.body.stock).toBe(0);
+      expect(response.body.minStock).toBe(4);
 
       const stored = await ProductModel.findById(created.body.id);
       expect(stored?.recipe).toHaveLength(0);
+      expect(stored?.stock ?? 0).toBe(0);
+    });
+
+    it('unsets stock when switching back to recipe so it cannot resurface', async () => {
+      const created = await admin.agent
+        .post('/api/products')
+        .send({
+          name: 'Butter Croissant',
+          categoryId: coffeeId,
+          price: 22000,
+          image: '/menu/coffee/classic_iced_latte.svg',
+          stockMode: 'direct',
+          stock: 9,
+          minStock: 4,
+          recipe: [],
+        })
+        .expect(201);
+
+      const switched = await admin.agent
+        .put(`/api/products/${created.body.id}`)
+        .send(recipeProduct())
+        .expect(200);
+
+      expect(switched.body).not.toHaveProperty('stock');
+      expect(switched.body).not.toHaveProperty('minStock');
+
+      const stored = await ProductModel.findById(created.body.id);
+      expect(stored?.stock).toBeUndefined();
+      expect(stored?.minStock).toBeUndefined();
+
+      // A later switch back to direct must not resurrect the old count.
+      const switchedBack = await admin.agent
+        .put(`/api/products/${created.body.id}`)
+        .send({
+          name: 'Butter Croissant',
+          categoryId: coffeeId,
+          price: 22000,
+          image: '/menu/coffee/classic_iced_latte.svg',
+          stockMode: 'direct',
+          stock: 50,
+          minStock: 4,
+          recipe: [],
+        })
+        .expect(200);
+
+      expect(switchedBack.body.stock).toBe(0);
     });
   });
 

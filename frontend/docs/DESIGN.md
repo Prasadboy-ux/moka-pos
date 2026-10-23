@@ -14,15 +14,25 @@ Lifted from `asset/logo/moka-logo.svg`.
 | `--brand-blue` | `#1b75bc` | Accent |
 | `--brand-navy` | `#0f4c81` | Gradient end |
 | `--brand-ink` | `#0f2027` | Foreground text |
-| `--primary` | `#00a5bd` | Buttons, active states |
+| `--primary` | `#007a87` | Buttons, active states, tile prices |
 
-`--primary` is the logo cyan darkened so white text on top of it clears WCAG AA
-contrast. Using the raw `#00c4df` for button fills fails.
+`--primary` is the logo cyan darkened far enough to clear WCAG AA (≈5:1 with
+white text). The raw `#00c4df` fails badly (≈2.1:1), and the first replacement
+`#00a5bd` still failed at ≈3:1 — which is why the value is this deep now. The
+bright cyan stays available as `--brand-cyan` for gradients and non-text
+accents; anything carrying text uses `--primary`.
+
+`--ring` shares the `--primary` value and is applied at full opacity. A bright
+cyan ring at 50% opacity against white is invisible, which is not a focus
+indicator.
 
 Semantic tokens (`--background`, `--foreground`, `--card`, `--muted`,
-`--destructive`, `--border`, `--chart-*`, `--sidebar-*`) are mapped through
-`@theme inline` so Tailwind generates utilities from them. **Change the token,
-never the utility class.**
+`--success`, `--warning`, `--destructive`, `--border`, `--chart-*`,
+`--sidebar-*`) are mapped through `@theme inline` so Tailwind generates
+utilities from them. **Change the token, never the utility class.** Raw palette
+values (`bg-emerald-500`, `from-[#00c4df]`) do not belong in a component: the
+brand gradients use `from-brand-cyan to-brand-navy`, and success/warning states
+use `text-success` / `text-warning`.
 
 A full `.dark` palette exists and is token-complete but has no toggle.
 
@@ -68,10 +78,16 @@ The app is used on a tablet. These are not optional polish.
 | Cart steppers | 40 px |
 | Quick tender | 44 px |
 | Charge button | 48 px |
+| Category chips (POS and admin) | 40 px minimum height |
+| Cart "Clear", dialog close | 40 px minimum hit area |
+| Sidebar links, buttons | 40 px minimum height |
 | Menu tile | whole tile is the target |
 | Mobile tab bar | icons + short label, never text alone |
 
 Pinch-zoom still works — `manipulation` removes only the double-tap gesture.
+
+The default `Button` sizes are one step taller than stock shadcn for the same
+reason (`default` 40 px, `sm` 36 px).
 
 ## 4. Motion
 
@@ -183,8 +199,19 @@ cart — say what to do next, not just that nothing is there:
 
 > **Order is empty** — Tap a menu item to start the order.
 
-Loading is a spinner with `sr-only` text, or a skeleton that matches the layout it
-replaces so nothing jumps.
+Loading is a skeleton that matches the layout it replaces so nothing jumps —
+the POS grid, the dashboard, and the auth gate all draw their own shell rather
+than a spinner. Errors use the `Alert` pattern with a way out: name what
+failed, then a **Try again** action. Placeholders inside inputs end in `…` and
+show an example ("Search products…"), while the field's accessible label stays
+clean ("Search products").
+
+## 10. Headings
+
+Each screen has exactly one `<h1>` — `PageHeader` owns it on admin screens; the
+till and the overview carry their own. The app header renders the route name as
+muted chrome, not a heading, so it cannot stack a duplicate title above the
+page's real one.
 
 ## 10. Copy
 

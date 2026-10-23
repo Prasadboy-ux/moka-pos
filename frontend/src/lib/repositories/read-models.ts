@@ -80,35 +80,66 @@ export interface CashierSalesRow {
 
 // -------------------------------------------------------------------- helpers
 
-export function startOfToday(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
+/**
+ * The zone the API groups days in. A report opened at 00:30 in Jakarta must put
+ * that sale on today's bar, not on yesterday's because the browser was set to
+ * UTC. Keep this equal to the API's `STORE_TIMEZONE`.
+ */
+export const STORE_TIMEZONE =
+  process.env.NEXT_PUBLIC_STORE_TIMEZONE || "Asia/Jakarta";
+
+const dayFormat = new Intl.DateTimeFormat("en-CA", {
+  timeZone: STORE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const monthFormat = new Intl.DateTimeFormat("en-CA", {
+  timeZone: STORE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+});
+
+function formatKey(format: Intl.DateTimeFormat, timestamp: number): string {
+  const parts = format.formatToParts(new Date(timestamp));
+  const value = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 export function toDayKey(timestamp: number): string {
-  const d = new Date(timestamp);
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${month}-${day}`;
+  return formatKey(dayFormat, timestamp);
 }
 
-/** yyyy-mm-dd for `days` before today. */
+/** yyyy-mm-dd for `days` before today, in the store's timezone. */
 export function dayKeyDaysAgo(days: number): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - days);
-  return toDayKey(d.getTime());
+  return shiftDays(todayKey(), -days);
 }
 
 export function todayKey(): string {
-  return dayKeyDaysAgo(0);
+  return formatKey(dayFormat, Date.now());
 }
 
-/** yyyy-mm. The month a timestamp falls in, in local time. */
+/** yyyy-mm. The month a timestamp falls in, in the store's timezone. */
 export function monthKey(timestamp: number): string {
-  const d = new Date(timestamp);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const parts = monthFormat.formatToParts(new Date(timestamp));
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  return `${year}-${month}`;
+}
+
+/** First day of the month `months` months before the current store month. */
+export function monthStartMonthsAgo(months: number): string {
+  const [year, month] = todayKey().slice(0, 7).split("-").map(Number) as [
+    number,
+    number,
+  ];
+  const index = year * 12 + (month - 1) - months;
+  const targetYear = Math.floor(index / 12);
+  const targetMonth = (index % 12) + 1;
+  return `${targetYear}-${String(targetMonth).padStart(2, "0")}-01`;
 }
 
 export function summarise(orders: Order[]): Kpi {
@@ -120,6 +151,38 @@ export function summarise(orders: Order[]): Kpi {
     averageOrderValue: orders.length > 0 ? Math.round(revenue / orders.length) : 0,
     itemsSold: orders.reduce((sum, o) => sum + o.lines.reduce((n, l) => n + l.qty, 0), 0),
   };
+}
+
+/**
+ * Splits an order's gross total (`total`, PPN included) across its lines.
+ *
+ * Line arithmetic only knows pre-tax prices, so summing it made every category
+ * and product row understate revenue by the tax on that order. Allocating the
+ * order total in proportion to the lines — and giving leftover rupiah to the
+ * largest fractional shares — makes the breakdown add up to the KPI exactly,
+ * with no lost or invented cents.
+ */
+export function allocateGrossRevenue(order: Order): number[] {
+  const weights = order.lines.map((line) => line.price * line.qty);
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+
+  if (weightTotal <= 0 || order.total <= 0) {
+    return order.lines.map(() => 0);
+  }
+
+  const exact = weights.map((weight) => (weight / weightTotal) * order.total);
+  const allocated = exact.map(Math.floor);
+  let remaining = order.total - allocated.reduce((sum, value) => sum + value, 0);
+
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+
+  for (let i = 0; remaining > 0; i += 1, remaining -= 1) {
+    allocated[byRemainder[i % byRemainder.length]!.index]! += 1;
+  }
+
+  return allocated;
 }
 
 export function paymentBreakdown(orders: Order[]): PaymentBreakdownRow[] {
@@ -210,8 +273,8 @@ function periodKeys(from: string, to: string, bucket: TrendBucket): string[] {
   const keys: string[] = [];
 
   if (bucket === "month") {
-    const last = monthKey(new Date(`${to}T00:00:00`).getTime());
-    for (let cursor = monthKey(new Date(`${from}T00:00:00`).getTime()); ; cursor = nextMonth(cursor)) {
+    const last = to.slice(0, 7);
+    for (let cursor = from.slice(0, 7); ; cursor = nextMonth(cursor)) {
       keys.push(cursor);
       if (cursor === last) return keys;
     }
@@ -256,11 +319,13 @@ export function categorySales(
   const totals = new Map<string, { revenue: number; itemsSold: number }>();
 
   for (const order of orders) {
-    for (const line of order.lines) {
+    const revenue = allocateGrossRevenue(order);
+
+    for (const [index, line] of order.lines.entries()) {
       const categoryId = categoryOf.get(line.productId) ?? UNCATEGORISED_ID;
 
       const entry = totals.get(categoryId) ?? { revenue: 0, itemsSold: 0 };
-      entry.revenue += line.price * line.qty;
+      entry.revenue += revenue[index] ?? 0;
       entry.itemsSold += line.qty;
       totals.set(categoryId, entry);
     }
@@ -279,18 +344,20 @@ export function productSales(orders: Order[], limit = 10): ProductSalesRow[] {
   const totals = new Map<string, ProductSalesRow>();
 
   for (const order of orders) {
-    for (const line of order.lines) {
+    const revenue = allocateGrossRevenue(order);
+
+    for (const [index, line] of order.lines.entries()) {
       const entry =
         totals.get(line.productId) ??
         {
           productId: line.productId,
-          name: line.name,
           quantity: 0,
+          name: line.name,
           revenue: 0,
         };
 
       entry.quantity += line.qty;
-      entry.revenue += line.price * line.qty;
+      entry.revenue += revenue[index] ?? 0;
       totals.set(line.productId, entry);
     }
   }
@@ -374,22 +441,29 @@ export interface DashboardSummary {
 export async function getAdminDashboard(): Promise<DashboardSummary> {
   const { products, ingredients, orders } = getRepositories();
 
-  const [productList, ingredientList, orderList] = await Promise.all([
-    products.list(),
-    ingredients.list(),
-    orders.list(),
-  ]);
+  const today = todayKey();
+  const weekStart = dayKeyDaysAgo(6);
 
-  const todays = orderList.filter(
-    (o) => new Date(o.createdAt).getTime() >= startOfToday(),
+  const [productList, ingredientList, recentOrders, weekOrders] =
+    await Promise.all([
+      products.list(),
+      ingredients.list(),
+      orders.recent(8),
+      // The dashboard needs today plus the trend strip, not all history. Asking
+      // for seven calendar days keeps the payload bounded as the shop grows.
+      orders.list({ from: weekStart, to: today }),
+    ]);
+
+  const todays = weekOrders.filter(
+    (order) => toDayKey(new Date(order.createdAt).getTime()) === today,
   );
 
   return {
     kpi: summarise(todays),
     paymentBreakdown: paymentBreakdown(todays),
-    trend: trend(orderList),
+    trend: trend(weekOrders),
     lowStock: lowStockItems(productList, ingredientList),
-    recentOrders: orderList.slice(0, 8),
+    recentOrders,
     totalProducts: productList.length,
   };
 }
@@ -438,13 +512,21 @@ export async function getSalesReport(from: string, to: string): Promise<SalesRep
   };
 }
 
+/**
+ * Calendar arithmetic on `yyyy-mm-dd` strings.
+ *
+ * Parsed as UTC on purpose: a date-only value has no timezone, and letting the
+ * host zone interpret it made "yesterday" depend on where the browser was, not
+ * on the store's calendar.
+ */
 function shiftDays(dayKey: string, days: number): string {
-  const d = new Date(`${dayKey}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return toDayKey(d.getTime());
+  const d = new Date(`${dayKey}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 function spanInDays(from: string, to: string): number {
-  const ms = new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime();
-  return Math.max(0, Math.round(ms / 86_400_000));
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  return Math.max(0, Math.round((end - start) / 86_400_000));
 }

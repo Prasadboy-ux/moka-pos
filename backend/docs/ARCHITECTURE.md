@@ -21,10 +21,18 @@ src/
 test/              e2e tests (*.e2e.ts) and global setup
 ```
 
-## Two entrypoints, on purpose
+## Entrypoints, on purpose
 
 `app.ts` builds the application. `server.ts` binds a port and opens a database
 connection. Tests import `createApp` and drive it with Supertest without either.
+
+`api/index.ts` is the Vercel serverless entry: same `createApp`, no `listen`,
+and the database connects lazily on the first request per cold start (the
+resolved promise is cached in module scope so warm invocations skip it).
+`api/[...path].ts` re-exports it as the catch-all, because a single `api/index.ts`
+only matches `/api` and would drop `/api/products` and the rest. The frontend
+proxies `/api/*` to this service through a Next.js rewrite so the session cookie
+stays same-origin — see the frontend's `next.config.ts`.
 
 Module folders export `router`; `routes/index.ts` is the only file that knows
 the full URL surface. Adding a module means adding one folder and one line.

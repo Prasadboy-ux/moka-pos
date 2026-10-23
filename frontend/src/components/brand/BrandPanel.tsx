@@ -2,7 +2,7 @@ import Image from "next/image";
 
 export function BrandPanel() {
   return (
-    <aside className="relative hidden overflow-hidden lg:flex lg:w-1/2 lg:flex-col lg:justify-between bg-linear-to-br from-[#00c4df] via-[#1b75bc] to-[#0f4c81] p-12 text-white">
+    <aside className="relative hidden overflow-hidden lg:flex lg:w-1/2 lg:flex-col lg:justify-between bg-linear-to-br from-brand-cyan via-brand-blue to-brand-navy p-12 text-white">
       {/* Decorative blurred orbs */}
       <div
         aria-hidden

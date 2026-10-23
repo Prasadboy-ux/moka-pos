@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 export default function NotFound() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 text-center">
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-linear-to-br from-[#00c4df] to-[#0f4c81] text-white shadow-lg">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-linear-to-br from-brand-cyan to-brand-navy text-white shadow-lg">
         <Coffee className="size-7" aria-hidden />
       </div>
 

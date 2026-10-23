@@ -1,5 +1,4 @@
 import { Schema, model } from 'mongoose';
-import { toApiJson } from './shared.js';
 
 /**
  * Sellable items, in one of two modes.
@@ -47,7 +46,36 @@ const productSchema = new Schema(
     recipe: { type: [recipeItemSchema], default: [] },
     isActive: { type: Boolean, default: true, required: true },
   },
-  { toJSON: toApiJson, collection: 'products' },
+  {
+    collection: 'products',
+    toJSON: {
+      virtuals: true,
+      versionKey: false,
+      transform: (_doc: unknown, ret: Record<string, unknown>) => {
+        const { _id, stock, minStock, stockMode, recipe, ...rest } = ret;
+
+        if (stockMode === 'direct') {
+          return {
+            id: String(_id),
+            ...rest,
+            stockMode,
+            stock: stock ?? 0,
+            minStock: minStock ?? 0,
+            recipe: [],
+          };
+        }
+
+        // A recipe product has no stock of its own. Omitting both fields keeps
+        // the UI from rendering a misleading zero where it should show nothing.
+        return {
+          id: String(_id),
+          ...rest,
+          stockMode,
+          recipe,
+        };
+      },
+    },
+  },
 );
 
 productSchema.index({ categoryId: 1 });

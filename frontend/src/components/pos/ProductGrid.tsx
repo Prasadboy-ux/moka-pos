@@ -1,6 +1,6 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -64,8 +64,18 @@ export function ProductGrid({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="Search menu…"
             aria-label="Search menu"
-            className="pl-9"
+            className="pr-10 pl-9"
           />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => onSearchChange("")}
+              aria-label="Clear search"
+              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -209,7 +219,9 @@ function CategoryChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
+        /* 40px min-height: chips are pressed constantly while building an
+           order, and DESIGN.md §3 sets that floor for POS controls. */
+        "inline-flex min-h-10 items-center gap-1.5 rounded-full border px-4 text-sm font-medium transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         active
           ? "border-primary bg-primary text-primary-foreground"
@@ -218,7 +230,7 @@ function CategoryChip({
     >
       {label}
       {typeof count === "number" ? (
-        <span className={cn("ml-1 tabular-nums", active ? "opacity-80" : "opacity-60")}>
+        <span className={cn("tabular-nums", active ? "opacity-80" : "opacity-60")}>
           {count}
         </span>
       ) : null}

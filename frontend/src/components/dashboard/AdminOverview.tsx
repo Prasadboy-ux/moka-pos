@@ -2,33 +2,42 @@
 
 import {
   Banknote,
-  Loader2,
+  CreditCard,
   Package,
   QrCode,
-  Receipt,
+  RotateCcw,
   ShoppingBag,
   TrendingUp,
   Wallet,
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { StatCard } from "@/components/dashboard/StatCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState, StatCard } from "@/components/dashboard/StatCard";
 import {
   LowStockList,
   RecentOrdersTable,
   SeeAllLink,
   SectionCard,
 } from "@/components/dashboard/OverviewWidgets";
+import { PageHeader } from "@/components/page-header";
 import { useAsync } from "@/hooks/useAsync";
 import { getAdminDashboard, type DashboardSummary } from "@/lib/repositories/read-models";
-import { formatIDR, formatNumber } from "@/lib/format";
+import {
+  formatIDR,
+  formatNumber,
+  formatWeekdayDay,
+} from "@/lib/format";
 import { PAYMENT_LABEL } from "@/types/pos";
 
+/* Same glyphs the checkout dialog uses, so `credit` reads as a card everywhere. */
 const METHOD_ICON = {
   cash: Banknote,
   qris: QrCode,
   debit: Wallet,
-  credit: Receipt,
+  credit: CreditCard,
 } as const;
 
 function TrendBars({ summary }: { summary: DashboardSummary }) {
@@ -38,17 +47,11 @@ function TrendBars({ summary }: { summary: DashboardSummary }) {
     <ul className="space-y-3 p-5">
       {summary.trend.map((point) => {
         const pct = Math.round((point.revenue / max) * 100);
-        const day = new Date(`${point.date}T00:00:00`);
 
         return (
           <li key={point.date} className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-3 text-xs">
-              <span className="font-medium">
-                {new Intl.DateTimeFormat("id-ID", {
-                  weekday: "short",
-                  day: "numeric",
-                }).format(day)}
-              </span>
+              <span className="font-medium">{formatWeekdayDay(point.date)}</span>
               <span className="tabular-nums text-muted-foreground">
                 {formatIDR(point.revenue)}
               </span>
@@ -67,9 +70,11 @@ function TrendBars({ summary }: { summary: DashboardSummary }) {
 function PaymentMix({ summary }: { summary: DashboardSummary }) {
   if (summary.paymentBreakdown.length === 0) {
     return (
-      <p className="px-5 py-8 text-center text-xs text-muted-foreground">
-        No payments recorded today.
-      </p>
+      <EmptyState
+        icon={Wallet}
+        title="No payments yet"
+        description="Today's payments will appear here once a sale is rung up."
+      />
     );
   }
 
@@ -103,20 +108,40 @@ function PaymentMix({ summary }: { summary: DashboardSummary }) {
 }
 
 export function AdminOverview() {
-  const { data: summary, error, isLoading } = useAsync(getAdminDashboard);
+  const {
+    data: summary,
+    error,
+    isLoading,
+    reload,
+  } = useAsync(getAdminDashboard);
 
-  if (error) {
+  if (error && !summary) {
     return (
-      <p role="alert" className="py-20 text-center text-sm text-destructive">
-        {error}
-      </p>
+      <Alert variant="destructive" className="mx-auto mt-16 max-w-md">
+        <AlertTitle>Could not load the dashboard</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <p>{error}</p>
+          <Button type="button" variant="outline" size="sm" onClick={reload}>
+            <RotateCcw className="size-4" aria-hidden />
+            Try again
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
 
   if (isLoading || !summary) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+      <div className="space-y-5" aria-busy>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-xl" />
+          ))}
+        </div>
+        <div className="grid gap-5 lg:grid-cols-3">
+          <Skeleton className="h-72 w-full rounded-xl lg:col-span-2" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
         <span className="sr-only">Loading dashboard</span>
       </div>
     );
@@ -126,6 +151,11 @@ export function AdminOverview() {
 
   return (
     <div className="space-y-5">
+      <PageHeader
+        title="Overview"
+        description="What the counter, drawer, and shelf look like right now"
+      />
+
       <section aria-label="Today's performance" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Revenue today"

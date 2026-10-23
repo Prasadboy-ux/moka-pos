@@ -1,6 +1,6 @@
 # Moka Cafe POS — Product Requirements
 
-Version 1.0 · frontend complete · backend not started
+Version 1.0 · frontend complete · backend built and live
 
 ## 1. Problem
 
@@ -23,17 +23,24 @@ modelled, and which one applies is a per-product choice.
 
 | Role | Who | Reaches |
 |---|---|---|
-| **Cashier** (`kasir`) | Counter staff taking orders | Point of Sale only |
-| **Admin** | Owner or manager | Everything: Overview, POS, Products, Stock, Reports, Users |
+| **Cashier** (`kasir`) | Counter staff taking orders | Point of Sale and Transactions |
+| **Admin** | Owner or manager | Everything: Overview, POS, Transactions, Products, Stock, Reports, Users |
 
-A cashier is refused admin routes twice over — the sidebar never renders the
-links, and the dashboard layout blocks rendering and redirects. Today both are
-client-side; the server must re-check every route once it exists.
+A cashier is refused admin routes three times over — the sidebar never renders the
+links, the dashboard layout blocks rendering and redirects, and the server's
+`requireRole` middleware rejects the request. The first two are presentation; the
+third is the one that matters, and it is the reason hiding a nav link was never
+treated as a security boundary.
 
 ## 3. Scope
 
-Seven screens. Each acceptance criterion below is enforced by an automated check
-in `npm run smoke`.
+Seven dashboard screens plus login. Each acceptance criterion below is enforced
+by an automated check in `npm run smoke`.
+
+> **Note on the screen count.** §3.1–§3.7 below document login and six dashboard
+> screens. `/dashboard/transactions` was added later and has no section in this
+> document yet — it covers sale search, receipt reprint, and WhatsApp send, and is
+> reachable by cashiers. See `src/components/transactions/TransactionsScreen.tsx`.
 
 ### 3.1 Login
 
@@ -142,7 +149,8 @@ Sales analysis for a chosen period.
 
 ## 4. Business rules
 
-These are the rules a backend must honour. They are not implementation detail.
+These are the rules the backend **does** honour. They are not implementation
+detail, and `backend/test/contract.e2e.ts` asserts them against the API.
 
 | Rule | Detail |
 |---|---|
@@ -151,6 +159,7 @@ These are the rules a backend must honour. They are not implementation detail.
 | **`minStock`** | A reorder *alert*, **not a sales block**. Items stay sellable to zero. |
 | **`costPerUnit`** | Rupiah for one unit (one gram, one millilitre). Recipes multiply by quantity. |
 | **Sale atomicity** | Recording the sale, decrementing stock, and writing the ledger is one operation. A shortfall must leave no receipt. |
+| **Open shift gates selling** | Every sale — including an admin's — requires an open shift for the selling user. The shift id is stamped on the receipt, and closing it stores the cash reconciliation (sales, expected drawer, variance). |
 | **Users are never deleted** | Sales reference the cashier, so an account is deactivated instead. |
 | **Denormalised lines** | An order line stores name, price, and stock mode as sold. A two-year-old receipt shows what was charged. |
 | **Receipt numbers** | Sequential and human-readable, e.g. `MOKA-1042`. |
@@ -158,17 +167,16 @@ These are the rules a backend must honour. They are not implementation detail.
 
 ## 5. Out of scope for v1
 
-Named so nobody discovers them as a surprise in testing.
+Named so nobody discovers them as a surprise in testing. (Shift gating and cash
+reconciliation were here once; both shipped in Milestone 6 — the POS refuses to
+sell without an open shift, and closing one stores the drawer reconciliation.)
 
-- Shift open/close **gating** the POS. `Shift` records exist and `ShiftRepository`
-  is implemented, but nothing requires an open shift to sell.
-- Cash reconciliation — closing a shift stores a counted float; nothing compares
-  it against the cash sales inside the shift.
 - Discounts, promotions, and vouchers.
 - Split bills, tabs, and table service.
 - Product photo upload (products pick from the 20 bundled illustrations).
 - Kitchen display or order queue.
-- Real authentication, multi-device sync, and any server of any kind.
+- Real authentication and multi-device sync — **the server exists and enforces
+  sessions, so this line is now only about identity providers and sync.**
 
 ## 6. Success criteria
 
@@ -182,18 +190,17 @@ The frontend is done when:
 - `typecheck`, `lint`, and `build` are clean.
 - The browser suites pass with no console errors.
 
-All six hold today. `npm run smoke` — 154 checks across 7 suites.
+All six hold today. `npm test` adds 18 unit tests, `npm run smoke` passes 187
+checks across 7 suites, and the backend adds 239 tests of its own.
 
-## 7. Decisions needed before the backend
+## 7. Decisions taken before the backend
 
-1. **Session strategy** — httpOnly cookie (survives XSS, recommended) versus a
-   token held in memory (needs an interceptor on every request).
-2. **Does shift gating ship in v1?** It changes the POS's opening behaviour, so
-   retrofitting touches a screen that is already busy.
-3. **Do roles stay fixed at two?** The code assumes `admin | kasir` throughout.
-   A third role means widening `Role` and re-checking `lib/nav.ts`.
-4. **Where do product images live?** Decides whether Express serves files or
-   presigned URLs do.
+| # | Decision | Outcome |
+|---|---|---|
+| 1 | **Session strategy** — httpOnly cookie or in-memory token? | **httpOnly cookie** (`moka_session`, HS256 JWT). Survives XSS and needs no interceptor. |
+| 2 | **Does shift gating ship in v1?** | **Yes.** The POS refuses to sell without an open shift, and closing a shift stores the cash reconciliation (sales, expected drawer, variance). It shipped later than planned — Milestone 6 — after the rest of the till was proven. |
+| 3 | **Do roles stay fixed at two?** | **Yes.** The code assumes `admin \| kasir` throughout. A third role means widening `Role` and re-checking `lib/nav.ts` and the server's role middleware. |
+| 4 | **Where do product images live?** | **Undecided.** Products pick from the 20 bundled illustrations; real uploads need a storage decision. |
 
-See [`API-CONTRACT.md`](./API-CONTRACT.md) for the interface the backend
-implements.
+See [`API-CONTRACT.md`](./API-CONTRACT.md) for the contract the backend was built
+against.

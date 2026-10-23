@@ -18,6 +18,18 @@ export const CONFLICT_REASONS = [
 
 export type ConflictReason = (typeof CONFLICT_REASONS)[number];
 
+/**
+ * The three refusals `POST /api/auth/login` distinguishes. The login screen
+ * maps each to its own message, so they cannot be flattened into one 401.
+ */
+export const AUTH_FAILURE_REASONS = [
+  'invalid',
+  'inactive',
+  'role-mismatch',
+] as const;
+
+export type AuthFailureReason = (typeof AUTH_FAILURE_REASONS)[number];
+
 export type ApiErrorCode =
   | 'unauthenticated'
   | 'forbidden'
@@ -30,7 +42,7 @@ export type ApiErrorCode =
 export type ApiErrorBody = {
   error: ApiErrorCode;
   message: string;
-  reason?: ConflictReason;
+  reason?: ConflictReason | AuthFailureReason;
   fields?: Record<string, string>;
 };
 
@@ -47,14 +59,24 @@ export class ApiError extends Error {
 
   static unauthenticated(
     message = 'Your session has ended. Please sign in again.',
+    reason?: AuthFailureReason,
   ): ApiError {
-    return new ApiError(401, { error: 'unauthenticated', message });
+    return new ApiError(401, {
+      error: 'unauthenticated',
+      ...(reason ? { reason } : {}),
+      message,
+    });
   }
 
   static forbidden(
     message = 'Your account does not have access to this action.',
+    reason?: AuthFailureReason,
   ): ApiError {
-    return new ApiError(403, { error: 'forbidden', message });
+    return new ApiError(403, {
+      error: 'forbidden',
+      ...(reason ? { reason } : {}),
+      message,
+    });
   }
 
   static notFound(message = 'That record no longer exists.'): ApiError {

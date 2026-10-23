@@ -421,7 +421,8 @@ const [query, setQuery] = useQueryState();
           <FilterBar
             search={search}
             onSearchChange={setSearch}
-            searchPlaceholder="Search stock"
+            searchPlaceholder="Search stock…"
+            searchLabel="Search stock"
             options={[]}
             active={null}
             onActiveChange={() => {}}

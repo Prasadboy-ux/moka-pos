@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { withTransaction } from '../../db/transaction.js';
 import { ApiError } from '../../lib/errors.js';
 import { roundIDR } from '../../lib/money.js';
+import { isDuplicateKey } from '../../lib/mongo-errors.js';
 import { OrderModel } from '../../models/order.model.js';
 import { ShiftModel } from '../../models/shift.model.js';
 import { type SessionUser } from '../../models/user.model.js';
@@ -52,16 +53,28 @@ export async function openShift(input: OpenShiftInput, cashier: SessionUser) {
     );
   }
 
-  return ShiftModel.create({
-    userId: cashier.id,
-    // Denormalised so the shift list still reads after the person leaves.
-    userName: cashier.name,
-    openedAt: new Date(),
-    openingFloat: roundIDR(input.openingFloat),
-    closedAt: null,
-    closingCounted: null,
-    status: 'open',
-  });
+  try {
+    return await ShiftModel.create({
+      userId: cashier.id,
+      // Denormalised so the shift list still reads after the person leaves.
+      userName: cashier.name,
+      openedAt: new Date(),
+      openingFloat: roundIDR(input.openingFloat),
+      closedAt: null,
+      closingCounted: null,
+      status: 'open',
+    });
+  } catch (error) {
+    // Two taps can both pass the check above. The partial unique index picks a
+    // winner; the loser gets the same response as the ordinary already-open case.
+    if (isDuplicateKey(error)) {
+      throw ApiError.conflict(
+        'already-open-shift',
+        'You already have an open shift.',
+      );
+    }
+    throw error;
+  }
 }
 
 export async function closeShift(

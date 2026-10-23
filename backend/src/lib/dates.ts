@@ -43,17 +43,28 @@ function splitDay(day: string): { year: number; month: number; date: number } {
  * configuration, not an assumption. Returns 0 for an unusable zone rather than
  * throwing, because a bad `STORE_TIMEZONE` should not take the API down.
  */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour12: false,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    formatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 export function zoneOffsetMs(instant: Date, timeZone: string): number {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
+  const formatter = formatterFor(timeZone);
 
   const parts: Record<string, string> = {};
   for (const part of formatter.formatToParts(instant)) {

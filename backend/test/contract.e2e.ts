@@ -28,11 +28,13 @@ const app: Express = createApp();
 let admin: Awaited<ReturnType<typeof agentFor>>;
 let kasir: Awaited<ReturnType<typeof agentFor>>;
 
-/** Exactly the 34 product endpoints the contract lists. */
+/** Exactly the 35 product endpoints the contract lists. */
 const CONTRACT_ROUTES = [
   'POST /api/auth/login',
   'POST /api/auth/logout',
   'GET /api/auth/me',
+
+  'GET /api/config',
 
   'GET /api/categories',
   'POST /api/categories',
@@ -104,9 +106,9 @@ beforeEach(async () => {
 });
 
 describe('the endpoint surface', () => {
-  it('names all 34 contract endpoints, and no duplicates', () => {
-    expect(CONTRACT_ROUTES).toHaveLength(34);
-    expect(new Set(CONTRACT_ROUTES).size).toBe(34);
+  it('names all 35 contract endpoints, and no duplicates', () => {
+    expect(CONTRACT_ROUTES).toHaveLength(35);
+    expect(new Set(CONTRACT_ROUTES).size).toBe(35);
   });
 
   /**
@@ -135,6 +137,15 @@ describe('the endpoint surface', () => {
         `${entry} answered ${response.status} ${JSON.stringify(response.body)}`,
       ).not.toBe(404);
     }
+  });
+
+  it('exposes public config before a session exists', async () => {
+    const response = await request(app).get('/api/config').expect(200);
+
+    expect(response.body).toEqual({
+      taxRate: 0.1,
+      storeTimezone: 'Asia/Jakarta',
+    });
   });
 
   it('exposes a health probe that is not part of the product API', async () => {
@@ -187,7 +198,9 @@ describe('authentication covers the whole surface', () => {
     // wants it gone.
     const guarded = CONTRACT_ROUTES.filter(
       (entry) =>
-        entry !== 'POST /api/auth/login' && entry !== 'POST /api/auth/logout',
+        entry !== 'POST /api/auth/login' &&
+        entry !== 'POST /api/auth/logout' &&
+        entry !== 'GET /api/config',
     );
 
     for (const entry of guarded) {

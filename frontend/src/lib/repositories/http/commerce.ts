@@ -1,3 +1,4 @@
+import { newIdempotencyKey } from "@/lib/idempotency";
 import type { User } from "@/types/auth";
 import type { Order, Shift, StockMovement } from "@/types/pos";
 import type {
@@ -38,21 +39,6 @@ export const stockRepository: StockRepository = {
     ),
 };
 
-/**
- * A key that identifies one checkout attempt, so a retry cannot charge twice.
- *
- * Generated per `create()` call rather than per request, and reused for every
- * retry of that call — which is the whole point. A till on flaky wifi will
- * resend the same checkout; without this the resend mints a second receipt.
- */
-function idempotencyKey(): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `pos-${Date.now().toString(36)}-${random}`;
-}
-
 export const orderRepository: OrderRepository = {
   list: (orderQuery: OrderQuery = {}) =>
     request<Order[]>(() => http.get(`/orders${query({ ...orderQuery })}`)),
@@ -70,14 +56,17 @@ export const orderRepository: OrderRepository = {
     request<Order[]>(() => http.get(`/orders/recent${query({ limit })}`)),
 
   create: (input: CreateOrderInput) => {
-    // `cashier` is dropped for the same reason as `actor` above.
-    const { cashier: _cashier, ...body } = input;
+    // `cashier` is dropped for the same reason as `actor` above. The key is a
+    // header, not part of the order body.
+    const { cashier: _cashier, idempotencyKey, ...body } = input;
     void _cashier;
+
+    const key = idempotencyKey ?? newIdempotencyKey();
 
     return request<{ order: Order; movements: StockMovement[] }>(() =>
       // 201 on a new sale, 200 when the key replays a receipt already issued.
       // Both are a success, so both paths land in the same result.
-      http.post("/orders", body, { headers: { "Idempotency-Key": idempotencyKey() } }),
+      http.post("/orders", body, { headers: { "Idempotency-Key": key } }),
     );
   },
 };

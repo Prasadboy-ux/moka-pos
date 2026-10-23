@@ -26,9 +26,11 @@ describe('isDayString', () => {
 });
 
 describe('zoneOffsetMs', () => {
+  // The first Intl.DateTimeFormat in a worker pays ICU's cold-start cost, which
+  // can exceed the default 5s under a fully parallel CI run.
   it('reports zero for UTC', () => {
     expect(zoneOffsetMs(new Date('2026-10-17T00:00:00Z'), UTC)).toBe(0);
-  });
+  }, 15_000);
 
   it('reports the whole-hour offset for Jakarta, which has no DST', () => {
     expect(zoneOffsetMs(new Date('2026-01-17T00:00:00Z'), JAKARTA)).toBe(

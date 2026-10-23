@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Loader2 } from "lucide-react";
+import { Banknote, RotateCcw } from "lucide-react";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { CheckoutDialog } from "@/components/pos/CheckoutDialog";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
 import { CloseShiftDialog, OpenShiftDialog } from "@/components/pos/ShiftDialogs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useQueryState } from "@/hooks/useQueryState";
@@ -24,18 +26,21 @@ import type { Category, Ingredient, Order, Product } from "@/types/pos";
 
 /** Products, categories, and ingredient levels, fetched as one snapshot. */
 async function loadMenu() {
-  const { products, categories, ingredients } = getRepositories();
+  const { products, categories, ingredients, config } = getRepositories();
 
-  const [productList, categoryList, ingredientList] = await Promise.all([
-    products.list(),
-    categories.list(),
-    ingredients.list(),
-  ]);
+  const [productList, categoryList, ingredientList, settings] =
+    await Promise.all([
+      products.list(),
+      categories.list(),
+      ingredients.list(),
+      config.get(),
+    ]);
 
   return {
     products: productList,
     categories: categoryList,
     ingredients: new Map(ingredientList.map((i) => [i.id, i])),
+    taxRate: settings.taxRate,
   };
 }
 
@@ -91,13 +96,23 @@ export function PosScreen() {
   const [openShiftOpen, setOpenShiftOpen] = useState(false);
   const [closeShiftOpen, setCloseShiftOpen] = useState(false);
 
-const lines = useCartStore((state) => state.lines);
+  const lines = useCartStore((state) => state.lines);
   const taxRate = useCartStore((state) => state.taxRate);
+  const setTaxRate = useCartStore((state) => state.setTaxRate);
   const add = useCartStore((state) => state.add);
   const setQty = useCartStore((state) => state.setQty);
   const remove = useCartStore((state) => state.remove);
   const clear = useCartStore((state) => state.clear);
   const qtyOf = useCartStore((state) => state.qtyOf);
+
+  /**
+   * The rate shown in the cart comes from the API, not a frontend constant.
+   * Otherwise an env change on the server made the customer pay one total while
+   * the cashier quoted another.
+   */
+  useEffect(() => {
+    if (menu.data) setTaxRate(menu.data.taxRate);
+  }, [menu.data, setTaxRate]);
 
   const totals = useMemo(
     () => computeTotals(lines, taxRate),
@@ -152,8 +167,24 @@ const lines = useCartStore((state) => state.lines);
 
   if (menu.isLoading || shiftState.isLoading || !products) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+      <div className="space-y-5" aria-busy>
+        <Skeleton className="h-14 w-full rounded-xl" />
+        <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 5 }, (_, i) => (
+                <Skeleton key={i} className="h-9 w-20 rounded-full" />
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 8 }, (_, i) => (
+                <Skeleton key={i} className="aspect-square w-full rounded-xl" />
+              ))}
+            </div>
+          </div>
+          <Skeleton className="h-96 w-full rounded-xl" />
+        </div>
         <span className="sr-only">Loading menu</span>
       </div>
     );
@@ -161,9 +192,24 @@ const lines = useCartStore((state) => state.lines);
 
   if (menu.error || shiftState.error) {
     return (
-      <p role="alert" className="py-20 text-center text-sm text-destructive">
-        {menu.error ?? shiftState.error}
-      </p>
+      <Alert variant="destructive" className="mx-auto mt-16 max-w-md">
+        <AlertTitle>Could not load the till</AlertTitle>
+        <AlertDescription className="flex flex-col items-start gap-3">
+          <p>{menu.error ?? shiftState.error}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              menu.reload();
+              shiftState.reload();
+            }}
+          >
+            <RotateCcw className="size-4" aria-hidden />
+            Try again
+          </Button>
+        </AlertDescription>
+      </Alert>
     );
   }
 
@@ -204,10 +250,12 @@ const lines = useCartStore((state) => state.lines);
 
   return (
     <div className="space-y-5">
+      {/* The till has no PageHeader; this is the document's h1. */}
+      <h1 className="sr-only">Point of Sale</h1>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3">
         <div className="flex items-center gap-2.5 text-sm">
           <span
-            className="size-2 rounded-full bg-emerald-500"
+            className="size-2 rounded-full bg-success"
             aria-hidden
           />
           <span>Shift open since {formatDateTime(shift.openedAt)}</span>
@@ -225,7 +273,13 @@ const lines = useCartStore((state) => state.lines);
         </Button>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+      {/**
+       * Two columns from `lg` (1024px), not `xl`: iPad landscape is 1024–1279
+       * CSS px, and at a till the cart must stay beside the grid there — a
+       * single column forces the cashier to scroll past the whole menu to
+       * reach Charge.
+       */}
+      <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
         <ProductGrid
           products={products}
           categories={categories}
@@ -238,7 +292,7 @@ const lines = useCartStore((state) => state.lines);
           qtyOf={qtyOf}
         />
 
-        <div className="h-fit rounded-xl border bg-card xl:sticky xl:top-4 xl:max-h-[calc(100vh-8rem)]">
+        <div className="h-fit rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)]">
           <CartPanel
             lines={lines}
             limits={limits}

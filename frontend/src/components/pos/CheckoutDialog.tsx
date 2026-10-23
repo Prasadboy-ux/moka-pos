@@ -9,6 +9,7 @@ import {
   QrCode,
   Wallet,
 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
+import { newIdempotencyKey } from "@/lib/idempotency";
 import { getRepositories } from "@/lib/repositories";
 import {
   PAYMENT_LABEL,
@@ -88,6 +90,13 @@ function CheckoutBody({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * One key per opened checkout, not per HTTP attempt. If the request reaches
+   * the server but the response is lost, tapping Complete sale again replays the
+   * receipt instead of charging the customer a second time.
+   */
+  const [idempotencyKey] = useState(newIdempotencyKey);
+
   const [withCustomer, setWithCustomer] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -117,15 +126,16 @@ function CheckoutBody({
   }, [totals.total]);
 
   /**
-   * Shown live under the phone field while it is being typed, so the cashier
-   * finds out a number is unusable before the sale is committed rather than
-   * after, when the customer is already waiting for a receipt that will not
-   * arrive.
+   * Live under the phone field only once something has been typed: an empty
+   * optional field is not invalid, and showing a red error on an untouched
+   * control teaches the cashier to ignore red.
    */
+  const phoneTyped = withCustomer && customerPhone.trim() !== "";
   const phonePreview = useMemo(() => {
-    if (!withCustomer || customerPhone.trim() === "") return null;
+    if (!phoneTyped) return null;
     return normalisePhone(customerPhone);
-  }, [withCustomer, customerPhone]);
+  }, [phoneTyped, customerPhone]);
+  const phoneInvalid = phoneTyped && phonePreview === null;
 
   const canSubmit =
     !pending &&
@@ -153,6 +163,7 @@ function CheckoutBody({
         paymentMethod: method,
         paidAmount,
         cashier: { id: cashierId, name: cashierName },
+        idempotencyKey,
         /**
          * The repository normalises this and drops it if the number is unusable,
          * so a half-typed field costs the sale nothing — it just means a walk-in
@@ -210,7 +221,13 @@ function CheckoutBody({
             return (
               <TabsTrigger key={m.value} value={m.value} className="gap-1.5">
                 <Icon className="size-4" aria-hidden />
+                {/*
+                  `sr-only` rather than `hidden sm:inline`: display:none removes
+                  the text from the accessibility tree, so a phone-width dialog
+                  would announce four icon-only tabs with no names.
+                */}
                 <span className="hidden sm:inline">{PAYMENT_LABEL[m.value]}</span>
+                <span className="sr-only sm:hidden">{PAYMENT_LABEL[m.value]}</span>
               </TabsTrigger>
             );
           })}
@@ -258,7 +275,15 @@ function CheckoutBody({
             </div>
 
             <div className="rounded-xl border bg-muted/40 p-4">
-              <div className="flex items-baseline justify-between">
+              {/*
+                A polite live region: the cashier taps a quick-tender button and
+                needs the new "Still due" / "Change" figure announced without
+                stealing focus mid-sale.
+              */}
+              <div
+                aria-live="polite"
+                className="flex items-baseline justify-between"
+              >
                 <span className="text-sm text-muted-foreground">
                   {shortfall > 0 ? "Still due" : "Change"}
                 </span>
@@ -349,18 +374,25 @@ function CheckoutBody({
                   placeholder="08xx xxxx xxxx"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
-                  aria-invalid={phonePreview === null}
+                  aria-invalid={phoneInvalid}
+                  aria-describedby={
+                    phoneInvalid
+                      ? "customer-phone-error"
+                      : phonePreview
+                        ? "customer-phone-hint"
+                        : undefined
+                  }
                 />
-                {phonePreview === null ? (
-                  <p className="text-xs text-destructive">
+                {phoneInvalid ? (
+                  <p id="customer-phone-error" className="text-xs text-destructive">
                     That number is not a valid Indonesian mobile number. The sale
                     will still go through without it.
                   </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
+                ) : phonePreview ? (
+                  <p id="customer-phone-hint" className="text-xs text-muted-foreground">
                     The receipt will be addressed to {phonePreview}.
                   </p>
-                )}
+                ) : null}
               </div>
 
               <div className="space-y-2">
@@ -380,8 +412,14 @@ function CheckoutBody({
         </div>
 
         {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
+          <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {method === "cash" && shortfall > 0 && !pending ? (
+          <p id="checkout-submit-hint" className="text-xs text-muted-foreground">
+            Enter at least {formatIDR(shortfall)} more to complete this sale.
           </p>
         ) : null}
       </div>
@@ -394,11 +432,19 @@ function CheckoutBody({
         >
           Cancel
         </Button>
-        <Button onClick={handleConfirm} disabled={!canSubmit}>
+        <Button
+          onClick={handleConfirm}
+          disabled={!canSubmit}
+          aria-describedby={
+            method === "cash" && shortfall > 0 && !pending
+              ? "checkout-submit-hint"
+              : undefined
+          }
+        >
           {pending ? (
             <>
               <Loader2 className="size-4 animate-spin" aria-hidden />
-              Saving...
+              Saving…
             </>
           ) : (
             <>

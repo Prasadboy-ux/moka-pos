@@ -5,6 +5,7 @@ import { createApp } from '../src/app.js';
 import { hashPassword } from '../src/lib/password.js';
 import { OrderModel } from '../src/models/order.model.js';
 import { ShiftModel } from '../src/models/shift.model.js';
+import { UserModel } from '../src/models/user.model.js';
 import {
   agentFor,
   createUser,
@@ -132,6 +133,29 @@ describe('POST /api/users', () => {
 
     expect(response.body.error).toBe('conflict');
     expect(response.body.reason).toBe('username-taken');
+  });
+
+  it('maps a concurrent duplicate create to 409', async () => {
+    const body = {
+      name: 'Race User',
+      username: 'raceuser',
+      password: 'secret123',
+      role: 'kasir',
+      isActive: true,
+    };
+
+    const [first, second] = await Promise.all([
+      admin.agent.post('/api/users').send(body),
+      admin.agent.post('/api/users').send(body),
+    ]);
+
+    expect([first.status, second.status].sort((a, b) => a - b)).toEqual([
+      201, 409,
+    ]);
+    expect(
+      [first, second].find((response) => response.status === 409)?.body.reason,
+    ).toBe('username-taken');
+    expect(await UserModel.countDocuments({ username: 'raceuser' })).toBe(1);
   });
 
   it('requires a password on create', async () => {
@@ -286,6 +310,44 @@ describe('PATCH /api/users/:id/active', () => {
     expect((await findByUsername('admin'))?.isActive).toBe(true);
   });
 
+  it('cannot deactivate two admins at once and leave nobody', async () => {
+    const second = await admin.agent
+      .post('/api/users')
+      .send({
+        name: 'Second Admin',
+        username: 'admin2',
+        password: 'admin123',
+        role: 'admin',
+        isActive: true,
+      })
+      .expect(201);
+
+    const secondAgent = request.agent(app);
+    await secondAgent
+      .post('/api/auth/login')
+      .send({ username: 'admin2', password: 'admin123' })
+      .expect(200);
+
+    const [first, other] = await Promise.all([
+      admin.agent
+        .patch(`/api/users/${admin.user.id}/active`)
+        .send({ isActive: false }),
+      secondAgent
+        .patch(`/api/users/${second.body.id}/active`)
+        .send({ isActive: false }),
+    ]);
+
+    expect([first.status, other.status].sort((a, b) => a - b)).toEqual([
+      200, 409,
+    ]);
+    expect(
+      [first, other].find((response) => response.status === 409)?.body.reason,
+    ).toBe('last-active-admin');
+    expect(
+      await UserModel.countDocuments({ role: 'admin', isActive: true }),
+    ).toBe(1);
+  });
+
   it('allows deactivating an admin once another one exists', async () => {
     const second = await admin.agent
       .post('/api/users')
@@ -354,6 +416,21 @@ describe('shifts', () => {
       .expect(409);
 
     expect(response.body.reason).toBe('already-open-shift');
+  });
+
+  it('lets only one of two simultaneous opens win', async () => {
+    const responses = await Promise.all([
+      kasir.agent.post('/api/shifts').send({ openingFloat: 0 }),
+      kasir.agent.post('/api/shifts').send({ openingFloat: 0 }),
+    ]);
+
+    expect(
+      responses.map((response) => response.status).sort((a, b) => a - b),
+    ).toEqual([201, 409]);
+    expect(
+      responses.find((response) => response.status === 409)?.body.reason,
+    ).toBe('already-open-shift');
+    expect(await ShiftModel.countDocuments({ status: 'open' })).toBe(1);
   });
 
   it('takes the cashier from the session, ignoring one in the body', async () => {

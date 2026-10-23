@@ -127,6 +127,8 @@ describe('POST /api/auth/login', () => {
       // Identical, so usernames cannot be enumerated from the response.
       expect(wrongPassword.body.error).toBe(unknownUser.body.error);
       expect(wrongPassword.body.message).toBe(unknownUser.body.message);
+      expect(wrongPassword.body.reason).toBe('invalid');
+      expect(unknownUser.body.reason).toBe('invalid');
     });
 
     it('deactivated account is reported as inactive, not invalid', async () => {
@@ -135,6 +137,7 @@ describe('POST /api/auth/login', () => {
         .send({ username: 'kasir2', password: PASSWORD })
         .expect(401);
 
+      expect(response.body.reason).toBe('inactive');
       expect(response.body.message).toMatch(/deactivated/i);
       expect(response.body.message).not.toBe(
         'That username and password do not match an account.',
@@ -148,7 +151,9 @@ describe('POST /api/auth/login', () => {
         .expect(403);
 
       expect(response.body.error).toBe('forbidden');
+      expect(response.body.reason).toBe('role-mismatch');
       expect(response.body.message).toMatch(/kasir/i);
+      expect(response.headers['set-cookie']).toBeUndefined();
     });
 
     it('a matching role is accepted', async () => {

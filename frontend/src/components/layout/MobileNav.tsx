@@ -32,7 +32,7 @@ export function MobileNav() {
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors",
+              "flex flex-1 flex-col items-center gap-1 rounded-md px-1 py-2.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
               isActive
                 ? "text-primary"
                 : "text-muted-foreground hover:text-foreground",
