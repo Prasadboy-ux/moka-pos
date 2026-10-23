@@ -171,9 +171,9 @@ npm run build
 
 ## Known follow-ups / review notes
 
-- The mock product repository does not write an opening stock ledger movement
-  because `ProductInput` has no actor. The HTTP path is the production path; if
-  the mock is kept as a dev harness, give it a system actor or document the gap.
+- The mock product repository writes the opening count as a `purchase` movement
+  through `recordOpeningStock`, attributed to a system actor because the mock
+  has no session. The HTTP path still takes the actor from the session.
 - The reports code assumes integer rupiah totals. Revisit if fractional pricing
   is ever introduced.
 - `NEXT_PUBLIC_STORE_TIMEZONE` must match the backend's `STORE_TIMEZONE`; it is
