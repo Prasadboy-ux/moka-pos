@@ -5,6 +5,7 @@ import type {
   MovementType,
   Order,
   OrderCustomer,
+  OrderStatus,
   PaymentMethod,
   Product,
   RecipeItem,
@@ -131,13 +132,25 @@ export type MovementFilter = {
   type?: MovementType;
   ingredientId?: string;
   productId?: string;
+  /** Page bounds. 200 newest by default. */
+  limit?: number;
+  offset?: number;
 };
+
+export interface StockMovementPage {
+  data: StockMovement[];
+  /** Total matching rows before pagination, for the caller's page arithmetic. */
+  total: number;
+  limit: number;
+  offset: number;
+}
 
 export interface StockAdjustInput {
   /** Which side of the recipe/direct split is being adjusted. */
   target: "ingredient" | "product";
   targetId: string;
-  type: Exclude<MovementType, "sale">;
+  /** Manual adjustments can never fake a `sale`; `void` belongs to order reversals. */
+  type: Exclude<MovementType, "sale" | "void">;
   /** Signed. Positive adds stock, negative removes it. */
   qty: number;
   note: string;
@@ -145,8 +158,12 @@ export interface StockAdjustInput {
 }
 
 export interface StockRepository {
-  /** All movements, newest first. */
-  movements(filter?: MovementFilter): Promise<StockMovement[]>;
+  /**
+   * The newest slice of the audit trail, newest first. The ledger grows with
+   * every sale, so the reply is a page — `total` tells the caller how deep the
+   * history goes without shipping all of it.
+   */
+  movements(filter?: MovementFilter): Promise<StockMovementPage>;
   /** Applies a signed change and records the ledger entry. */
   adjust(input: StockAdjustInput): Promise<StockMovement>;
   /** Current level for either stock mode, in one shape. */
@@ -221,10 +238,36 @@ export interface OrderQuery {
   /** Inclusive start, inclusive end. */
   from?: string;
   to?: string;
+  /** Voided receipts stay listable for audit with an explicit filter. */
+  status?: OrderStatus;
+  /**
+   * How a customer names a sale on the phone: receipt number, their name on it,
+   * or the phone they gave. Matched server-side as a substring.
+   */
+  q?: string;
+  method?: PaymentMethod;
+  /**
+   * Page bounds. `total` on the reply is the number of rows matching the
+   * filters, so the caller can page without ever loading the whole ledger.
+   */
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * One window over the order ledger. `data` alone would be indistinguishable
+ * from "the ledger ends here", so the page also carries the filtered total and
+ * the bounds it served — the arithmetic a screen needs to draw a pager.
+ */
+export interface OrderPage {
+  data: Order[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface OrderRepository {
-  list(query?: OrderQuery): Promise<Order[]>;
+  list(query?: OrderQuery): Promise<OrderPage>;
   getById(id: string): Promise<Order | undefined>;
   recent(limit?: number): Promise<Order[]>;
   /**
@@ -235,6 +278,87 @@ export interface OrderRepository {
     order: Order;
     movements: StockMovement[];
   }>;
+  /**
+   * Reverses a paid sale: stock is returned through positive `void` movements
+   * and the receipt flips to `voided`. Every report treats a voided order as
+   * never sold.
+   */
+  void(
+    id: string,
+    reason: string,
+    /** Mock-only, like `cashier` on create. HTTP resolves the actor from the session cookie. */
+    actor?: { id: string; name: string },
+  ): Promise<{
+    order: Order;
+    movements: StockMovement[];
+    /** Stock that could not be restored and why, shown to the admin. */
+    warnings: string[];
+  }>;
+}
+
+// ----------------------------------------------------------------------- Reports
+
+export type TrendBucket = "day" | "month";
+
+/**
+ * The aggregate shape `GET /api/reports/sales` answers and `getSalesReport`
+ * consumes. Presentation-only derivations (`share`, display labels, deltas
+ * against the previous period) stay with the caller.
+ */
+export interface SalesReportData {
+  from: string;
+  to: string;
+  kpi: {
+    revenue: number;
+    transactions: number;
+    averageOrderValue: number;
+    itemsSold: number;
+    /** Paid receipts carrying a phone number — the ones WhatsApp can reach. */
+    withCustomer: number;
+  };
+  paymentBreakdown: {
+    method: PaymentMethod;
+    count: number;
+    total: number;
+  }[];
+  trend: {
+    bucket: TrendBucket;
+    points: Array<{ date: string; revenue: number; transactions: number }>;
+  };
+  byCategory: Array<{
+    categoryId: string;
+    categoryName: string;
+    revenue: number;
+    itemsSold: number;
+  }>;
+  topProducts: Array<{
+    productId: string;
+    name: string;
+    quantity: number;
+    revenue: number;
+  }>;
+  byCashier: Array<{
+    cashierId: string;
+    cashierName: string;
+    transactions: number;
+    revenue: number;
+    averageOrderValue: number;
+    itemsSold: number;
+  }>;
+}
+
+export interface SalesReportFilter {
+  method?: PaymentMethod;
+  /**
+   * The same customer-facing search the ledger list answers, so a filtered
+   * table and its tiles above it are the same question about the same window.
+   */
+  q?: string;
+}
+
+export interface ReportsRepository {
+  /** The paid-only aggregate for one closed range. */
+  sales(from: string, to: string, filter?: SalesReportFilter): Promise<SalesReportData>;
 }
 
 // ----------------------------------------------------------------------- Shifts
@@ -257,5 +381,6 @@ export interface Repositories {
   stock: StockRepository;
   users: UserRepository;
   orders: OrderRepository;
+  reports: ReportsRepository;
   shifts: ShiftRepository;
 }

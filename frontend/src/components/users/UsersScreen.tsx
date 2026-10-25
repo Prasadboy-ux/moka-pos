@@ -22,6 +22,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable, type Column } from "@/components/data-table";
 import { FilterBar } from "@/components/filter-bar";
+import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
 import { UserFormDialog } from "@/components/users/UserFormDialog";
 import { useToast } from "@/components/ui/toast";
@@ -223,6 +224,8 @@ export function UsersScreen() {
         }}
       />
 
+      <StaggerGroup className="space-y-5">
+        <StaggerItem>
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -261,24 +264,31 @@ export function UsersScreen() {
         }
       />
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-        >
-          {error}
-        </p>
-      ) : null}
+        </StaggerItem>
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={(user) => user.id}
-        isLoading={isLoading}
-        emptyIcon={Users}
-        emptyTitle="No accounts match"
-        emptyDescription="Adjust the search or filters, or add a new account."
-      />
+        {error ? (
+          <StaggerItem>
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          </StaggerItem>
+        ) : null}
+
+        <StaggerItem>
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey={(user) => user.id}
+            isLoading={isLoading}
+            emptyIcon={Users}
+            emptyTitle="No accounts match"
+            emptyDescription="Adjust the search or filters, or add a new account."
+          />
+        </StaggerItem>
+      </StaggerGroup>
 
       <UserFormDialog
         open={formOpen}

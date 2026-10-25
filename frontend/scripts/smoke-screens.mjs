@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { fillLoginForm } from "./auth.mjs";
 
 /**
  * Acceptance pass for the screen list.
@@ -57,8 +58,7 @@ try {
   await page.waitForTimeout(1400);
   check("login refuses bad credentials", /Incorrect username or password/.test(await page.locator("body").innerText()));
 
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
   check("login signs in and routes by role", page.url().endsWith("/dashboard"));

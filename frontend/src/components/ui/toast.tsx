@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/lib/utils"
+import { DURATION, EASE_OUT } from "@/lib/motion"
 import { CheckCircle2, Info, TriangleAlert, X } from "lucide-react"
 
 /**
@@ -113,49 +115,61 @@ function ToastViewport({
       aria-atomic="false"
       className="pointer-events-none fixed inset-x-0 bottom-0 z-100 flex flex-col items-center gap-2 p-4 sm:inset-x-auto sm:right-0 sm:items-end"
     >
-      {items.map((item) => {
-        const Icon = VARIANT_ICON[item.variant]
+      <AnimatePresence initial={false}>
+        {items.map((item) => {
+          const Icon = VARIANT_ICON[item.variant]
 
-        return (
-          <div
-            key={item.id}
-            role="status"
-            className={cn(
-              "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border bg-card p-4 shadow-lg animate-in slide-in-from-bottom-2 fade-in-0",
-              item.variant === "destructive" && "border-destructive/40 bg-destructive/5"
-            )}
-          >
-            <Icon
+          return (
+            <motion.div
+              key={item.id}
+              layout
+              role="status"
+              initial={{ opacity: 0, y: 16, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{
+                opacity: 0,
+                x: 24,
+                scale: 0.97,
+                transition: { duration: DURATION.fast, ease: EASE_OUT },
+              }}
+              transition={{ duration: DURATION.base, ease: EASE_OUT }}
               className={cn(
-                "mt-0.5 size-4 shrink-0",
-                item.variant === "destructive"
-                  ? "text-destructive"
-                  : item.variant === "success"
-                    ? "text-primary"
-                    : "text-muted-foreground"
+                "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border bg-card p-4 shadow-lg",
+                item.variant === "destructive" && "border-destructive/40 bg-destructive/5"
               )}
-            />
-
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">{item.title}</p>
-              {item.description ? (
-                <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                  {item.description}
-                </p>
-              ) : null}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onDismiss(item.id)}
-              aria-label="Dismiss notification"
-              className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        )
-      })}
+              <Icon
+                className={cn(
+                  "mt-0.5 size-4 shrink-0",
+                  item.variant === "destructive"
+                    ? "text-destructive"
+                    : item.variant === "success"
+                      ? "text-primary"
+                      : "text-muted-foreground"
+                )}
+              />
+
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{item.title}</p>
+                {item.description ? (
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    {item.description}
+                  </p>
+                ) : null}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onDismiss(item.id)}
+                aria-label="Dismiss notification"
+                className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                <X className="size-3.5" />
+              </button>
+            </motion.div>
+          )
+        })}
+      </AnimatePresence>
     </div>
   )
 }

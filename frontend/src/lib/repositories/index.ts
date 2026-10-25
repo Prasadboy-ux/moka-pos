@@ -10,6 +10,7 @@ import {
 } from "./http/catalog";
 import {
   orderRepository,
+  reportsRepository,
   shiftRepository,
   stockRepository,
 } from "./http/commerce";
@@ -40,6 +41,7 @@ export function getRepositories(): Repositories {
     stock: stockRepository,
     users: userRepository,
     orders: orderRepository,
+    reports: reportsRepository,
     shifts: shiftRepository,
   });
 
@@ -55,5 +57,6 @@ export type {
   StockRepository,
   UserRepository,
   OrderRepository,
+  ReportsRepository,
   ShiftRepository,
 } from "@/lib/repositories/types";

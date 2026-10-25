@@ -288,6 +288,115 @@ describe('POST /api/auth/logout', () => {
   });
 });
 
+describe('POST /api/auth/change-password', () => {
+  /** Signs kasir in and returns the agent holding the session. */
+  async function kasirAgent() {
+    const agent = request.agent(app);
+    await agent
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: PASSWORD })
+      .expect(200);
+    return agent;
+  }
+
+  it('works for a cashier: 204, then the new password signs in', async () => {
+    const agent = await kasirAgent();
+
+    await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026' })
+      .expect(204);
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: 'brand-new-2026' })
+      .expect(200);
+
+    const oldPassword = await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: PASSWORD })
+      .expect(401);
+    expect(oldPassword.body.reason).toBe('invalid');
+  });
+
+  it('refuses a wrong current password with a field error', async () => {
+    const agent = await kasirAgent();
+
+    const response = await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: 'not-the-password', newPassword: 'brand-new-2026' })
+      .expect(422);
+
+    expect(response.body.error).toBe('validation');
+    expect(response.body.fields).toHaveProperty('currentPassword');
+
+    // The password must not have changed as a side effect of the refusal.
+    await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: PASSWORD })
+      .expect(200);
+  });
+
+  it('refuses reusing the current password', async () => {
+    const agent = await kasirAgent();
+
+    const response = await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: PASSWORD })
+      .expect(422);
+
+    expect(response.body.fields).toHaveProperty('newPassword');
+  });
+
+  it('requires a signed-in session', async () => {
+    await request(app)
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'whatever123' })
+      .expect(401);
+  });
+
+  it('enforces the same password floor as user creation', async () => {
+    const agent = await kasirAgent();
+
+    const short = await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'abc' })
+      .expect(422);
+    expect(short.body.fields).toHaveProperty('newPassword');
+
+    await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026-yes' })
+      .expect(204);
+  });
+
+  it('keeps an existing session valid after the change', async () => {
+    const agent = await kasirAgent();
+
+    await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026' })
+      .expect(204);
+
+    await agent.get('/api/auth/me').expect(200);
+  });
+
+  it('stops working once the account is deactivated', async () => {
+    const agent = await kasirAgent();
+
+    await UserModel.updateOne(
+      { username: 'kasir' },
+      { $set: { isActive: false } },
+    );
+
+    const response = await agent
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026' })
+      .expect(401);
+    expect(response.body.message).toMatch(/deactivated|no longer valid/i);
+  });
+});
+
 describe('password storage', () => {
   it('never stores the plaintext', async () => {
     const user = await findByUsername('kasir').select('+passwordHash');

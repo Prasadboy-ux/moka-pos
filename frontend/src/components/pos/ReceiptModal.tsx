@@ -1,6 +1,7 @@
 "use client";
 
 import { Mail, MessageCircle, Printer } from "lucide-react";
+import { SuccessCheck } from "@/components/motion/SuccessCheck";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,8 +20,30 @@ interface ReceiptModalProps {
 }
 
 export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
-  if (!order) return null;
+  return (
+    <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        {/**
+         * The body mounts through the content slot while the receipt is open.
+         * On close, the content's AnimatePresence keeps the previous subtree —
+         * with the last order still inside it — so the fade-out never shows an
+         * empty shell.
+         */}
+        {order ? (
+          <ReceiptBody order={order} onOpenChange={onOpenChange} />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
+function ReceiptBody({
+  order,
+  onOpenChange,
+}: {
+  order: Order;
+  onOpenChange: (open: boolean) => void;
+}) {
   /**
    * Sending is a link out of the browser, not an API call. Until there is a
    * backend that holds an API key, wa.me and mailto are the only honest
@@ -29,14 +52,23 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
    */
   const whatsapp = whatsAppLink(order);
   const email = emailLink(order);
+  const voided = order.status === "voided";
 
   return (
     <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Payment complete</DialogTitle>
+          {voided ? null : <SuccessCheck className="mx-auto sm:mx-0" />}
+          <DialogTitle>{voided ? "Receipt voided" : "Payment complete"}</DialogTitle>
           <DialogDescription>
-            Receipt {order.receiptNo} is ready.
+            {voided ? (
+              <>
+                Receipt {order.receiptNo} was voided{order.voidedByName ? ` by ${order.voidedByName}` : ""}
+                {order.voidedAt ? ` on ${formatDateTime(order.voidedAt)}` : ""}.
+              </>
+            ) : (
+              <>Receipt {order.receiptNo} is ready.</>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -55,6 +87,16 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
               POINT OF SALE
             </p>
           </div>
+
+          {/*
+            A voided reprint must not be mistakable for a live receipt — money
+            was taken and given back, and the paper says so plainly.
+          */}
+          {voided ? (
+            <p className="my-1 rounded border-2 border-dashed border-black py-0.5 text-center text-[10px] font-bold uppercase tracking-widest">
+              Voided
+            </p>
+          ) : null}
 
           <div className="my-2 border-t border-dashed" />
 
@@ -104,20 +146,28 @@ export function ReceiptModal({ order, onOpenChange }: ReceiptModalProps) {
             </div>
           </div>
 
-          <div className="my-2 border-t border-dashed" />
+        <div className="my-2 border-t border-dashed" />
 
-          <div className="space-y-0.5">
-            <Row label={PAYMENT_LABEL[order.paymentMethod]} value={formatIDR(order.paidAmount)} />
-            {order.changeAmount > 0 ? (
-              <Row label="Change" value={formatIDR(order.changeAmount)} />
-            ) : null}
-          </div>
+        <div className="space-y-0.5">
+          <Row label={PAYMENT_LABEL[order.paymentMethod]} value={formatIDR(order.paidAmount)} />
+          {order.changeAmount > 0 ? (
+            <Row label="Change" value={formatIDR(order.changeAmount)} />
+          ) : null}
+        </div>
 
-          <div className="my-2 border-t border-dashed" />
+        <div className="my-2 border-t border-dashed" />
 
-          <p translate="no" className="text-center text-[9px]">
-            Thank you for visiting Moka Cafe.
+        {voided ? (
+          <p className="text-[10px] leading-snug">
+            <span className="font-semibold uppercase">Voided</span>
+            {order.voidedByName ? ` by ${order.voidedByName}` : ""}
+            {order.voidReason ? ` — ${order.voidReason}` : ""}
           </p>
+        ) : null}
+
+        <p translate="no" className="text-center text-[9px]">
+          Thank you for visiting Moka Cafe.
+        </p>
         </div>
 
         {/*

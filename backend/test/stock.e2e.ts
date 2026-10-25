@@ -277,6 +277,19 @@ describe('POST /api/stock/adjust', () => {
       .expect(422);
   });
 
+  it('rejects type "void", which belongs to order reversals', async () => {
+    await admin.agent
+      .post('/api/stock/adjust')
+      .send({
+        target: 'ingredient',
+        targetId: beansId,
+        type: 'void',
+        qty: 100,
+        note: 'x',
+      })
+      .expect(422);
+  });
+
   it('rejects a zero quantity, which would be a silent no-op', async () => {
     await admin.agent
       .post('/api/stock/adjust')
@@ -429,8 +442,9 @@ describe('GET /api/stock/movements', () => {
   it('returns newest first', async () => {
     const response = await admin.agent.get('/api/stock/movements').expect(200);
 
-    expect(response.body).toHaveLength(2);
-    expect(response.body[0].note).toBe('second');
+    expect(response.body.data).toHaveLength(2);
+    expect(response.body.data[0].note).toBe('second');
+    expect(response.body).toMatchObject({ total: 2, limit: 200, offset: 0 });
   });
 
   it('filters by type', async () => {
@@ -438,8 +452,9 @@ describe('GET /api/stock/movements', () => {
       .get('/api/stock/movements?type=purchase')
       .expect(200);
 
-    expect(response.body).toHaveLength(1);
-    expect(response.body[0].type).toBe('purchase');
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.data[0].type).toBe('purchase');
+    expect(response.body.total).toBe(1);
   });
 
   it('filters by ingredient and by product', async () => {
@@ -450,8 +465,21 @@ describe('GET /api/stock/movements', () => {
       .get(`/api/stock/movements?productId=${waterId}`)
       .expect(200);
 
-    expect(byIngredient.body).toHaveLength(1);
-    expect(byProduct.body).toHaveLength(1);
+    expect(byIngredient.body).toMatchObject({ total: 1 });
+    expect(byIngredient.body.data).toHaveLength(1);
+    expect(byProduct.body).toMatchObject({ total: 1 });
+    expect(byProduct.body.data).toHaveLength(1);
+  });
+
+  it('pages with limit and offset', async () => {
+    const oldest = await admin.agent
+      .get('/api/stock/movements?limit=1&offset=1')
+      .expect(200);
+
+    expect(oldest.body.total).toBe(2);
+    expect(oldest.body).toMatchObject({ limit: 1, offset: 1 });
+    expect(oldest.body.data[0].note).toBe('first');
+    expect(oldest.body.data).toHaveLength(1);
   });
 
   it('reads correctly after the ingredient is renamed', async () => {
@@ -464,7 +492,7 @@ describe('GET /api/stock/movements', () => {
 
     // `label` is denormalised at write time, which is the point.
     expect(
-      response.body.some(
+      response.body.data.some(
         (m: { label: string }) => m.label === 'House Blend Beans',
       ),
     ).toBe(true);

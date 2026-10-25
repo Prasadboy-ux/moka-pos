@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import {
   Banknote,
   CreditCard,
@@ -30,6 +31,7 @@ import {
   formatNumber,
   formatWeekdayDay,
 } from "@/lib/format";
+import { fadeUp, stagger } from "@/lib/motion";
 import { PAYMENT_LABEL } from "@/types/pos";
 
 /* Same glyphs the checkout dialog uses, so `credit` reads as a card everywhere. */
@@ -44,12 +46,17 @@ function TrendBars({ summary }: { summary: DashboardSummary }) {
   const max = Math.max(...summary.trend.map((p) => p.revenue), 1);
 
   return (
-    <ul className="space-y-3 p-5">
+    <motion.ul
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="space-y-3 p-5"
+    >
       {summary.trend.map((point) => {
         const pct = Math.round((point.revenue / max) * 100);
 
         return (
-          <li key={point.date} className="space-y-1.5">
+          <motion.li key={point.date} variants={fadeUp} className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-3 text-xs">
               <span className="font-medium">{formatWeekdayDay(point.date)}</span>
               <span className="tabular-nums text-muted-foreground">
@@ -60,10 +67,10 @@ function TrendBars({ summary }: { summary: DashboardSummary }) {
             <p className="text-[11px] text-muted-foreground">
               {formatNumber(point.transactions)} transactions
             </p>
-          </li>
+          </motion.li>
         );
       })}
-    </ul>
+    </motion.ul>
   );
 }
 
@@ -79,13 +86,22 @@ function PaymentMix({ summary }: { summary: DashboardSummary }) {
   }
 
   return (
-    <ul className="divide-y">
+    <motion.ul
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="divide-y"
+    >
       {summary.paymentBreakdown.map((row) => {
         const Icon = METHOD_ICON[row.method];
         const sharePct = Math.round(row.share * 100);
 
         return (
-          <li key={row.method} className="flex items-center gap-3 px-5 py-3">
+          <motion.li
+            key={row.method}
+            variants={fadeUp}
+            className="flex items-center gap-3 px-5 py-3"
+          >
             <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <Icon className="size-4" aria-hidden />
             </span>
@@ -100,10 +116,10 @@ function PaymentMix({ summary }: { summary: DashboardSummary }) {
                 {formatNumber(row.count)} sales · {sharePct}% of today
               </p>
             </div>
-          </li>
+          </motion.li>
         );
       })}
-    </ul>
+    </motion.ul>
   );
 }
 
@@ -150,83 +166,121 @@ export function AdminOverview() {
   const { kpi } = summary;
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Overview"
-        description="What the counter, drawer, and shelf look like right now"
-      />
-
-      <section aria-label="Today's performance" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="Revenue today"
-          value={formatIDR(kpi.revenue)}
-          hint={`${formatNumber(kpi.transactions)} transactions`}
-          icon={TrendingUp}
-          tone="brand"
+    <motion.div
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="space-y-5"
+    >
+      <motion.div variants={fadeUp}>
+        <PageHeader
+          title="Overview"
+          description="What the counter, drawer, and shelf look like right now"
         />
-        <StatCard
-          label="Average order"
-          value={formatIDR(kpi.averageOrderValue)}
-          hint="Per transaction today"
-          icon={Wallet}
-          tone="accent"
-        />
-        <StatCard
-          label="Items sold"
-          value={formatNumber(kpi.itemsSold)}
-          hint="Across all categories"
-          icon={ShoppingBag}
-          tone="neutral"
-        />
-        <StatCard
-          label="Low stock"
-          value={formatNumber(summary.lowStock.length)}
-          hint={
-            summary.lowStock.length > 0
-              ? "Items need restocking"
-              : "Stock levels are healthy"
-          }
-          icon={Package}
-          tone={summary.lowStock.length > 0 ? "warn" : "neutral"}
-        />
-      </section>
+      </motion.div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <SectionCard
-          title="Last 7 days"
-          description="Revenue per day"
-          className="lg:col-span-2"
-        >
-          <TrendBars summary={summary} />
-        </SectionCard>
+      <motion.section
+        variants={stagger}
+        aria-label="Today's performance"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        <motion.div variants={fadeUp}>
+          <StatCard
+            label="Revenue today"
+            value={formatIDR(kpi.revenue)}
+            countUp={kpi.revenue}
+            hint={`${formatNumber(kpi.transactions)} transactions`}
+            icon={TrendingUp}
+            tone="brand"
+          />
+        </motion.div>
+        <motion.div variants={fadeUp}>
+          <StatCard
+            label="Average order"
+            value={formatIDR(kpi.averageOrderValue)}
+            countUp={kpi.averageOrderValue}
+            hint="Per transaction today"
+            icon={Wallet}
+            tone="accent"
+          />
+        </motion.div>
+        <motion.div variants={fadeUp}>
+          <StatCard
+            label="Items sold"
+            value={formatNumber(kpi.itemsSold)}
+            countUp={kpi.itemsSold}
+            format={formatNumber}
+            hint="Across all categories"
+            icon={ShoppingBag}
+            tone="neutral"
+          />
+        </motion.div>
+        <motion.div variants={fadeUp}>
+          <StatCard
+            label="Low stock"
+            value={formatNumber(summary.lowStock.length)}
+            countUp={summary.lowStock.length}
+            format={formatNumber}
+            hint={
+              summary.lowStock.length > 0
+                ? "Items need restocking"
+                : "Stock levels are healthy"
+            }
+            icon={Package}
+            tone={summary.lowStock.length > 0 ? "warn" : "neutral"}
+          />
+        </motion.div>
+      </motion.section>
 
-        <SectionCard title="Payment mix" description="Today by method">
-          <PaymentMix summary={summary} />
-        </SectionCard>
-      </div>
+      <motion.div variants={stagger} className="grid gap-5 lg:grid-cols-3">
+        <motion.div variants={fadeUp} className="lg:col-span-2">
+          <SectionCard
+            title="Last 7 days"
+            description="Revenue per day"
+            className="h-full"
+          >
+            <TrendBars summary={summary} />
+          </SectionCard>
+        </motion.div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
-        <SectionCard
-          title="Recent transactions"
-          description="Latest sales across all cashiers"
-          className="lg:col-span-2"
-          action={<SeeAllLink href="/dashboard/reports">Reports</SeeAllLink>}
-        >
-          <RecentOrdersTable orders={summary.recentOrders} />
-        </SectionCard>
+        <motion.div variants={fadeUp}>
+          <SectionCard
+            title="Payment mix"
+            description="Today by method"
+            className="h-full"
+          >
+            <PaymentMix summary={summary} />
+          </SectionCard>
+        </motion.div>
+      </motion.div>
 
-        <SectionCard
-          title="Low stock"
-          description="At or below minimum"
-          action={
-            summary.lowStock.length > 0 ? (
-              <Badge variant="destructive">{summary.lowStock.length}</Badge>
-            ) : undefined
-          }
-        >
-          <LowStockList items={summary.lowStock} />
-        </SectionCard>
-      </div>
-    </div>
+      <motion.div variants={stagger} className="grid gap-5 lg:grid-cols-3">
+        <motion.div variants={fadeUp} className="lg:col-span-2">
+          <SectionCard
+            title="Recent transactions"
+            description="Latest sales across all cashiers"
+            className="h-full"
+            action={<SeeAllLink href="/dashboard/reports">Reports</SeeAllLink>}
+          >
+            <RecentOrdersTable orders={summary.recentOrders} />
+          </SectionCard>
+        </motion.div>
+
+        <motion.div variants={fadeUp}>
+          <SectionCard
+            title="Low stock"
+            description="At or below minimum"
+            className="h-full"
+            action={
+              summary.lowStock.length > 0 ? (
+                <Badge variant="destructive">{summary.lowStock.length}</Badge>
+              ) : undefined
+            }
+          >
+            <LowStockList items={summary.lowStock} />
+          </SectionCard>
+        </motion.div>
+      </motion.div>
+    </motion.div>
   );
 }

@@ -31,6 +31,7 @@ export {
 export { ShiftModel, type Shift } from './shift.model.js';
 export { CounterModel } from './counter.model.js';
 export { IdempotencyKeyModel } from './idempotency-key.model.js';
+export { RateLimitModel } from '../lib/rate-limit-store.js';
 export { USERNAME_COLLATION, toApiJson } from './shared.js';
 
 import { CategoryModel } from './category.model.js';
@@ -42,6 +43,7 @@ import { ProductModel } from './product.model.js';
 import { ShiftModel } from './shift.model.js';
 import { StockMovementModel } from './stock-movement.model.js';
 import { UserModel } from './user.model.js';
+import { RateLimitModel } from '../lib/rate-limit-store.js';
 
 /**
  * The two operations the seed and the test reset need. Declared narrowly so the
@@ -64,4 +66,5 @@ export const ALL_MODELS: ResettableModel[] = [
   ShiftModel,
   CounterModel,
   IdempotencyKeyModel,
+  RateLimitModel,
 ];

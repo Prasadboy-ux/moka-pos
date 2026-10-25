@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { fillLoginForm } from "./auth.mjs";
 
 /**
  * One sale, followed all the way round the app.
@@ -60,8 +61,7 @@ const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 try {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /kasir \/ kasir123/ }).click();
-  await page.locator("#password").fill("kasir123");
+  await fillLoginForm(page, "kasir");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard/pos", { timeout: 15000 });
   check("cashier signed in", page.url().includes("/dashboard/pos"));
@@ -276,8 +276,7 @@ try {
   // ------------------------------------------- admin sees it on the dashboard
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
   await page.waitForTimeout(1400);

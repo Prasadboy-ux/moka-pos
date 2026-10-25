@@ -28,11 +28,12 @@ const app: Express = createApp();
 let admin: Awaited<ReturnType<typeof agentFor>>;
 let kasir: Awaited<ReturnType<typeof agentFor>>;
 
-/** Exactly the 35 product endpoints the contract lists. */
+/** Exactly the 38 product endpoints the contract lists. */
 const CONTRACT_ROUTES = [
   'POST /api/auth/login',
   'POST /api/auth/logout',
   'GET /api/auth/me',
+  'POST /api/auth/change-password',
 
   'GET /api/config',
 
@@ -63,6 +64,9 @@ const CONTRACT_ROUTES = [
   'POST /api/orders',
   'GET /api/orders/recent',
   'GET /api/orders/:id',
+  'POST /api/orders/:id/void',
+
+  'GET /api/reports/sales',
 
   'GET /api/users',
   'POST /api/users',
@@ -106,9 +110,9 @@ beforeEach(async () => {
 });
 
 describe('the endpoint surface', () => {
-  it('names all 35 contract endpoints, and no duplicates', () => {
-    expect(CONTRACT_ROUTES).toHaveLength(35);
-    expect(new Set(CONTRACT_ROUTES).size).toBe(35);
+  it('names all 38 contract endpoints, and no duplicates', () => {
+    expect(CONTRACT_ROUTES).toHaveLength(38);
+    expect(new Set(CONTRACT_ROUTES).size).toBe(38);
   });
 
   /**
@@ -179,14 +183,15 @@ describe('nothing beyond the contract', () => {
   });
 
   /**
-   * The old backend docs described `transactions`, `stock_history` and
-   * `GET /api/reports/sales`. Those were a superseded design; shipping them
-   * alongside the real contract would give the frontend two half-matching APIs.
+   * The old backend docs described `transactions` and `stock_history`. Those
+   * were a superseded design; shipping them alongside the real contract would
+   * give the frontend two half-matching APIs. (`GET /api/reports/sales` used to
+   * be in that list too — the aggregation it needs has since been built, and it
+   * is now CONTRACT_ROUTES entry 38.)
    */
   it('does not answer the superseded Express design', async () => {
     await request(app).get('/api/transactions').expect(404);
     await request(app).get('/api/stock_history').expect(404);
-    await request(app).get('/api/reports/sales').expect(404);
   });
 });
 
@@ -293,6 +298,13 @@ describe('the error envelope, uniformly', () => {
       'conflict',
       'insufficient-stock',
       'internal',
+      /**
+       * `rate_limited` belongs to the vocabulary like any other code (the
+       * frontend branches on `error`), but producing one here would make this
+       * suite's spot checks attempt-dependent on the shared limiter. The full
+       * protocol — envelope, retry headers, per-route scoping — is asserted in
+       * rate-limit.e2e.
+       */
     ]);
 
     const responses = [

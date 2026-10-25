@@ -5,6 +5,7 @@ import { dayRange } from '../../lib/dates.js';
 import { ApiError } from '../../lib/errors.js';
 import { calculateTax, normalisePhone, roundIDR } from '../../lib/money.js';
 import { isDuplicateKey } from '../../lib/mongo-errors.js';
+import { escapeRegExp } from '../../lib/schemas.js';
 import { CounterModel } from '../../models/counter.model.js';
 import { IdempotencyKeyModel } from '../../models/idempotency-key.model.js';
 import { IngredientModel } from '../../models/ingredient.model.js';
@@ -34,6 +35,13 @@ type SaleLine = {
   stockMode: 'recipe' | 'direct';
 };
 
+/** The parts of a product document the void actually reads. */
+type VoidableProduct = {
+  _id: Types.ObjectId;
+  stockMode: 'recipe' | 'direct';
+  recipe: { ingredientId: Types.ObjectId; qty: number }[];
+};
+
 export type OrderResult = {
   order: unknown;
   movements: unknown[];
@@ -41,15 +49,66 @@ export type OrderResult = {
   replayed: boolean;
 };
 
-export async function listOrders(query: OrderQuery) {
+export type VoidResult = {
+  order: unknown;
+  movements: unknown[];
+  /**
+   * Stock that could not be restored and why. A void still succeeds when some
+   * or all of its items cannot be reversed — the receipt is reversed whether or
+   * not the shelf can be — but the admin who voided is told exactly what fell
+   * outside the transaction's reach.
+   */
+  warnings: string[];
+};
+
+export type OrderPage = {
+  data: unknown[];
+  /** Total matching rows before pagination, for the caller's page arithmetic. */
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export async function listOrders(query: OrderQuery): Promise<OrderPage> {
   const filter: Record<string, unknown> = {};
 
   if (query.cashierId) filter.cashierId = new Types.ObjectId(query.cashierId);
+  if (query.status) filter.status = query.status;
+  if (query.method) filter.paymentMethod = query.method;
 
   const range = dayRange(query.from, query.to, env().STORE_TIMEZONE);
   if (range) filter.createdAt = range;
 
-  return OrderModel.find(filter).sort({ createdAt: -1, _id: -1 });
+  /**
+   * Search over the fields a caller actually names on the phone: the receipt
+   * number, the customer name, or the phone of theirs on the receipt.
+   * Case-insensitive substring, escaped first so "MOKA-B4T" cannot turn its
+   * brackets into a character class.
+   */
+  if (query.q) {
+    const rx = new RegExp(escapeRegExp(query.q), 'i');
+    const alternatives: Record<string, unknown>[] = [
+      { receiptNo: rx },
+      { 'customer.name': rx },
+    ];
+    // A phone search needs digits; matching a text-only needle against phone
+    // numbers would create a filter that can never hit anything.
+    if (/\d/.test(query.q)) alternatives.push({ 'customer.phone': rx });
+    filter.$or = alternatives;
+  }
+
+  const limit = query.limit ?? 50;
+  const offset = query.offset ?? 0;
+
+  const [data, total] = await Promise.all([
+    OrderModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(offset)
+      .limit(limit),
+    OrderModel.countDocuments(filter),
+  ]);
+
+  return { data, total, limit, offset };
 }
 
 export async function getOrder(id: string) {
@@ -70,7 +129,7 @@ export async function createOrder(
   // Fast path for a retry of a request that already succeeded. Outside the
   // transaction so a plain replay costs one indexed read and no transaction.
   if (idempotencyKey) {
-    const replay = await findReplay(idempotencyKey);
+    const replay = await findReplay(idempotencyKey, cashier);
     if (replay) return replay;
   }
 
@@ -81,11 +140,173 @@ export async function createOrder(
     // Two retries raced. One won and inserted the key; the loser hit the unique
     // index. Return the winner's receipt instead of charging the customer twice.
     if (idempotencyKey && isDuplicateKey(error)) {
-      const replay = await findReplay(idempotencyKey);
+      const replay = await findReplay(idempotencyKey, cashier);
       if (replay) return replay;
     }
     throw error;
   }
+}
+
+/**
+ * Reverses a sale: receipt flipped to `voided`, stock returned, ledger written.
+ *
+ * One transaction, like the sale it mirrors. The order is claimed *first* — a
+ * conditional update on `status: 'paid'` — so two admins voiding the same
+ * receipt race on that write, not on the stock: exactly one restores, the other
+ * restarts and finds the receipt already voided.
+ *
+ * Stock is restored from the *current* catalogue, not the moment of sale. The
+ * order trustfully denormalises what was charged, but a recipe or mode is
+ * changed by later edits, and the shelf that exists today is the one that has
+  * to be corrected today. Where the catalogue can no longer express what the
+ * sale consumed, the line is skipped with a warning instead of guessed at.
+ */
+export async function voidOrder(
+  id: string,
+  reason: string,
+  admin: SessionUser,
+): Promise<VoidResult> {
+  return withTransaction(async (session) => {
+    const order = await OrderModel.findById(id).session(session);
+    if (!order) {
+      throw ApiError.notFound('That receipt no longer exists.');
+    }
+    if (order.status === 'voided') {
+      throw ApiError.conflict(
+        'order-already-voided',
+        `${order.receiptNo} has already been voided.`,
+      );
+    }
+
+    // --- 1. Claim the receipt. Everything below rides on having won this.
+    const claimed = await OrderModel.findOneAndUpdate(
+      { _id: order._id, status: 'paid' },
+      {
+        $set: {
+          status: 'voided',
+          voidedAt: new Date(),
+          voidedBy: admin.id,
+          voidedByName: admin.name,
+          voidReason: reason,
+        },
+      },
+      { returnDocument: 'after', session },
+    );
+    if (!claimed) {
+      // Lost a concurrent claim after the read above.
+      throw ApiError.conflict(
+        'order-already-voided',
+        `${order.receiptNo} has already been voided.`,
+      );
+    }
+
+    const movements: unknown[] = [];
+    const warnings: string[] = [];
+    // `Voided MOKA-1234` + reason must fit the ledger note's 240-char column.
+    const note = `Voided ${order.receiptNo} — ${reason}`.slice(0, 240);
+
+    // --- 2. Work out what *today's* catalogue says each line was made of.
+    const productIds = [...new Set(order.lines.map((line) => line.productId))];
+    const products = (await ProductModel.find({
+      _id: { $in: productIds },
+    })
+      .select('stockMode recipe')
+      .session(session)) as unknown as VoidableProduct[];
+    const productNow = new Map(products.map((p) => [String(p._id), p]));
+
+    const ingredientNeed = new Map<string, number>();
+    const directRestore: { productId: Types.ObjectId; label: string; qty: number }[] = [];
+
+    for (const line of order.lines) {
+      const product = productNow.get(String(line.productId));
+
+      if (!product) {
+        warnings.push(
+          `${line.name} was deleted since this sale, so its stock could not be restored.`,
+        );
+        continue;
+      }
+      if (product.stockMode !== line.stockMode) {
+        warnings.push(
+          `${line.name} changed stockMode since this sale, so its stock could not be restored.`,
+        );
+        continue;
+      }
+
+      if (line.stockMode === 'direct') {
+        directRestore.push({
+          productId: product._id,
+          label: line.name,
+          qty: line.qty,
+        });
+        continue;
+      }
+
+      // Recipe restore uses the recipe as it stands now.
+      for (const item of product.recipe) {
+        const key = String(item.ingredientId);
+        ingredientNeed.set(key, (ingredientNeed.get(key) ?? 0) + item.qty * line.qty);
+      }
+    }
+
+    // --- 3. Put direct stock back. Positive quantities cannot go negative, so
+    //        no conditional filter is needed.
+    for (const restore of directRestore) {
+      await ProductModel.updateOne(
+        { _id: restore.productId },
+        { $inc: { stock: restore.qty } },
+        { session },
+      );
+      movements.push(
+        await recordVoid({
+          productId: restore.productId,
+          label: restore.label,
+          qty: restore.qty,
+          unit: 'pcs',
+          note,
+          admin,
+          session,
+        }),
+      );
+    }
+
+    // --- 4. Put ingredients back, aggregated per ingredient like consumeStock.
+    const ingredientDocs = (await IngredientModel.find({
+      _id: { $in: [...ingredientNeed.keys()] },
+    })
+      .select('name unit')
+      .session(session)) as unknown as { _id: Types.ObjectId; name: string; unit: 'gram' | 'ml' | 'pcs' }[];
+    const ingredientById = new Map(ingredientDocs.map((i) => [String(i._id), i]));
+
+    for (const [id, needed] of ingredientNeed) {
+      const ingredient = ingredientById.get(id);
+      if (!ingredient) {
+        warnings.push(
+          'An ingredient in this recipe no longer exists, so its stock could not be restored.',
+        );
+        continue;
+      }
+
+      await IngredientModel.updateOne(
+        { _id: ingredient._id },
+        { $inc: { stock: needed } },
+        { session },
+      );
+      movements.push(
+        await recordVoid({
+          ingredientId: ingredient._id,
+          label: ingredient.name,
+          qty: needed,
+          unit: ingredient.unit,
+          note,
+          admin,
+          session,
+        }),
+      );
+    }
+
+    return { order: claimed, movements, warnings };
+  });
 }
 
 /**
@@ -418,6 +639,41 @@ function short(name: string, onHand: number, unit: string): ApiError {
 }
 
 /**
+ * The ledger row a void writes: a positive `void` movement mirroring the
+ * negative `sale` the receipt consumed. Only `voidOrder` writes this type —
+ * manual adjustment refuses it so the sale/void pairs stay auditable.
+ */
+async function recordVoid(input: {
+  productId?: Types.ObjectId | null;
+  ingredientId?: Types.ObjectId | null;
+  label: string;
+  qty: number;
+  unit: 'gram' | 'ml' | 'pcs';
+  note: string;
+  admin: SessionUser;
+  session: ClientSession;
+}): Promise<unknown> {
+  const [movement] = await StockMovementModel.create(
+    [
+      {
+        type: 'void',
+        ingredientId: input.ingredientId ?? null,
+        productId: input.productId ?? null,
+        label: input.label,
+        qty: input.qty,
+        unit: input.unit,
+        note: input.note,
+        byUserId: input.admin.id,
+        byUserName: input.admin.name,
+        createdAt: new Date(),
+      },
+    ],
+    { session: input.session },
+  );
+  return movement;
+}
+
+/**
  * Normalises whatever the cashier typed into something a receipt link can be
  * built from.
  *
@@ -443,9 +699,24 @@ function normaliseCustomer(input: CreateOrderInput) {
   };
 }
 
-async function findReplay(idempotencyKey: string): Promise<OrderResult | null> {
+async function findReplay(
+  idempotencyKey: string,
+  cashier: SessionUser,
+): Promise<OrderResult | null> {
   const record = await IdempotencyKeyModel.findById(idempotencyKey);
   if (!record) return null;
+
+  // A key is one cashier's retry token, not a shared receipt id. Whoever holds
+  // another user's key must not be handed that user's receipt back — totals,
+  // phone numbers and everything else on it. The caller is told to mint a new
+  // key instead, which keeps this refusal silent about the key's existence
+  // beyond the fact that it is not theirs.
+  if (String(record.userId) !== cashier.id) {
+    throw ApiError.conflict(
+      'idempotency-key-foreign',
+      'This payment was already submitted by another cashier. Start a new sale instead of retrying this one.',
+    );
+  }
 
   const order = await OrderModel.findById(record.orderId);
   if (!order) return null;

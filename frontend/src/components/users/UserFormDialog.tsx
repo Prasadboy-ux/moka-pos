@@ -72,7 +72,9 @@ interface UserFormDialogProps {
 export function UserFormDialog({ open, onOpenChange, user, onSaved }: UserFormDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? <UserFormBody user={user} onOpenChange={onOpenChange} onSaved={onSaved} /> : null}
+      <DialogContent className="sm:max-w-md">
+        <UserFormBody user={user} onOpenChange={onOpenChange} onSaved={onSaved} />
+      </DialogContent>
     </Dialog>
   );
 }
@@ -142,7 +144,7 @@ function UserFormBody({
   }
 
   return (
-    <DialogContent className="sm:max-w-md">
+    <>
       <DialogHeader>
         <DialogTitle>{user ? "Edit account" : "New account"}</DialogTitle>
         <DialogDescription>
@@ -261,7 +263,7 @@ function UserFormBody({
           </Button>
         </DialogFooter>
       </form>
-    </DialogContent>
+    </>
   );
 }
 

@@ -561,6 +561,10 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
         cashierId: cashier.id,
         cashierName: cashier.name,
         customer: customer ? { ...customer } : null,
+        status: "paid",
+        voidedAt: null,
+        voidedByName: null,
+        voidReason: "",
         createdAt: createdAt.toISOString(),
       });
     }
@@ -584,8 +588,9 @@ function buildHistory(products: Product[], taxRate: number): Order[] {
  * 4 — orders carry an optional `customer`. Reseeding is also what fills the
  * transaction screen with sendable receipts, since nothing else writes to the
  * store on first load.
+ * 5 — orders gained a `status`/void block (paid by default, null void fields).
  */
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 export function buildSeed(): Database {
   const orders = buildHistory(SEED_PRODUCTS, 0.1);

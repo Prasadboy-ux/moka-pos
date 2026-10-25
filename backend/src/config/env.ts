@@ -68,6 +68,13 @@ const schema = z.object({
    * against runaway clients, set far above what a real shop generates.
    */
   RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(2000),
+
+  /**
+   * Force the limiters on under NODE_ENV=test so one suite can exercise the
+   * 429 path against the shared store. Never set this on a real deployment:
+   * there it is ignored, because the limiters are always on outside tests.
+   */
+  RATE_LIMIT_TEST_ENABLED: z.stringbool().default(false),
 });
 
 export type Env = z.infer<typeof schema>;

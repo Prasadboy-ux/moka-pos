@@ -36,7 +36,7 @@ the request path.
 | Repository seam | Done — flipped from mock to HTTP in one file |
 | Backend API | Done — 35 routes, 9 models, 239 tests |
 | Shift gating + reconciliation | Done — POS refuses to sell with no open shift; close stores the drawer count |
-| Unit tests (frontend) | Done — Vitest, 18 tests across 2 files |
+| Unit tests (frontend) | Done — Vitest, 20 tests across 2 files |
 
 **Screens:** 8 routes (login + 7 dashboard screens). Cashiers reach 2 of them,
 admins reach all 7.
@@ -49,6 +49,7 @@ admins reach all 7.
 | Language | TypeScript (`strict`, `noUncheckedIndexedAccess`) | 5.9.3 |
 | UI | React | 19.3.1 |
 | Styling | Tailwind CSS (CSS-first config) | 4.3.3 |
+| Animation | Motion for React (`motion`) | 14.6.0 |
 | Components | shadcn/ui (`new-york` style) | 4.22.0 |
 | Forms | react-hook-form + zod | 7.90.0 / 4.6.7 |
 | State | Zustand (auth, cart) | 5.0.15 |
@@ -170,7 +171,7 @@ src/
     ui/                    22 shadcn primitives
     auth/                  LoginForm, RolePicker
     brand/                 BrandPanel
-    layout/                Sidebar, Header, MobileNav
+    layout/                Sidebar, Header, MobileSidebar
     common/                PagePlaceholder
     dashboard/             StatCard, OverviewWidgets, AdminOverview
     pos/                   PosScreen, ProductGrid, CartPanel,
@@ -373,6 +374,51 @@ Ordered by what earns its keep first.
 ---
 
 ## Changelog
+
+### 2026-10-25 — Premium animation system: Motion everywhere, one token source
+
+Upgraded the motion layer from a partial Motion setup with scattered hardcoded
+timings to a system: `tw-animate-css` CSS cues were replaced by Motion-driven
+enter/exit choreography in the primitives, and every timing now reads from
+`src/lib/motion.ts`.
+
+**Token unification.** `lib/motion.ts` is the single source of truth — durations
+`fast` 0.16 / `swap` 0.18 / `base` 0.24 / `page` 0.34 / `flight` 0.48, the
+`EASE_OUT` curve, `SPRING`/`SPRING_SOFT`, and `collapse`/`pop` variants with
+per-value transitions. Over two dozen bare durations across `MotionProvider`,
+`PageTransition`, `FlyToCart`, toasts, the checkout, login, cart, and product
+grid were replaced with named tokens. Two
+deliberately remain bespoke: `SuccessCheck`'s SVG draw and the checkout shake.
+
+**Overlays animate out.** Radix unmounts portals instantly, so `dialog`,
+`alert-dialog`, `dropdown-menu`, and `select` were rewritten to own `open` via a
+new `overlay-motion.tsx` steward (`useControlledOpen`) and host their content in
+`AnimatePresence` inside a `forceMount` portal — overlays now fade/scale out on
+close, and dropdowns/selects get directional pop + rotation of their trigger
+chevron. `tabs` gained a sliding `layoutId` underline for the `line` variant
+(sidebar-pill gloss).
+
+**Dialog bodies restructured to match.** Stateful bodies mount *through*
+`DialogContent` as children (not sibling conditionals), so each open starts with
+clean state while `AnimatePresence` keeps the last content for the exit:
+`CheckoutDialog`, `UserFormDialog`, `ChangePasswordDialog`, `IngredientDialog`,
+`ProductFormDialog`, `StockAdjustDialog`, `VoidOrderDialog` (pending guard moved
+into a ref that survives body unmount), `ReceiptModal`, and `OpenShiftDialog`.
+`CloseShiftDialog` merged its two conditional contents into one shell with an
+inner `mode="wait"` swap, and `TransactionsScreen` dropped its per-order re-key.
+
+**POS + dashboards polish.** FilterBar chips and cart steppers press with
+`whileTap`; the cart badge re-pops per increment; grid/run-out empty states
+animate in; `DataTable` rows stagger on mount, page, and sort with an animated
+sort chevron; dashboard and reports KPI figures count up via a generalized
+`AnimatedNumber` (`format` prop); reports trend bars and payment mix now stagger
+in step with the dashboard widgets; report skeletons use the pulsing `Skeleton`;
+`EmptyState` fades up.
+
+**Verification.** `typecheck`, `lint`, `vitest` (20/20), and `build` all pass.
+Brand palette untouched — cyan/teal identity, WCAG `--primary`, and the print
+receipt rules all preserved; reduced-motion guarantees are asserted by
+`smoke:a11y`.
 
 ### 2026-10-23 — Split-repo CI and mock ledger parity
 
@@ -967,7 +1013,7 @@ app bugs**: the KPI label is uppercased by CSS so `textContent` is
 **App shell**
 - `dashboard/layout.tsx` — auth guard plus role guard. A cashier hitting any
   route other than POS is redirected to POS.
-- `Sidebar` (desktop), `Header` (user + sign out), `MobileNav` (bottom tabs).
+- `Sidebar` (desktop), `Header` (user + sign out), `MobileSidebar` (slide-in drawer).
 - `lib/nav.ts` — single source of truth for role-to-route permissions.
 - Six empty page stubs replaced with `PagePlaceholder` so every route compiles.
   These are placeholders, not features.

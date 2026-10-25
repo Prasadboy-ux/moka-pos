@@ -12,11 +12,17 @@ import type {
  * Display order first, then name. `sortOrder` is the order the POS grid and every
  * filter use, so it outranks the alphabet; the name tiebreak keeps the order
  * stable when two categories share a sortOrder.
+ *
+ * Categories top out at dozens, so the cap is a guard against a runaway import
+ * rather than a real boundary.
  */
+const CATEGORY_LIST_CAP = 500;
+
 export async function listCategories() {
   return CategoryModel.find()
     .sort({ sortOrder: 1, name: 1 })
-    .collation(NAME_COLLATION);
+    .collation(NAME_COLLATION)
+    .limit(CATEGORY_LIST_CAP);
 }
 
 export async function createCategory(input: CategoryInput) {

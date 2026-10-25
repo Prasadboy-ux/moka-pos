@@ -14,11 +14,20 @@ import {
 } from '../../models/user.model.js';
 import type { CreateUserInput, UserInput } from './users.schemas.js';
 
-/** Alphabetical by display name — a staff picker, not a ledger. */
+/**
+ * Alphabetical by display name — a staff picker, not a ledger.
+ *
+ * Capped so a runaway staffing table cannot be shipped whole: no shop this
+ * UI can manage uses thousands of accounts, and the cap keeps the reply
+ * bounded no matter what ends up in the database.
+ */
+const USER_LIST_CAP = 1000;
+
 export async function listUsers() {
   const users = await UserModel.find()
     .sort({ name: 1 })
-    .collation(NAME_COLLATION);
+    .collation(NAME_COLLATION)
+    .limit(USER_LIST_CAP);
   return users.map(toSessionUser);
 }
 

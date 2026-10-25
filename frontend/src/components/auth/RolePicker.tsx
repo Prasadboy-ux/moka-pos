@@ -1,7 +1,9 @@
 "use client";
 
+import { motion } from "motion/react";
 import { ShieldCheck, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SPRING } from "@/lib/motion";
 import type { Role } from "@/types/auth";
 
 const ROLE_OPTIONS = [
@@ -57,7 +59,9 @@ export function RolePicker({ value, onChange }: RolePickerProps) {
               />
 
               <div className="flex items-center justify-between">
-                <span
+                <motion.span
+                  animate={{ scale: isSelected ? 1.08 : 1, rotate: isSelected ? -3 : 0 }}
+                  transition={SPRING}
                   className={cn(
                     "flex size-9 items-center justify-center rounded-lg transition-colors",
                     isSelected
@@ -66,16 +70,20 @@ export function RolePicker({ value, onChange }: RolePickerProps) {
                   )}
                 >
                   <Icon className="size-4.5" aria-hidden />
-                </span>
+                </motion.span>
                 <span
                   className={cn(
-                    "size-4 rounded-full border-2 transition-colors",
-                    isSelected
-                      ? "border-primary bg-primary"
-                      : "border-input bg-background",
+                    "flex size-4 items-center justify-center rounded-full border-2 transition-colors",
+                    isSelected ? "border-primary" : "border-input bg-background",
                   )}
                   aria-hidden
-                />
+                >
+                  <motion.span
+                    animate={{ scale: isSelected ? 1 : 0 }}
+                    transition={SPRING}
+                    className="size-2 rounded-full bg-primary"
+                  />
+                </span>
               </div>
 
               <span className="text-sm font-semibold text-foreground">

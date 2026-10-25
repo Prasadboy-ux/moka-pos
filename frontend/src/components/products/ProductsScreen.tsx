@@ -29,6 +29,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable, type Column } from "@/components/data-table";
 import { FilterBar } from "@/components/filter-bar";
+import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
 import { ProductFormDialog } from "@/components/products/ProductFormDialog";
 import { CategoryManagerDialog } from "@/components/products/CategoryManagerDialog";
@@ -344,6 +345,8 @@ export function ProductsScreen() {
         }
       />
 
+      <StaggerGroup className="space-y-5">
+        <StaggerItem>
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -387,21 +390,28 @@ export function ProductsScreen() {
         }
       />
 
-      {error ? (
-        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+        </StaggerItem>
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={(product) => product.id}
-        isLoading={isLoading}
-        emptyIcon={Package}
-        emptyTitle="No products match"
-        emptyDescription="Adjust the search or filters, or add a new product."
-      />
+        {error ? (
+          <StaggerItem>
+            <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          </StaggerItem>
+        ) : null}
+
+        <StaggerItem>
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey={(product) => product.id}
+            isLoading={isLoading}
+            emptyIcon={Package}
+            emptyTitle="No products match"
+            emptyDescription="Adjust the search or filters, or add a new product."
+          />
+        </StaggerItem>
+      </StaggerGroup>
 
       <ProductFormDialog
         open={formOpen}

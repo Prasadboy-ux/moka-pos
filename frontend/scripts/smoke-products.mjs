@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { fillLoginForm } from "./auth.mjs";
 
 const BASE = "http://localhost:3000";
 const API = "http://localhost:3001";
@@ -86,8 +87,7 @@ page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`
 try {
   // ---------------------------------------------------------------- sign in
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as Admin/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
   check("admin lands on /dashboard", page.url().endsWith("/dashboard"));
@@ -231,8 +231,7 @@ try {
   // clearing the whole thing would wipe accounts and stock created earlier.
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /kasir \/ kasir123/ }).click();
-  await page.locator("#password").fill("kasir123");
+  await fillLoginForm(page, "kasir");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard/pos", { timeout: 15000 });
   check("cashier lands on the POS", page.url().includes("/dashboard/pos"));

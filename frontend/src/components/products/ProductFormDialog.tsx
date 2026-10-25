@@ -144,7 +144,7 @@ export function ProductFormDialog({
 }: ProductFormDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? (
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <ProductFormBody
           product={product}
           categories={categories}
@@ -153,7 +153,7 @@ export function ProductFormDialog({
           onOpenChange={onOpenChange}
           onSaved={onSaved}
         />
-      ) : null}
+      </DialogContent>
     </Dialog>
   );
 }
@@ -258,7 +258,7 @@ function ProductFormBody({
   }
 
   return (
-    <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+    <>
       <DialogHeader>
         <DialogTitle>{product ? "Edit product" : "New product"}</DialogTitle>
         <DialogDescription>
@@ -355,6 +355,13 @@ function ProductFormBody({
         </div>
 
         <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
+          {/**
+           * The stock mode is decided at creation and never flipped: switching
+           * recipe to direct would hand the product a level the ledger never
+           * recorded, and direct to recipe would drop a counted level to
+           * nowhere. The server refuses it; the control is disabled here so
+           * nobody learns that from an error toast.
+           */}
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium">How stock is tracked</p>
@@ -365,6 +372,7 @@ function ProductFormBody({
             </div>
             <Select
               value={stockMode}
+              disabled={product !== null}
               onValueChange={(value) =>
                 setValue("stockMode", value as StockMode, { shouldValidate: true })
               }
@@ -382,15 +390,24 @@ function ProductFormBody({
           {stockMode === "direct" ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="product-stock">Opening stock (pcs)</Label>
+                <Label htmlFor="product-stock">
+                  {product === null ? "Opening stock (pcs)" : "Stock (read-only)"}
+                </Label>
                 <Input
                   id="product-stock"
                   type="number"
                   inputMode="numeric"
                   min={0}
+                  disabled={product !== null}
                   {...register("stock", { valueAsNumber: true })}
                 />
-                <FieldError message={errors.stock?.message} />
+                {product === null ? (
+                  <FieldError message={errors.stock?.message} />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Counts belong to the Stock screen; the ledger records them there.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -482,7 +499,7 @@ function ProductFormBody({
           </Button>
         </DialogFooter>
       </form>
-    </DialogContent>
+    </>
   );
 }
 

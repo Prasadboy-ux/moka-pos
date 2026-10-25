@@ -1,10 +1,13 @@
 "use client";
 
-import { Search, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
+import { DURATION, EASE_OUT, SPRING, SPRING_SOFT } from "@/lib/motion";
 import type { Category, Product } from "@/types/pos";
 
 /**
@@ -25,7 +28,7 @@ interface ProductGridProps {
   onCategoryChange: (categoryId: string | null) => void;
   search: string;
   onSearchChange: (value: string) => void;
-  onAdd: (product: Product) => void;
+  onAdd: (product: Product, origin: DOMRect) => void;
   qtyOf: (productId: string) => number;
 }
 
@@ -100,17 +103,27 @@ export function ProductGrid({
       </div>
 
       {visible.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-16 text-center">
+        /**
+         * Pops in rather than appearing abruptly: the grid just lost every
+         * tile a moment ago, and an instant empty state reads like a crash.
+         */
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: DURATION.base, ease: EASE_OUT }}
+          className="flex flex-1 flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-16 text-center"
+        >
           <p className="text-sm font-medium">No menu items found</p>
           <p className="text-xs text-muted-foreground">
             Try a different search or category.
           </p>
-        </div>
+        </motion.div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
-          {visible.map((product) => (
+          {visible.map((product, index) => (
             <ProductTile
               key={product.id}
+              index={index}
               product={product}
               inCart={qtyOf(product.id)}
               available={isAddable(limits.get(product.id) ?? null)}
@@ -124,27 +137,59 @@ export function ProductGrid({
 }
 
 interface ProductTileProps {
+  index: number;
   product: Product;
   inCart: number;
   available: boolean;
-  onAdd: (product: Product) => void;
+  onAdd: (product: Product, origin: DOMRect) => void;
 }
 
-function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
+function ProductTile({
+  index,
+  product,
+  inCart,
+  available,
+  onAdd,
+}: ProductTileProps) {
+  const [justAdded, setJustAdded] = useState(false);
+
+  useEffect(() => {
+    if (!justAdded) return;
+    const timer = window.setTimeout(() => setJustAdded(false), 550);
+    return () => window.clearTimeout(timer);
+  }, [justAdded]);
+
   return (
-    <button
+    <motion.button
       type="button"
-      onClick={() => onAdd(product)}
+      onClick={(event) => {
+        if (!available) return;
+        setJustAdded(true);
+        onAdd(product, event.currentTarget.getBoundingClientRect());
+      }}
       disabled={!available}
       aria-label={`Add ${product.name}, ${formatIDR(product.price)}`}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        duration: DURATION.base,
+        ease: EASE_OUT,
+        delay: Math.min(index * 0.025, 0.2),
+      }}
+      whileTap={available ? { scale: 0.97, transition: SPRING } : undefined}
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-[color,background-color,border-color,box-shadow,transform]",
+        "group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-[color,background-color,border-color,box-shadow,transform] duration-200",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         available
-          ? "border-border hover:border-primary hover:shadow-md motion-safe:active:scale-[0.98]"
+          ? "border-border hover:-translate-y-0.5 hover:border-primary hover:shadow-md motion-reduce:hover:translate-y-0"
           : "cursor-not-allowed border-border opacity-60",
       )}
     >
+      <motion.div
+        animate={{ scale: justAdded ? 1.03 : 1 }}
+        transition={SPRING_SOFT}
+        className="flex flex-1 flex-col overflow-hidden"
+      >
       {/**
        * The illustrations are 300x400 portraits. `object-cover` in a square box
        * crops the top and bottom, which clears the label band that used to be
@@ -172,9 +217,20 @@ function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
         />
 
         {inCart > 0 ? (
-          <Badge className="absolute top-2 right-2 tabular-nums shadow-sm">
-            {inCart}
-          </Badge>
+          <motion.span
+            /**
+             * The badge re-pops each time the number changes (fresh key) so the
+             * cashier can see the cart took another unit without looking away
+             * from the grid; a plain swap reads as nothing moved.
+             */
+            key={inCart}
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={SPRING}
+            className="absolute top-2 right-2"
+          >
+            <Badge className="tabular-nums shadow-sm">{inCart}</Badge>
+          </motion.span>
         ) : null}
 
         {!available ? (
@@ -198,7 +254,30 @@ function ProductTile({ product, inCart, available, onAdd }: ProductTileProps) {
           {formatIDR(product.price)}
         </p>
       </div>
-    </button>
+      </motion.div>
+
+      <AnimatePresence>
+        {justAdded ? (
+          <motion.span
+            aria-hidden
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: DURATION.fast, ease: EASE_OUT }}
+            className="pointer-events-none absolute inset-0 z-10 grid place-items-center rounded-xl bg-foreground/15"
+          >
+            <motion.span
+              initial={{ scale: 0.5, rotate: -12 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={SPRING}
+              className="grid size-10 place-items-center rounded-full bg-success text-success-foreground shadow-lg"
+            >
+              <Check className="size-5" strokeWidth={3} />
+            </motion.span>
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+    </motion.button>
   );
 }
 
@@ -214,10 +293,12 @@ function CategoryChip({
   count?: number;
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      whileTap={{ scale: 0.97 }}
+      transition={SPRING}
       className={cn(
         /* 40px min-height: chips are pressed constantly while building an
            order, and DESIGN.md §3 sets that floor for POS controls. */
@@ -234,6 +315,6 @@ function CategoryChip({
           {count}
         </span>
       ) : null}
-    </button>
+    </motion.button>
   );
 }

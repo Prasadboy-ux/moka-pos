@@ -4,17 +4,23 @@ import type { Order, Shift, StockMovement } from "@/types/pos";
 import type {
   CreateOrderInput,
   MovementFilter,
+  OrderPage,
   OrderQuery,
   OrderRepository,
+  ReportsRepository,
+  SalesReportData,
   ShiftRepository,
   StockAdjustInput,
+  StockMovementPage,
   StockRepository,
 } from "../types";
 import { ApiError, http, query, request } from "./client";
 
 export const stockRepository: StockRepository = {
   movements: (filter: MovementFilter = {}) =>
-    request<StockMovement[]>(() => http.get(`/stock/movements${query({ ...filter })}`)),
+    request<StockMovementPage>(() =>
+      http.get(`/stock/movements${query({ ...filter })}`),
+    ),
 
   adjust: (input: StockAdjustInput) => {
     // `actor` is dropped on purpose. The interface carries it only so the mock
@@ -41,7 +47,7 @@ export const stockRepository: StockRepository = {
 
 export const orderRepository: OrderRepository = {
   list: (orderQuery: OrderQuery = {}) =>
-    request<Order[]>(() => http.get(`/orders${query({ ...orderQuery })}`)),
+    request<OrderPage>(() => http.get(`/orders${query({ ...orderQuery })}`)),
 
   async getById(id: string): Promise<Order | undefined> {
     try {
@@ -69,6 +75,28 @@ export const orderRepository: OrderRepository = {
       http.post("/orders", body, { headers: { "Idempotency-Key": key } }),
     );
   },
+
+  void: (id: string, reason: string, _actor?: { id: string; name: string }) => {
+    void _actor;
+    return request<{
+      order: Order;
+      movements: StockMovement[];
+      warnings: string[];
+    }>(() => http.post(`/orders/${id}/void`, { reason }));
+  },
+};
+
+/**
+ * The server owns the arithmetic a report shows: proportional revenue
+ * allocation, zero-filled trend periods, the uncategorised catch-all. The
+ * client shapes and presents the reply rather than refetching every receipt in
+ * the range and re-adding them here.
+ */
+export const reportsRepository: ReportsRepository = {
+  sales: (from, to, filter = {}) =>
+    request<SalesReportData>(() =>
+      http.get(`/reports/sales${query({ from, to, ...filter })}`),
+    ),
 };
 
 export const shiftRepository: ShiftRepository = {
@@ -94,4 +122,14 @@ export const shiftRepository: ShiftRepository = {
 export const sessionRepository = {
   me: () => request<{ user: User }>(() => http.get("/auth/me")),
   logout: () => request<void>(() => http.post("/auth/logout")),
+
+  /**
+   * Rotates the signed-in user's own password. 204 on success; a wrong current
+   * password or a reused one comes back as 422 with a field name, which the
+   * dialog maps onto the input.
+   */
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>(() =>
+      http.post("/auth/change-password", { currentPassword, newPassword }),
+    ),
 };

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDownRight, ArrowUpRight, Boxes, Package, SlidersHorizontal } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Boxes, Package, Pencil, Plus, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,12 +14,15 @@ import {
 } from "@/components/ui/select";
 import { DataTable, type Column } from "@/components/data-table";
 import { FilterBar } from "@/components/filter-bar";
+import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
 import { SectionCard } from "@/components/dashboard/StatCard";
+import { IngredientDialog } from "@/components/stock/IngredientDialog";
 import { StockAdjustDialog } from "@/components/stock/StockAdjustDialog";
 import { useAsync } from "@/hooks/useAsync";
 import { useQueryState } from "@/hooks/useQueryState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useAuthStore } from "@/store/useAuthStore";
 import { getRepositories } from "@/lib/repositories";
 import { formatDateTime, formatIDR, formatNumber } from "@/lib/format";
 import type {
@@ -43,23 +46,34 @@ interface StockData {
   ingredients: Ingredient[];
   products: Product[];
   movements: StockMovement[];
+  /** Movements matching the filters before the server's page slice. */
+  movementTotal: number;
   value: { ingredientsValue: number; retailValue: number; total: number };
 }
 
-async function loadStock(): Promise<StockData> {
+/**
+ * The type filter rides with the request: filtering the newest 200 client-side
+ * would answer "what happened recently" with rows of whatever subset happened to
+ * be recent, and the ledger's whole point is that "why is this number wrong"
+ * gets the same look-back regardless of which type tab you opened.
+ */
+async function loadStock(movementType: MovementType | "all"): Promise<StockData> {
   const { ingredients, products, stock } = getRepositories();
 
-  const [ingredientList, productList, movementList, value] = await Promise.all([
+  const [ingredientList, productList, movementPage, value] = await Promise.all([
     ingredients.list(),
     products.list({ includeInactive: true }),
-    stock.movements(),
+    stock.movements({
+      type: movementType === "all" ? undefined : movementType,
+    }),
     stock.value(),
   ]);
 
   return {
     ingredients: ingredientList,
     products: productList,
-    movements: movementList,
+    movements: movementPage.data,
+    movementTotal: movementPage.total,
     value,
   };
 }
@@ -67,7 +81,7 @@ async function loadStock(): Promise<StockData> {
 const TABS = ["ingredients", "products", "movements"] as const;
 type StockTab = (typeof TABS)[number];
 
-const MOVEMENT_FILTERS = ["all", "sale", "purchase", "adjustment", "waste"] as const;
+const MOVEMENT_FILTERS = ["all", "sale", "void", "purchase", "adjustment", "waste"] as const;
 
 type AdjustTarget =
   | { kind: "ingredient"; record: Ingredient }
@@ -75,6 +89,7 @@ type AdjustTarget =
 
 const MOVEMENT_LABEL: Record<MovementType, string> = {
   sale: "Sale",
+  void: "Void refund",
   purchase: "Purchase",
   adjustment: "Correction",
   waste: "Waste",
@@ -82,20 +97,19 @@ const MOVEMENT_LABEL: Record<MovementType, string> = {
 
 const MOVEMENT_VARIANT: Record<MovementType, "secondary" | "outline" | "destructive"> = {
   sale: "secondary",
+  void: "outline",
   purchase: "outline",
   adjustment: "outline",
   waste: "destructive",
 };
 
 export function StockScreen() {
-  const { data, error, isLoading, reload } = useAsync(loadStock);
-
   /**
    * Tab and movement filter live in the URL: which view you were reading is part
    * of where you were, and losing it on reload defeats the point of the ledger
    * when an admin is chasing a discrepancy.
    */
-const [query, setQuery] = useQueryState();
+  const [query, setQuery] = useQueryState();
   const tab: StockTab = TABS.includes(query.tab as StockTab)
     ? (query.tab as StockTab)
     : "ingredients";
@@ -105,8 +119,24 @@ const [query, setQuery] = useQueryState();
     ? (query.movement as MovementType)
     : "all";
 
+  const { data, error, isLoading, reload } = useAsync(
+    () => loadStock(movementType),
+    [movementType],
+  );
+
   const [search, setSearch] = React.useState(query.q ?? "");
   const [adjusting, setAdjusting] = React.useState<AdjustTarget | null>(null);
+  const [ingredientDialog, setIngredientDialog] = React.useState<
+    { mode: "create" } | { mode: "edit"; ingredient: Ingredient } | null
+  >(null);
+
+  /**
+   * Creating and editing ingredients changes what recipes can be built and what
+   * they cost, so it stays with admins; kasirs keep their read-and-adjust view.
+   */
+  const isAdmin = useAuthStore(
+    (state) => state.session?.user?.role === "admin",
+  );
 
   const debouncedSearch = useDebouncedValue(search);
 
@@ -121,6 +151,7 @@ const [query, setQuery] = useQueryState();
   const ingredients = React.useMemo(() => data?.ingredients ?? [], [data]);
   const products = React.useMemo(() => data?.products ?? [], [data]);
   const movements = React.useMemo(() => data?.movements ?? [], [data]);
+  const movementTotal = data?.movementTotal ?? 0;
   const value = data?.value;
 
   const countedProducts = React.useMemo(
@@ -143,14 +174,17 @@ const [query, setQuery] = useQueryState();
     [countedProducts, needle],
   );
 
+  /**
+   * The type filter is answered by the server (see `loadStock`); the text
+   * needle searches what the ledger page read in.
+   */
   const filteredMovements = React.useMemo(
     () =>
       movements.filter((movement) => {
-        if (movementType !== "all" && movement.type !== movementType) return false;
         if (needle && !movement.label.toLowerCase().includes(needle)) return false;
         return true;
       }),
-    [movements, movementType, needle],
+    [movements, needle],
   );
 
   const lowIngredients = ingredients.filter((i) => i.stock <= i.minStock).length;
@@ -215,15 +249,27 @@ const [query, setQuery] = useQueryState();
     {
       key: "actions",
       header: "",
-      className: "w-24",
+      className: "w-32",
       cell: (ingredient) => (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setAdjusting({ kind: "ingredient", record: ingredient })}
-        >
-          Adjust
-        </Button>
+        <div className="flex items-center justify-end gap-2">
+          {isAdmin ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={`Edit ${ingredient.name}`}
+              onClick={() => setIngredientDialog({ mode: "edit", ingredient })}
+            >
+              <Pencil className="size-4" aria-hidden />
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setAdjusting({ kind: "ingredient", record: ingredient })}
+          >
+            Adjust
+          </Button>
+        </div>
       ),
     },
   ];
@@ -379,37 +425,50 @@ const [query, setQuery] = useQueryState();
             ? ` · ${lowIngredients + lowProducts} at or below the reorder point`
             : ""
         }`}
+        actionLabel={isAdmin && tab === "ingredients" ? "New ingredient" : undefined}
+        actionIcon={Plus}
+        onAction={
+          isAdmin && tab === "ingredients"
+            ? () => setIngredientDialog({ mode: "create" })
+            : undefined
+        }
       />
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-        >
-          {error}
-        </p>
-      ) : null}
+      <StaggerGroup className="space-y-5">
+        {error ? (
+          <StaggerItem>
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          </StaggerItem>
+        ) : null}
 
-      {value ? (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <ValueCard
-            label="Ingredient cost value"
-            amount={value.ingredientsValue}
-            hint="Stock on hand at unit cost"
-          />
-          <ValueCard
-            label="Counted product value"
-            amount={value.retailValue}
-            hint="Packaged stock at selling price, not cost"
-          />
-          <ValueCard
-            label="Combined"
-            amount={value.total}
-            hint="Mixed basis — treat as an order of magnitude"
-          />
-        </div>
-      ) : null}
+        {value ? (
+          <StaggerItem>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <ValueCard
+                label="Ingredient cost value"
+                amount={value.ingredientsValue}
+                hint="Stock on hand at unit cost"
+              />
+              <ValueCard
+                label="Counted product value"
+                amount={value.retailValue}
+                hint="Packaged stock at selling price, not cost"
+              />
+              <ValueCard
+                label="Combined"
+                amount={value.total}
+                hint="Mixed basis — treat as an order of magnitude"
+              />
+            </div>
+          </StaggerItem>
+        ) : null}
 
+        <StaggerItem>
       <Tabs value={tab} onValueChange={(value) => setQuery({ tab: value === "ingredients" ? null : value })}>
         <TabsList>
           <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
@@ -445,6 +504,7 @@ const [query, setQuery] = useQueryState();
                   <SelectContent>
                     <SelectItem value="all">All movements</SelectItem>
                     <SelectItem value="sale">Sales</SelectItem>
+                    <SelectItem value="void">Void refunds</SelectItem>
                     <SelectItem value="purchase">Purchases</SelectItem>
                     <SelectItem value="adjustment">Corrections</SelectItem>
                     <SelectItem value="waste">Waste</SelectItem>
@@ -479,6 +539,13 @@ const [query, setQuery] = useQueryState();
           </TabsContent>
 
           <TabsContent value="movements">
+            {movementTotal > movements.length ? (
+              <p className="mb-3 text-xs text-muted-foreground">
+                Showing the newest {formatNumber(movements.length)} of{" "}
+                {formatNumber(movementTotal)} movements. Filter by type or
+                search to narrow the look-back.
+              </p>
+            ) : null}
             <DataTable
               columns={movementColumns}
               rows={filteredMovements}
@@ -492,6 +559,17 @@ const [query, setQuery] = useQueryState();
           </TabsContent>
         </div>
       </Tabs>
+        </StaggerItem>
+      </StaggerGroup>
+
+      <IngredientDialog
+        open={ingredientDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setIngredientDialog(null);
+        }}
+        ingredient={ingredientDialog?.mode === "edit" ? ingredientDialog.ingredient : null}
+        onSaved={reload}
+      />
 
       <StockAdjustDialog
         open={adjusting !== null}

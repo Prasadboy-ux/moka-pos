@@ -7,8 +7,13 @@ import {
   signSession,
 } from '../../lib/session.js';
 import { requireSession, sessionUser } from '../../middleware/session.js';
-import { loginSchema, type LoginInput } from './auth.schemas.js';
-import { authenticate } from './auth.service.js';
+import {
+  changePasswordSchema,
+  loginSchema,
+  type ChangePasswordInput,
+  type LoginInput,
+} from './auth.schemas.js';
+import { authenticate, changePassword } from './auth.service.js';
 
 export const router: Router = Router();
 
@@ -20,6 +25,18 @@ router.post(
 );
 router.post('/auth/logout', logout);
 router.get('/auth/me', requireSession, me);
+
+/**
+ * Any signed-in role may change their own password, and every account should be
+ * able to: handing this to admins only would mean "cashiers cannot fix the
+ * password their manager just reset in front of them".
+ */
+router.post(
+  '/auth/change-password',
+  requireSession,
+  validate({ body: changePasswordSchema }),
+  changePasswordRoute,
+);
 
 async function login(req: Request, res: Response): Promise<void> {
   const input = req.validated?.body as LoginInput;
@@ -50,4 +67,16 @@ function logout(_req: Request, res: Response): void {
  */
 function me(req: Request, res: Response): void {
   res.status(200).json({ user: sessionUser(req) });
+}
+
+/**
+ * 204: the password has changed, and there is nothing to hand back — the caller
+ * learns the outcome from the status alone, and the session carries on.
+ */
+async function changePasswordRoute(req: Request, res: Response): Promise<void> {
+  await changePassword(
+    sessionUser(req).id,
+    req.validated?.body as ChangePasswordInput,
+  );
+  res.status(204).end();
 }

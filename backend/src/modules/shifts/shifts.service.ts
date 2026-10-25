@@ -33,11 +33,20 @@ export async function currentShift(cashier: SessionUser) {
   return shift ?? null;
 }
 
+/**
+ * A shift list is the drawer reconciliation history: one row per trading day
+ * per cashier. It grows slowly, but it grows without bound, so the reply tops
+ * out at a thousand closes — more than year of full staffing.
+ */
+const SHIFT_LIST_CAP = 1000;
+
 export async function listShifts(query: ShiftQuery) {
   const filter: Record<string, unknown> = {};
   if (query.cashierId) filter.userId = new Types.ObjectId(query.cashierId);
 
-  return ShiftModel.find(filter).sort({ openedAt: -1, _id: -1 });
+  return ShiftModel.find(filter)
+    .sort({ openedAt: -1, _id: -1 })
+    .limit(SHIFT_LIST_CAP);
 }
 
 export async function openShift(input: OpenShiftInput, cashier: SessionUser) {
@@ -104,12 +113,16 @@ export async function closeShift(
     }
 
     // Cash only: non-cash takings never touch the drawer. `total` is the amount
-    // that entered it — the change went back to the customer.
+    // that entered it — the change went back to the customer. Voided receipts
+    // are excluded: their cash was taken and handed back, so the drawer holds
+    // nothing for them. A void issued *after* close is a discrepancy the
+    // variance surfaces, not one this count can retro-fit.
     const [totals] = (await OrderModel.aggregate([
       {
         $match: {
           shiftId: shift._id,
           paymentMethod: 'cash',
+          status: 'paid',
         },
       },
       { $group: { _id: null, sum: { $sum: '$total' } } },

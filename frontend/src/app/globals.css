@@ -220,6 +220,81 @@
 }
 
 /**
+ * Ambient motion.
+ *
+ * CSS rather than Motion for the two things that never stop: the brand panel's
+ * gradient and its blurred orbs. They are decorative only, so they can run on
+ * the compositor without React re-rendering or a JS timeline staying alive for
+ * the life of the login screen.
+ */
+@keyframes brand-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(0, -20px, 0) scale(1.05);
+  }
+}
+
+@keyframes brand-float-alt {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(16px, 18px, 0) scale(1.08);
+  }
+}
+
+@keyframes brand-pan {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Used by the skeleton shimmer; the pseudo-element translates across the box. */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/**
+ * Progress bars grow from empty on mount.
+ *
+ * Only the `from` frame is declared, so the animation interpolates to whatever
+ * inline transform the component set — the same mechanism that lets later value
+ * changes use a plain CSS transition instead of replaying the entrance.
+ */
+@keyframes progress-grow {
+  from {
+    transform: translateX(-100%);
+  }
+}
+
+.progress-grow {
+  animation: progress-grow 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-brand-float {
+  animation: brand-float 13s ease-in-out infinite;
+}
+
+.animate-brand-float-alt {
+  animation: brand-float-alt 19s ease-in-out infinite;
+}
+
+.brand-gradient-motion {
+  background-size: 180% 180%;
+  animation: brand-pan 20s ease-in-out infinite;
+}
+
+/**
  * Reduced motion.
  *
  * Duration rather than `animation: none`, so the end state is still reached: an

@@ -490,6 +490,51 @@ describe('POST /api/orders', () => {
 
       expect((await ProductModel.findById(waterId))?.stock).toBe(9);
     });
+
+    it('never hands another cashier\'s receipt back through a learned key', async () => {
+      // The key is the retry token of whoever minted it. An admin who somehow
+      // learns a cashier's key must not receive the cashier's receipt.
+      const first = await kasir.agent
+        .post('/api/orders')
+        .set('Idempotency-Key', 'kasir-till-attempt-1')
+        .send({
+          lines: [{ productId: waterId, qty: 1 }],
+          paymentMethod: 'qris',
+          paidAmount: 5500,
+        })
+        .expect(201);
+
+      const owned = await kasir.agent
+        .post('/api/orders')
+        .set('Idempotency-Key', 'kasir-till-attempt-1')
+        .send({
+          lines: [{ productId: waterId, qty: 1 }],
+          paymentMethod: 'qris',
+          paidAmount: 5500,
+        })
+        .expect(200);
+
+      await admin.agent
+        .post('/api/orders')
+        .set('Idempotency-Key', 'kasir-till-attempt-1')
+        .send({
+          lines: [{ productId: waterId, qty: 1 }],
+          paymentMethod: 'qris',
+          paidAmount: 5500,
+        })
+        .expect(409)
+        .expect('content-type', /json/)
+        .expect((res) => {
+          expect(res.body.error).toBe('conflict');
+          expect(res.body.reason).toBe('idempotency-key-foreign');
+        });
+
+      // Exactly one sale exists and it belongs to the key's originator; the
+      // foreign replay was refused as a candidate sale, not recorded.
+      expect(await OrderModel.countDocuments()).toBe(1);
+      expect(owned.body.order.id).toBe(first.body.order.id);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(9);
+    });
   });
 
   /**
@@ -754,7 +799,11 @@ describe('GET /api/orders', () => {
       .expect(200);
 
     // The regression this guards: a bare `to` at midnight UTC would drop this.
-    expect(response.body).toHaveLength(1);
+    expect(response.body.data).toHaveLength(1);
+    expect(response.body.total).toBe(1);
+    // A page the caller did not ask for is still an explicit one.
+    expect(response.body.limit).toBe(50);
+    expect(response.body.offset).toBe(0);
   });
 
   it('excludes the next day', async () => {
@@ -785,7 +834,8 @@ describe('GET /api/orders', () => {
       .get('/api/orders?from=2026-10-17&to=2026-10-17')
       .expect(200);
 
-    expect(response.body).toHaveLength(0);
+    expect(response.body.data).toHaveLength(0);
+    expect(response.body.total).toBe(0);
   });
 
   it('returns newest first', async () => {
@@ -821,7 +871,7 @@ describe('GET /api/orders', () => {
     const response = await kasir.agent.get('/api/orders').expect(200);
 
     expect(
-      response.body.map((o: { receiptNo: string }) => o.receiptNo),
+      response.body.data.map((o: { receiptNo: string }) => o.receiptNo),
     ).toEqual(['MOKA-9003', 'MOKA-9002', 'MOKA-9001']);
   });
 
@@ -891,5 +941,367 @@ describe('receipt history survives a deleted product', () => {
     expect(receipt.body.lines[0].name).toBe('Mineral Water');
     expect(receipt.body.lines[0].price).toBe(5000);
     expect(receipt.body.total).toBe(5500);
+  });
+});
+
+/**
+ * A void is the sale's mirror, and every assertion here checks that the mirror
+ * reflects exactly: the receipt flips once, the stock returns, the ledger says
+ * who did it and why, and the second attempt cannot re-mirror anything.
+ */
+describe('POST /api/orders/:id/void', () => {
+  let latteId = '';
+
+  beforeEach(async () => {
+    const latte = await ProductModel.findOne({
+      name: 'Classic Iced Caffe Latte',
+    });
+    latteId = String(latte!._id);
+  });
+
+  async function sellLine(
+    productId: string,
+    qty: number,
+  ): Promise<{ id: string; receiptNo: string }> {
+    const created = await kasir.agent
+      .post('/api/orders')
+      .send({
+        lines: [{ productId, qty }],
+        paymentMethod: 'qris',
+        // Paid amounts only need to cover a single line, so each call buys the
+        // same product at the fixture prices.
+        paidAmount: productId === waterId ? 16500 : 61600,
+      })
+      .expect(201);
+    return {
+      id: created.body.order.id,
+      receiptNo: created.body.order.receiptNo,
+    };
+  }
+
+  it('refuses a kasir, and leaves the sale untouched', async () => {
+    const sale = await sellLine(latteId, 1);
+
+    const response = await kasir.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Customer left before pickup' })
+      .expect(403);
+
+    expect(response.body.error).toBe('forbidden');
+
+    const order = await OrderModel.findById(sale.id);
+    expect(order?.status).toBe('paid');
+
+    const milk = await IngredientModel.findById(milkId);
+    expect(milk?.stock).toBe(1000 - 180); // Nothing was put back.
+  });
+
+  it('requires a session', async () => {
+    const sale = await sellLine(latteId, 1);
+    await request(app).post(`/api/orders/${sale.id}/void`).send({ reason: 'No one here' }).expect(401);
+  });
+
+  it('requires a usable reason', async () => {
+    const sale = await sellLine(latteId, 1);
+
+    await admin.agent.post(`/api/orders/${sale.id}/void`).send({ reason: '' }).expect(422);
+    await admin.agent.post(`/api/orders/${sale.id}/void`).send({ reason: 'x' }).expect(422);
+
+    const order = await OrderModel.findById(sale.id);
+    expect(order?.status).toBe('paid');
+  });
+
+  it('reverses a recipe sale in one transaction', async () => {
+    const sale = await sellLine(latteId, 2);
+
+    const response = await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Barista rang up the wrong order' })
+      .expect(200);
+
+    const { order, movements, warnings } = response.body;
+
+    expect(order.status).toBe('voided');
+    expect(order.voidedByName).toBe('Budi Santoso');
+    expect(order.voidReason).toBe('Barista rang up the wrong order');
+    expect(order.voidedAt).toBeTruthy();
+    expect(warnings).toEqual([]);
+
+    // Two recipe lines consumed — mirrored by two positive void rows.
+    expect(movements).toHaveLength(2);
+    for (const movement of movements as Array<{
+      type: string;
+      qty: number;
+      note: string;
+    }>) {
+      expect(movement.type).toBe('void');
+      expect(movement.qty).toBeGreaterThan(0);
+      expect(movement.note).toBe(
+        `Voided ${sale.receiptNo} — Barista rang up the wrong order`.slice(0, 240),
+      );
+    }
+
+    const milk = await IngredientModel.findById(milkId);
+    const beans = await IngredientModel.findById(beansId);
+    expect(milk?.stock).toBe(1000); // 360 ml put back where 360 ml were taken.
+    expect(beans?.stock).toBe(5000);
+  });
+
+  it('reverses a direct sale in pcs', async () => {
+    const sale = await sellLine(waterId, 3);
+
+    const response = await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Not collected' })
+      .expect(200);
+
+    expect(response.body.movements[0].type).toBe('void');
+    expect(response.body.movements[0].qty).toBe(3);
+    expect(response.body.movements[0].unit).toBe('pcs');
+    expect(response.body.movements[0].productId).toBe(waterId);
+
+    const water = await ProductModel.findById(waterId);
+    expect(water?.stock).toBe(10);
+  });
+
+  it('refuses a second void and restores nothing twice', async () => {
+    const sale = await sellLine(waterId, 3);
+    await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Not collected' })
+      .expect(200);
+
+    const response = await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Not collected, again' })
+      .expect(409);
+
+    expect(response.body.reason).toBe('order-already-voided');
+
+    // The first void already put the water back; the refusal must not double it.
+    const water = await ProductModel.findById(waterId);
+    expect(water?.stock).toBe(10);
+    expect(
+      await StockMovementModel.countDocuments({ type: 'void', productId: waterId }),
+    ).toBe(1);
+  });
+
+  it('answers 404 for a receipt that never existed', async () => {
+    await admin.agent
+      .post('/api/orders/64b7f9c2e1a2b3c4d5e6f7a8/void')
+      .send({ reason: 'Wrong id' })
+      .expect(404);
+  });
+
+  it('warns instead of guessing when the catalogue can no longer express the sale', async () => {
+    // The direct product is deleted after the sale. Its line can be reversed on
+    // paper, but there is no product document to put stock back into.
+    const sale = await sellLine(waterId, 3);
+    await ProductModel.deleteOne({ _id: waterId });
+
+    const response = await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Rang up twice by mistake' })
+      .expect(200);
+
+    expect(response.body.warnings).toEqual([
+      'Mineral Water was deleted since this sale, so its stock could not be restored.',
+    ]);
+    // No movement is invented for stock that was never restored.
+    expect(response.body.movements).toEqual([]);
+
+    const order = await OrderModel.findById(sale.id);
+    expect(order?.status).toBe('voided');
+  });
+
+  it('warns when the stock mode changed after the sale', async () => {
+    const sale = await sellLine(waterId, 3);
+
+    await ProductModel.updateOne(
+      { _id: waterId },
+      { $set: { stockMode: 'recipe', recipe: [{ ingredientId: milkId, qty: 10 }] }, $unset: { stock: '' } },
+    );
+
+    const response = await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'Rang up twice by mistake' })
+      .expect(200);
+
+    expect(response.body.warnings).toEqual([
+      'Mineral Water changed stockMode since this sale, so its stock could not be restored.',
+    ]);
+    expect(response.body.movements).toEqual([]);
+  });
+});
+
+describe('the void filter on GET /api/orders', () => {
+  it('keeps voided receipts listable and filterable', async () => {
+    const latte = await ProductModel.findOne({
+      name: 'Classic Iced Caffe Latte',
+    });
+
+    const first = await kasir.agent
+      .post('/api/orders')
+      .send({
+        lines: [{ productId: String(latte!._id), qty: 1 }],
+        paymentMethod: 'qris',
+        paidAmount: 61600,
+      })
+      .expect(201);
+    await kasir.agent
+      .post('/api/orders')
+      .send({
+        lines: [{ productId: waterId, qty: 1 }],
+        paymentMethod: 'qris',
+        paidAmount: 16500,
+      })
+      .expect(201);
+
+    await admin.agent
+      .post(`/api/orders/${first.body.order.id}/void`)
+      .send({ reason: 'Wrong product' })
+      .expect(200);
+
+    const all = await kasir.agent.get('/api/orders').expect(200);
+    expect(all.body.total).toBe(2);
+    expect(all.body.data).toHaveLength(2);
+    const statuses = all.body.data
+      .map((o: { status: string }) => o.status)
+      .sort();
+    expect(statuses).toEqual(['paid', 'voided']);
+
+    const paid = await kasir.agent.get('/api/orders?status=paid').expect(200);
+    expect(paid.body.total).toBe(1);
+    expect(paid.body.data[0].paymentMethod).toBe('qris');
+    expect(paid.body.data[0].lines[0].name).toBe('Mineral Water');
+
+    const voided = await kasir.agent
+      .get('/api/orders?status=voided')
+      .expect(200);
+    expect(voided.body.data).toHaveLength(1);
+    expect(voided.body.data[0].receiptNo).toBe(first.body.order.receiptNo);
+
+    await kasir.agent.get('/api/orders?status=refunded').expect(422);
+  });
+});
+
+/**
+ * A growing day book is the reason the list endpoint pages at all: the screen
+ * loads one window at a time, and every row beyond `limit` is a decision the
+ * caller takes deliberately by asking for the next offset.
+ */
+describe('pagination on GET /api/orders', () => {
+  beforeEach(async () => {
+    for (let n = 0; n < 5; n += 1) {
+      await OrderModel.create({
+        receiptNo: `MOKA-71${n}0`,
+        lines: [
+          {
+            productId: waterId,
+            name: 'Mineral Water',
+            price: 5000,
+            qty: 1,
+            stockMode: 'direct',
+          },
+        ],
+        subtotal: 5000,
+        taxRate: 0.1,
+        taxAmount: 500,
+        total: 5500,
+        // Method variety so a method filter is provable in the same fixture.
+        paymentMethod: n % 2 === 0 ? 'cash' : 'qris',
+        paidAmount: 5500,
+        changeAmount: 0,
+        cashierId: kasir.user.id,
+        cashierName: 'Siti Rahayu',
+        createdAt: new Date(`2026-10-1${n + 1}T03:00:00Z`),
+      });
+    }
+  });
+
+  it('pages without losing count', async () => {
+    const page = await kasir.agent
+      .get('/api/orders?limit=2&offset=0')
+      .expect(200);
+
+    expect(page.body.total).toBe(5);
+    expect(page.body.limit).toBe(2);
+    expect(page.body.offset).toBe(0);
+    expect(page.body.data).toHaveLength(2);
+    // Newest first: the reply window is the top of the sorted ledger.
+    expect(page.body.data.map((o: { receiptNo: string }) => o.receiptNo)).toEqual([
+      'MOKA-7140',
+      'MOKA-7130',
+    ]);
+  });
+
+  it('walks to the end of the ledger', async () => {
+    const last = await kasir.agent
+      .get('/api/orders?limit=2&offset=4')
+      .expect(200);
+
+    expect(last.body.total).toBe(5);
+    expect(last.body.data).toHaveLength(1);
+    // The fifth and oldest row of the newest-first ordering.
+    expect(last.body.data[0].receiptNo).toBe('MOKA-7100');
+  });
+
+  it('counts the filtered set, not the page', async () => {
+    // Three of the five fixture rows are cash. Pagination has not happened;
+    // the filter has, and `total` has to say 3 whatever window is served.
+    const cash = await kasir.agent
+      .get('/api/orders?method=cash&limit=1&offset=2')
+      .expect(200);
+
+    expect(cash.body.total).toBe(3);
+    expect(cash.body.data).toHaveLength(1);
+    expect(cash.body.data[0].paymentMethod).toBe('cash');
+  });
+
+  it('searches how a customer quotes a sale back', async () => {
+    await OrderModel.create({
+      receiptNo: 'MOKA-7099',
+      lines: [
+        {
+          productId: waterId,
+          name: 'Mineral Water',
+          price: 5000,
+          qty: 1,
+          stockMode: 'direct',
+        },
+      ],
+      subtotal: 5000,
+      taxRate: 0.1,
+      taxAmount: 500,
+      total: 5500,
+      paymentMethod: 'debit',
+      paidAmount: 5500,
+      changeAmount: 0,
+      cashierId: kasir.user.id,
+      cashierName: 'Siti Rahayu',
+      customer: { name: 'Andi Wijaya', phone: '+62 812 7000 123' },
+      createdAt: new Date('2026-10-16T04:00:00Z'),
+    });
+
+    const byReceipt = await kasir.agent
+      .get('/api/orders?q=7099')
+      .expect(200);
+    expect(byReceipt.body.total).toBe(1);
+    expect(byReceipt.body.data[0].receiptNo).toBe('MOKA-7099');
+
+    const byName = await kasir.agent.get('/api/orders?q=andi').expect(200);
+    expect(byName.body.total).toBe(1);
+    expect(byName.body.data[0].customer?.name).toBe('Andi Wijaya');
+
+    // The customer said "zero seven", not "+62 812 7000 123"; either should hit.
+    const byPhone = await kasir.agent.get('/api/orders?q=812').expect(200);
+    expect(byPhone.body.total).toBe(1);
+  });
+
+  it('cannot be coerced past its bounds', async () => {
+    await kasir.agent.get('/api/orders?limit=101').expect(422);
+    await kasir.agent.get('/api/orders?limit=0').expect(422);
+    await kasir.agent.get('/api/orders?offset=-1').expect(422);
+    await kasir.agent.get('/api/orders?limit=abc').expect(422);
   });
 });

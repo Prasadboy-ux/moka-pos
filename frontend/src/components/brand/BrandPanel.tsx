@@ -2,15 +2,22 @@ import Image from "next/image";
 
 export function BrandPanel() {
   return (
-    <aside className="relative hidden overflow-hidden lg:flex lg:w-1/2 lg:flex-col lg:justify-between bg-linear-to-br from-brand-cyan via-brand-blue to-brand-navy p-12 text-white">
-      {/* Decorative blurred orbs */}
+    <aside className="brand-gradient-motion relative hidden overflow-hidden bg-linear-to-br from-brand-cyan via-brand-blue to-brand-navy p-12 text-white lg:flex lg:w-1/2 lg:flex-col lg:justify-between">
+      {/*
+        Decorative blurred orbs. They drift on independent, slow loops so the
+        panel breathes without ever pulling the eye away from the form.
+      */}
       <div
         aria-hidden
-        className="absolute -top-24 -right-24 size-96 rounded-full bg-white/15 blur-3xl"
+        className="animate-brand-float absolute -top-24 -right-24 size-96 rounded-full bg-white/15 blur-3xl"
       />
       <div
         aria-hidden
-        className="absolute -bottom-32 -left-16 size-80 rounded-full bg-[#009bb0]/40 blur-3xl"
+        className="animate-brand-float-alt absolute -bottom-32 -left-16 size-80 rounded-full bg-[#009bb0]/40 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="animate-brand-float absolute top-1/3 -left-24 size-64 rounded-full bg-brand-cyan/25 blur-3xl [animation-delay:-6s]"
       />
 
       <div className="relative flex items-center gap-3">

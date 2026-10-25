@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { MotionProvider } from "@/components/motion/MotionProvider";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -47,7 +48,9 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <ToastProvider>{children}</ToastProvider>
+        <MotionProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </MotionProvider>
       </body>
     </html>
   );

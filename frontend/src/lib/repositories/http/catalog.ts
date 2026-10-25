@@ -1,5 +1,6 @@
 import type { User } from "@/types/auth";
 import type { Category, Ingredient, Product } from "@/types/pos";
+import { adoptStoreTimezone } from "@/lib/repositories/report-math";
 import type {
   AppConfig,
   CategoryInput,
@@ -16,7 +17,16 @@ import type {
 import { ApiError, http, query, request } from "./client";
 
 export const configRepository: ConfigRepository = {
-  get: () => request<AppConfig>(() => http.get("/config")),
+  get: async () => {
+    const settings = await request<AppConfig>(() => http.get("/config"));
+
+    // The day keys the screens send as `from`/`to` are bucketed by the API in
+    // this zone, so adopt it here — the one call every config-reading flow
+    // already makes — instead of trusting the build-time env to match.
+    adoptStoreTimezone(settings.storeTimezone);
+
+    return settings;
+  },
 };
 
 export const categoryRepository: CategoryRepository = {

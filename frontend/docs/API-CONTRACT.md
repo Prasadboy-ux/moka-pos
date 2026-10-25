@@ -1,13 +1,13 @@
 # API Contract — what the frontend expects
 
-The frontend codes against eight repository interfaces in
-`src/lib/repositories/types.ts` — config plus seven data repositories. This
+The frontend codes against nine repository interfaces in
+`src/lib/repositories/types.ts` — config plus eight data repositories. This
 document is those interfaces expressed as HTTP, plus the rules the server must
 enforce so behaviour does not change when the swap happens.
 
 **This contract is implemented.** The API in
 [`../../backend`](../../backend/README.md) was built against this document, and
-`backend/test/contract.e2e.ts` asserts all 35 contract routes against it
+`backend/test/contract.e2e.ts` asserts all 38 contract routes against it
 **transcribed by hand** — so the test checks the contract rather than restating
 the code. `/api/health` is operational and deliberately outside that count. The
 frontend's `lib/repositories/index.ts` points at it, and the mock is retained
@@ -43,6 +43,8 @@ as a sentence with a next step where one exists — not "Invalid input".
 | `validation` | 422 | Body failed a rule. Include `fields` for per-field errors. |
 | `conflict` | 409 | Business rule refused it (see below) |
 | `insufficient-stock` | 409 | The sale cannot be covered by current stock |
+| `rate_limited` | 429 | Too many requests. See the rate-limit rules below. |
+| `internal` | 5xx | Unhandled failure. `message` stays a sentence; no stack escapes. |
 
 `409` carries a `reason` so the client can say something specific:
 
@@ -51,7 +53,33 @@ as a sentence with a next step where one exists — not "Invalid input".
 ```
 
 Reasons in use: `last-active-admin` · `category-in-use` · `already-open-shift` ·
-`already-closed-shift` · `no-open-shift` · `username-taken`.
+`already-closed-shift` · `no-open-shift` · `username-taken` ·
+`order-already-voided` · `idempotency-key-foreign`.
+
+### Rate limits
+
+Two limiters, both keyed by client IP and backed by the shared Mongo store, so
+restarts and multi-instance serverless deploys share one counter instead of one
+per cold start:
+
+- The **login limiter** bounds credential stuffing — the only attack a POS with
+  one public IP faces from outside. Tight window (`RATE_LIMIT_LOGIN_MAX`
+  attempts per 15 minutes), distinct message: "Too many sign-in attempts. Please
+  wait and try again."
+- The **API limiter** is a crash valve against a runaway client (a stuck polling
+  loop), not a quota: it wraps the whole `/api` surface with
+  `RATE_LIMIT_API_MAX` requests per minute, set far above what a shop of
+  tablets generates. Its message: "Too many requests. Please wait a moment and
+  try again."
+
+Both limiters are skipped when `NODE_ENV=test` unless
+`RATE_LIMIT_TEST_ENABLED=true`, so the e2e suites stay pace-independent. A
+refusal answers `429` in the same envelope shape with a `Retry-After` (seconds)
+header, and the draft-8 `RateLimit` header is sent on every response:
+
+```json
+{ "error": "rate_limited", "message": "Too many requests. Please wait a moment and try again." }
+```
 
 ### Security rules the server owns
 
@@ -145,6 +173,10 @@ order the POS grid and every filter use.
 `remove` must refuse with `409 category-in-use` while any product still
 references the category. The UI disables the button, but the server enforces it.
 
+`list` is silently capped at **500 rows** (`CATEGORY_LIST_CAP`). A menu should
+never approach that; the cap exists so naming drift cannot hand an unbounded
+array to the category pickers.
+
 ## 5. Ingredients
 
 `IngredientRepository`
@@ -169,6 +201,10 @@ unit has a ledger entry.
 `costPerUnit` is rupiah for **one** unit. This is the single easiest field to get
 wrong: a 250 g bag at Rp 95,000 is `380` per gram, not `0.095`. The previous
 mock had this wrong and every margin read as 100%.
+
+`list` is silently capped at **2000 rows** (`INGREDIENT_LIST_CAP`) — an
+inventory list, not a browse page. The picker UIs expect every ingredient, so
+the cap is a runaway guard, not pagination.
 
 ## 6. Products
 
@@ -198,6 +234,8 @@ ProductInput {
 ```
 
 Query defaults: `includeInactive` false — only active products unless asked.
+`list` is silently capped at **2000 rows** (`PRODUCT_LIST_CAP`) for the same
+reason as categories and ingredients: bounded by construction, no pagination.
 
 **The response is mode-specific.** A `direct` product always has numeric
 `stock` and `minStock`; a `recipe` product has neither property at all (not
@@ -250,10 +288,25 @@ it.
 
 | Method | Endpoint |
 |---|---|
-| `movements(filter)` | `GET /api/stock/movements?type&ingredientId&productId` |
+| `movements(filter)` | `GET /api/stock/movements?type&ingredientId&productId&limit&offset` |
 | `adjust(input)` | `POST /api/stock/adjust` → `201` |
 | `levelOf(target, id)` | `GET /api/stock/level?target=ingredient&targetId=i-milk` |
 | `value()` | `GET /api/stock/value` |
+
+The ledger is the one list that grows with every sale, so it pages rather than
+ships unbounded history. Newest first, answering:
+
+```jsonc
+{
+  "data": [StockMovement, ...],   // at most `limit` rows
+  "total": 1042,                   // rows matching the filter, not the page
+  "limit": 200,                    // default 200, hard max 1000
+  "offset": 0                      // depth; ≤ 10 000
+}
+```
+
+The screen shows the newest page and says so when `total > data.length`; a
+longer look-back goes through the type or ingredient/product filters.
 
 ```jsonc
 // POST /api/stock/adjust
@@ -261,7 +314,7 @@ it.
   "target": "ingredient" | "product",
   "targetId": "i-milk-fresh",
   "type": "purchase" | "waste" | "adjustment",   // never "sale"
-  "qty": 1000,                                     // signed
+  "qty": 1000,                                     // signed, whole number
   "note": "Delivery from supplier, invoice 2041"
 }
 // actor is taken from the session and ignored in the body
@@ -282,10 +335,12 @@ Server rules:
   `POST /api/orders`.
 - The sign must agree with the reason: `purchase` needs `qty > 0`, `waste` needs
   `qty < 0`, and `adjustment` is signed either way because a recount can be
-  wrong in either direction. Zero is rejected. A mismatch is `422 validation`
-  with `fields.qty`, and writes nothing.
+  wrong in either direction. Zero and non-integer quantities are rejected. A
+  mismatch is `422 validation` with `fields.qty`, and writes nothing.
 - A movement that would drive stock below zero → `422 validation`, with the
-  amount on hand in `message`. The stock screen relies on this message.
+  amount on hand in `message`. The stock screen relies on this message. The
+  level move itself is a conditional `$inc` ("on hand must cover this removal")
+  evaluated atomically, so it cannot clobber a concurrent sale's decrement.
 - `target: "product"` requires `stockMode: "direct"`. A recipe product has no
   stock of its own to adjust.
 - `label` should be denormalised onto the movement (the ingredient or product
@@ -326,6 +381,9 @@ Server rules:
   this the app can be left with no account that can reach user management.
 - **No delete endpoint.** Orders reference the cashier by id; deactivation is how
   someone leaves.
+
+`list` is silently capped at **1000 rows** (`USER_LIST_CAP`). Staff lists stay
+small; the cap only guards against an unbounded array.
 
 ## 9. Orders
 
@@ -411,10 +469,12 @@ sales. Apply `<= to 23:59:59.999` or translate to `< to+1day`.
 Both bounds are resolved in the **store's** timezone (`STORE_TIMEZONE`, returned
 as `storeTimezone` by `GET /api/config`), not the server's or browser's. In
 Asia/Jakarta, a sale at 23:30 local is 16:30 UTC the same day and must fall in
-that day's range. The frontend mirrors the zone with
-`NEXT_PUBLIC_STORE_TIMEZONE`; keep the two equal. The dashboard asks for today
-plus the previous six store days, and both day and month trend buckets use the
-same calendar.
+that day's range. The frontend adopts the zone this endpoint advertises for all
+of its own day-key math (`adoptStoreTimezone` in `report-math.ts`), with the
+build-time `NEXT_PUBLIC_STORE_TIMEZONE` as fallback only — so a change to the
+backend's zone keeps working without a frontend redeploy. The dashboard asks
+for today plus the previous six store days, and both day and month trend
+buckets use the same calendar.
 
 ### Idempotency
 
@@ -430,8 +490,75 @@ duplicate charge.
 - Concurrent retries of one key race on the unique key index; the loser returns
   the winner's receipt rather than charging twice.
 - Replaying does not decrement stock again.
+- A key is owned by the (shift, teller) combination that produced it: replaying
+  a key with a body that binds it to a different cashier or shift answers
+  `409 conflict` reason `idempotency-key-foreign` rather than handing over a
+  receipt that is not the caller's.
 
-## 10. Shifts
+### Voiding a receipt
+
+`POST /api/orders/:id/void` — admin only. The request must carry a `reason` of
+at least three characters (`422 validation` otherwise: a void is an audit act,
+not a rubber stamp). It answers `200` with `{ order, movements, warnings }`:
+the receipt is marked `voided`, its stock is restored with ledger rows of type
+`void` appended — all inside one transaction, the same "or not at all" rule the
+sale kept — and `warnings` carries anything the restore could not fully do, so
+the admin never finds out after digging through the response. A second void
+refuses with `409 conflict` reason `order-already-voided`. Voided receipts drop
+out of every revenue aggregate; the transactions screen remains the view of
+  what was reversed, which is why their ledger notes carry the reason.
+
+## 10. Reports
+
+`ReportsRepository`
+
+| Method | Endpoint |
+|---|---|
+| `sales(from, to, filter?)` | `GET /api/reports/sales?from&to[&method][&q]` |
+
+```jsonc
+// 200
+{
+  "from": "2026-10-01",          // echoed, inclusive store-calendar days
+  "to": "2026-10-23",
+  "kpi": {
+    "revenue": 4500000,           // gross; PPN included
+    "transactions": 84,
+    "averageOrderValue": 53571,
+    "itemsSold": 213,
+    "withCustomer": 9              // receipts carrying a customer phone
+  },
+  "paymentBreakdown": [{ "method": "cash", "count": 40, "total": 2100000 }],
+  "trend": {
+    "bucket": "day" | "month",    // months once the span passes ~31 days
+    "points": [{ "date": "2026-10-01", "revenue": 0, "transactions": 0 }]
+  },
+  "byCategory": [{ "categoryId": "coffee", "categoryName": "Coffee", "revenue": 1800000, "itemsSold": 90 }],
+  "topProducts": [{ "productId": "p-iced-latte", "name": "Iced Latte", "quantity": 15, "revenue": 512000 }],
+  "byCashier": [{ "cashierId": "u-2", "cashierName": "Siti Rahayu", "transactions": 27, "revenue": 1400000, "averageOrderValue": 51852, "itemsSold": 61 }]
+}
+```
+
+Server rules:
+
+- **`from` and `to` are required** — a report never quietly defaults to a
+  window. Long spans intentionally get "all time": the transactions screen asks
+  from an explicit named earliest day (`2000-01-01`) and the aggregate answers
+  month buckets for it.
+- **Only paid receipts count.** A void was never a sale; the transactions
+  screen is the audit view of reversals.
+- `method` narrows by payment method; `q` is the same customer-facing needle
+  the order list applies (receipt no., customer name; phone only when the
+  needle carries digits). The tiles must answer the same question the ledger
+  table under them lists, so both take the identical filter.
+- `kpi.withCustomer` counts paid receipts with a customer phone — the till
+  labels it "can be sent", since WhatsApp needs the phone.
+- Breakdown `revenue` values are **gross** (see the allocation rule above for
+  how client-side category/product splits stay equal to KPI revenue).
+- Both roles may read; no reads here are secret, and a kasir's own till shows
+  the day's takings already. Writes never happen through this route.
+
+## 11. Shifts
 
 `ShiftRepository` — a shift **gates selling**: `POST /api/orders` refuses with
 `409 no-open-shift` until the cashier has one open, and closing one reconciles
@@ -441,6 +568,9 @@ the drawer.
 |---|---|
 | `current(userId)` | `GET /api/shifts/current` |
 | `list(query)` | `GET /api/shifts?cashierId` |
+
+`list` is silently capped at **1000 rows** (`SHIFT_LIST_CAP`) — history for
+reporting, still without pagination.
 | `open(input)` | `POST /api/shifts` → `201` |
 | `close(id, counted)` | `POST /api/shifts/:id/close` |
 
@@ -472,7 +602,7 @@ later edit to history must not change yesterday's variance. The close response
 is the closed `Shift` including all three, so the UI can show the result without
 a second round-trip.
 
-## 11. Suggested MongoDB shape
+## 12. Suggested MongoDB shape
 
 ```
 users            { _id, name, username, passwordHash, role, isActive, createdAt }
@@ -515,7 +645,7 @@ Note there is **no inventory collection**. `Ingredient.stock` and direct-product
 `Product.stock` are current levels on their own documents; `stock_movements` is the
 history. The ledger is the audit trail, not the source of truth.
 
-## 12. What the frontend does not need from the server
+## 13. What the frontend does not need from the server
 
 Stated explicitly so nobody builds it:
 
@@ -523,24 +653,30 @@ Stated explicitly so nobody builds it:
   `lib/repositories/read-models.ts` and `types/pos.ts` from returned data. Only
   `StockRepository.value()` is a server call, because it multiplies levels by
   costs.
-- **Sorting, pagination, filtering UI** — currently client-side. When they move
-  server-side, that logic goes in the repository, not in the screens.
+- **Sorting, pagination, filtering UI** — mostly client-side. The one server-side
+  exception is the stock movement ledger: `GET /api/stock/movements` accepts
+  `limit`/`offset` and returns `{ data, total, limit, offset }` (section 7),
+  because that history is the only list that grows without bound. General
+  pagination stays client-side; when it moves server-side, that logic goes in
+  the repository, not in the screens.
 - **The dashboard and report aggregations** — the frontend already sums, trends,
   and splits. Moving them server-side is a performance option, not a requirement.
 - **Route-level guards** — the client keeps its own; the server just has to
   agree.
 
-## 13. Acceptance for the swap
+## 14. Acceptance for the swap
 
 The API was done when:
 
-1. A new implementation of the eight interfaces returns real data.
+1. A new implementation of the nine interfaces returns real data.
 2. `getRepositories()` points at it. **That is the only file changed.** — 27 lines
    in `index.ts`.
 3. `npm run smoke` passes unchanged.
 
 **All three met.** At the time of the swap, 182/182 checks passed against the
-live API; the current suite is 187/187.
+live API. The suite has grown since — every remediation added its own cases
+(rate limits, paged movements, transactional edits, atomic adjustments) and the
+README's "Verified after the latest edits" section carries the current count.
 
 Point 3 is the real test. It covers catalogue CRUD, stock adjustments and their
 refusals, the ledger, a full sale through to the receipt, report ranges and CSV,

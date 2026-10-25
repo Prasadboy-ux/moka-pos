@@ -115,6 +115,45 @@ worse than not moving:
 | Tile hover zoom | `motion-reduce:group-hover:scale-100` |
 | Tile press-down | `motion-safe:active:scale-[0.98]` only |
 
+Motion for React (`motion/react`) is the animation lib for anything CSS
+transitions cannot do — AnimatePresence, layout tweens, count-ups. It is
+configured once in `MotionProvider` with `reducedMotion="user"`, which also
+collapses every Motion animation under the same preference (element-level
+`useReducedMotion` guards handle the rest).
+
+**All timings come from `src/lib/motion.ts`.** Never write a bare duration
+in a component; tokens are what keep a tab switch in the till and a dialog in
+the reports as the same experience:
+
+| Token | Value | Used for |
+|---|---|---|
+| `DURATION.fast` | `0.16` | taps, toasts, overlay exits |
+| `DURATION.swap` | `0.18` | icon/panel swaps inside a control |
+| `DURATION.base` | `0.24` | entrances, dialogs, list rows |
+| `DURATION.page` | `0.34` | route changes, KPI count-ups |
+| `DURATION.flight` | `0.48` | add-to-cart tile→cart fly |
+| `EASE_OUT` | `[0.22, 1, 0.36, 1]` | tweened entrances |
+| `SPRING` / `SPRING_SOFT` | Motion springs | pills, indicator slides, badges |
+
+Variants (`fadeUp`, `pop`, `collapse`) and the named entrances live beside them;
+one shared `PageTransition`, one shared `StaggerGroup`.
+
+**One layout id per indicator.** The sidebar pill, the sliding tab underline, and
+any future "moving highlight" pattern use a single shared `layoutId` owned only
+by the active element, so Motion tweens between positions instead of mounting a
+fresh highlight (see the Sidebar and `ui/tabs.tsx`).
+
+**Overlays animate out.** Radix unmounts portals as soon as `open` flips, so the
+primitives hand ownership of `open` to an internal steward (`overlay-motion.tsx`,
+`useControlledOpen`) and gate the portal inside `AnimatePresence`. Stateful
+dialog bodies must mount *through* `DialogContent` — render the body as the
+content's children, not as a conditional element above it — so the exit
+animation reuses the last rendered content and every dialog opens with clean
+state. `ReceiptModal`, `CheckoutDialog`, and `VoidOrderDialog` are the reference
+examples. Two constraints that came from this: parents must not re-key a dialog
+per open (the key would unmount the shell mid-exit), and `useRef` beats effects
+for a close-guard that must survive body unmount.
+
 ## 5. Transitions
 
 Name the properties. `transition-all` also animates whatever a variant happens
@@ -148,22 +187,24 @@ dependency or a lockfile change.
 
 | Primitive | Notes |
 |---|---|
-| `alert`, `badge`, `button`, `card`, `dialog`, `input`, `label`, `progress`, `separator`, `scroll-area`, `tabs`, `toggle`, `toggle-group` | stock shadcn |
+| `alert`, `badge`, `button`, `card`, `input`, `label`, `progress`, `separator`, `scroll-area`, `toggle`, `toggle-group` | stock shadcn |
 | `table` | Plain markup — Radix has no table primitive |
-| `select`, `switch`, `dropdown-menu`, `alert-dialog` | Hand-authored on `radix-ui` |
+| `dialog`, `alert-dialog`, `dropdown-menu`, `select` | Hand-authored on `radix-ui` for Motion-driven open/close AnimationPresence exits |
+| `tabs` | Sliding `layoutId` indicator on the `line` variant via `ui/tabs.tsx` |
 | `avatar` | Users screen |
 | `skeleton` | `motion-reduce:animate-none` |
 | `textarea` | Notes fields |
-| `toast` | Single polite live region, no queueing |
+| `toast` | Single polite live region, no queueing; token-based slide |
 
 Shared app components:
 
 | Component | Purpose |
 |---|---|
-| `DataTable` | Sortable columns, client pagination, skeleton and empty states |
-| `FilterBar` | Search plus counted category chips |
+| `DataTable` | Sortable columns (animated chevron), client pagination, staggered row entrance, skeleton and empty states |
+| `FilterBar` | Search plus counted category chips with whileTap feedback |
 | `ConfirmDialog` | Awaits the action, toasts failures, stays open on failure |
 | `PageHeader` | Title, description, one primary action |
+| `motion/*` | `MotionProvider`, `PageTransition`, `StaggerGroup`, `AnimatedNumber`, `SuccessCheck`, `FlyToCart` — shared Motion choreography |
 
 ## 8. Print
 

@@ -7,6 +7,7 @@ import { router as categoriesRouter } from '../modules/categories/categories.rou
 import { router as ingredientsRouter } from '../modules/ingredients/ingredients.routes.js';
 import { router as ordersRouter } from '../modules/orders/orders.routes.js';
 import { router as productsRouter } from '../modules/products/products.routes.js';
+import { router as reportsRouter } from '../modules/reports/reports.routes.js';
 import { router as shiftsRouter } from '../modules/shifts/shifts.routes.js';
 import { router as stockRouter } from '../modules/stock/stock.routes.js';
 import { router as usersRouter } from '../modules/users/users.routes.js';
@@ -50,4 +51,5 @@ router.use(productsRouter);
 router.use(stockRouter);
 router.use(ordersRouter);
 router.use(usersRouter);
+router.use(reportsRouter);
 router.use(shiftsRouter);

@@ -1,15 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { MessageCircle, Printer } from "lucide-react";
+import { Ban, MessageCircle, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/toast";
 
 import { DataTable, type Column } from "@/components/data-table";
+import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
+import { VoidOrderDialog } from "@/components/transactions/VoidOrderDialog";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useQueryState } from "@/hooks/useQueryState";
@@ -18,6 +21,7 @@ import { getRepositories } from "@/lib/repositories";
 import { formatDate, formatDateTime, formatIDR, formatNumber } from "@/lib/format";
 import { whatsAppLink } from "@/lib/receipt";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/useAuthStore";
 import {
   PAYMENT_LABEL,
   type Order,
@@ -63,8 +67,52 @@ function rangeFor(preset: Exclude<Preset, "all">): { from: string; to: string } 
   }
 }
 
-async function loadOrders(query: { from?: string; to?: string }): Promise<Order[]> {
-  return getRepositories().orders.list(query);
+/**
+ * The explicit window the "All time" preset asks the aggregate over. A report
+ * never quietly defaults to a window, so one is named — the earliest date the
+ * modifier could plausibly have started trading. The aggregate month-buckets
+ * spans this long, so the reply stays a few dozen kilobytes, not thousands of
+ * day points.
+ */
+const ALL_TIME_FROM = "2000-01-01";
+
+/**
+ * One screen, two questions about the same window: the ledger page for the
+ * table and the paid-only aggregate for the tiles. Both read the same filters
+ * (method, search term), so what a tile lists is exactly what its tiles count.
+ *
+ * Reads config first: its reply adopts the zone the API buckets days in, which
+ * is the zone `rangeFor` computes `todayKey()` with — on a cold session the
+ * build-time default answers until config lands.
+ */
+async function loadScreen(filter: {
+  preset: Preset;
+  method?: PaymentMethod;
+  q?: string;
+}): Promise<{
+  table: { data: Order[]; total: number };
+  kpi: {
+    revenue: number;
+    transactions: number;
+    averageOrderValue: number;
+    withCustomer: number;
+  };
+}> {
+  const { config, orders, reports } = getRepositories();
+  await config.get();
+
+  const range: { from?: string; to?: string } =
+    filter.preset === "all" ? {} : rangeFor(filter.preset);
+
+  const [table, aggregate] = await Promise.all([
+    orders.list({ ...range, method: filter.method, q: filter.q }),
+    reports.sales(range.from ?? ALL_TIME_FROM, range.to ?? todayKey(), {
+      method: filter.method,
+      q: filter.q,
+    }),
+  ]);
+
+  return { table, kpi: aggregate.kpi };
 }
 
 export function TransactionsScreen() {
@@ -77,53 +125,50 @@ export function TransactionsScreen() {
     setQuery({ q: debouncedSearch.trim() || null });
   }, [debouncedSearch, setQuery]);
 
-  /**
-   * `range` is deliberately not written to the URL as two dates the way the
-   * reports screen does. A transaction list is a "show me the last sale" tool,
-   * and the presets are the only ways it is ever opened here, so the exact
-   * window does not need to survive a reload or be linked to.
-   */
   const preset = (query.range as Preset | undefined) ?? "7d";
   const method = (query.method as PaymentMethod | undefined) ?? null;
+  const term = (query.q ?? "").trim();
 
-  const range = preset === "all" ? {} : rangeFor(preset);
-  const { data: orders, error, isLoading } = useAsync(
-    () => loadOrders(range),
-    [preset],
+  /**
+   * The window is deliberately not written to the URL as two dates the way the
+   * reports screen does. A transaction list is a "show me the last sale" tool,
+   * and the presets are the only ways it is ever opened here, so the exact
+   * window does not need to survive a reload or be linked to. The loader
+   * computes it from the preset after adopting the store's zone, and the
+   * header labels below recompute it the same way for display only.
+   */
+
+  const { data, error, isLoading, reload } = useAsync(
+    () =>
+      loadScreen({
+        preset,
+        method: method ?? undefined,
+        q: term || undefined,
+      }),
+    [preset, method, term],
   );
 
+  const table = data?.table.data ?? [];
+  const kpi = data?.kpi ?? {
+    revenue: 0,
+    transactions: 0,
+    averageOrderValue: 0,
+    withCustomer: 0,
+  };
+
   const [reprint, setReprint] = React.useState<Order | null>(null);
+  const [voiding, setVoiding] = React.useState<Order | null>(null);
+  const { toast } = useToast();
+  const currentUser = useAuthStore((state) => state.session?.user ?? null);
+  // Reversing money is an admin decision; the API refuses a kasir regardless.
+  const canVoid = currentUser?.role === "admin";
 
-  const visible = React.useMemo(() => {
-    const term = (query.q ?? "").trim().toLowerCase();
-
-    return (orders ?? []).filter((order) => {
-      if (method && order.paymentMethod !== method) return false;
-      if (!term) return true;
-
-      // Receipt number is how a customer quotes a transaction back to a cashier,
-      // so it is searched alongside the name and number the sale was made under.
-      return (
-        order.receiptNo.toLowerCase().includes(term) ||
-        order.customer?.name.toLowerCase().includes(term) === true ||
-        order.customer?.phone.includes(term) === true
-      );
-    });
-  }, [orders, method, query.q]);
-
-  const summary = React.useMemo(() => {
-    const revenue = visible.reduce((sum, order) => sum + order.total, 0);
-
-    return {
-      revenue,
-      transactions: visible.length,
-      average:
-        visible.length > 0 ? Math.round(revenue / visible.length) : 0,
-      withCustomer: visible.filter((order) => order.customer).length,
-    };
-  }, [visible]);
-
-  const activePreset = (query.range as Preset | undefined) ?? "7d";
+  /**
+   * A voided receipt is history, not revenue. The aggregate the tiles read is
+   * paid-only by construction — the badge here counts the reversed receipts the
+   * table shows, so the two views keep telling one truth apart.
+   */
+  const voidedCount = table.filter((order) => order.status === "voided").length;
 
   const columns: Column<Order>[] = [
     {
@@ -133,13 +178,19 @@ export function TransactionsScreen() {
       sort: (order) => order.receiptNo,
       cell: (order) => (
         <div className="min-w-0">
-          <p className="font-medium tabular-nums">{order.receiptNo}</p>
-          {/*
-            The customer sits under the receipt number rather than in its own
-            column: on this screen the sale and who it was for are one fact, and
-            walk-in rows stay aligned when most of a page has no name to show.
-          */}
-          {order.customer ? (
+          <p
+            className={cn(
+              "font-medium tabular-nums",
+              order.status === "voided" && "text-muted-foreground line-through",
+            )}
+          >
+            {order.receiptNo}
+          </p>
+          {order.status === "voided" ? (
+            <p className="text-xs font-medium text-destructive" title={order.voidReason ?? ""}>
+              Voided{order.voidedByName ? ` · ${order.voidedByName}` : ""}
+            </p>
+          ) : order.customer ? (
             <p className="truncate text-xs text-muted-foreground">
               {order.customer.name}
             </p>
@@ -197,15 +248,23 @@ export function TransactionsScreen() {
       sortable: true,
       sort: (order) => order.total,
       cell: (order) => (
-        <span className="font-semibold">{formatIDR(order.total)}</span>
+        <span
+          className={cn(
+            "font-semibold",
+            order.status === "voided" && "text-muted-foreground line-through",
+          )}
+        >
+          {formatIDR(order.total)}
+        </span>
       ),
     },
     {
       key: "actions",
       header: "",
-      className: "w-44",
+      className: "w-52",
       cell: (order) => {
         const whatsapp = whatsAppLink(order);
+        const showVoid = canVoid && order.status === "paid";
 
         return (
           <div className="flex items-center gap-2">
@@ -230,11 +289,38 @@ export function TransactionsScreen() {
                 </a>
               </Button>
             ) : null}
+
+            {showVoid ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                aria-label={`Void receipt ${order.receiptNo}`}
+                onClick={() => setVoiding(order)}
+              >
+                <Ban className="size-4" aria-hidden />
+              </Button>
+            ) : null}
           </div>
         );
       },
     },
   ];
+
+  function handleVoided(order: Order, warnings: string[]) {
+    // Stock was restated by the void; the list is re-read rather than patched,
+    // so the table never disagrees with the ledger.
+    reload();
+    setVoiding(null);
+
+    if (warnings.length > 0) {
+      toast({
+        title: `${order.receiptNo} voided with a caveat`,
+        description: warnings[0],
+        variant: "destructive",
+      });
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -242,20 +328,22 @@ export function TransactionsScreen() {
         title="Transactions"
         description={
           preset === "all"
-            ? `${formatNumber(summary.transactions)} sales across all time`
+            ? `${formatNumber(kpi.transactions)} sales across all time`
             : `${formatDate(rangeFor(preset).from)} to ${formatDate(
                 rangeFor(preset).to,
-              )} · ${formatNumber(summary.transactions)} sales`
+              )} · ${formatNumber(kpi.transactions)} sales`
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4">
-        <div className="flex flex-wrap gap-2 pb-0.5">
+      <StaggerGroup className="space-y-5">
+        <StaggerItem>
+          <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4">
+            <div className="flex flex-wrap gap-2 pb-0.5">
           {PRESETS.map((option) => (
             <Button
               key={option.key}
               size="sm"
-              variant={activePreset === option.key ? "default" : "outline"}
+              variant={preset === option.key ? "default" : "outline"}
               onClick={() => setQuery({ range: option.key })}
             >
               {option.label}
@@ -283,6 +371,11 @@ export function TransactionsScreen() {
               {option.label}
             </button>
           ))}
+          {voidedCount > 0 ? (
+            <Badge variant="destructive" className="rounded-full self-center px-3.5 py-1.5">
+              {formatNumber(voidedCount)} voided
+            </Badge>
+          ) : null}
         </div>
 
         <div className="min-w-48 flex-1 space-y-2">
@@ -299,55 +392,77 @@ export function TransactionsScreen() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-        </div>
-      </div>
+            </div>
+          </div>
+        </StaggerItem>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryTile label="Revenue" value={formatIDR(summary.revenue)} />
-        <SummaryTile
-          label="Transactions"
-          value={formatNumber(summary.transactions)}
-        />
-        <SummaryTile
-          label="Average order"
-          value={formatIDR(summary.average)}
-        />
-        <SummaryTile
-          label="With customer details"
-          value={formatNumber(summary.withCustomer)}
-          hint="can be sent"
-        />
-      </div>
+        <StaggerItem>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryTile label="Revenue" value={formatIDR(kpi.revenue)} />
+            <SummaryTile
+              label="Transactions"
+              value={formatNumber(kpi.transactions)}
+            />
+            <SummaryTile
+              label="Average order"
+              value={formatIDR(kpi.averageOrderValue)}
+            />
+            <SummaryTile
+              label="With customer details"
+              value={formatNumber(kpi.withCustomer)}
+              hint="can be sent"
+            />
+          </div>
+        </StaggerItem>
 
-      {error ? (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-        >
-          {error}
-        </p>
-      ) : null}
+        {error ? (
+          <StaggerItem>
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            >
+              {error}
+            </p>
+          </StaggerItem>
+        ) : null}
 
-      <DataTable
-        columns={columns}
-        rows={visible}
-        rowKey={(order) => order.id}
-        isLoading={isLoading}
-        pageSize={12}
-        emptyTitle="No transactions found"
-        emptyDescription="Nothing matches these filters in this period."
-      />
+        <StaggerItem>
+          <DataTable
+            columns={columns}
+            rows={table}
+            rowKey={(order) => order.id}
+            isLoading={isLoading}
+            pageSize={12}
+            emptyTitle="No transactions found"
+            emptyDescription="Nothing matches these filters in this period."
+          />
+        </StaggerItem>
+      </StaggerGroup>
 
       {/*
         The same modal the till uses after a sale. Reopening it here is what makes
         a reprint the original document: the receipt is rendered from the stored
-        lines and totals, not recomputed from the current menu.
+        lines and totals, not recomputed from the current menu. It stays mounted
+        between receipts so closing animates out instead of blinking away.
       */}
       <ReceiptModal
         order={reprint}
         onOpenChange={(open) => {
           if (!open) setReprint(null);
         }}
+      />
+
+      {/*
+        No re-key needed: the dialog body mounts per open inside the animated
+        content slot, so each void starts with an empty reason field while the
+        shell survives the exit animation.
+      */}
+      <VoidOrderDialog
+        order={voiding}
+        onOpenChange={(open) => {
+          if (!open) setVoiding(null);
+        }}
+        onVoided={handleVoided}
       />
     </div>
   );

@@ -18,7 +18,7 @@ const stockMovementSchema = new Schema(
   {
     type: {
       type: String,
-      enum: ['sale', 'purchase', 'adjustment', 'waste'],
+      enum: ['sale', 'purchase', 'adjustment', 'waste', 'void'],
       required: true,
     },
     ingredientId: {
@@ -44,7 +44,11 @@ stockMovementSchema.index({ productId: 1 });
 
 export type StockMovement = {
   _id: unknown;
-  type: 'sale' | 'purchase' | 'adjustment' | 'waste';
+  /**
+   * `void` is written only by order voids: a positive qty restoring what a
+   * `sale` of the same receipt consumed. Manual `/stock/adjust` refuses it.
+   */
+  type: 'sale' | 'purchase' | 'adjustment' | 'waste' | 'void';
   ingredientId: unknown;
   productId: unknown;
   label: string;

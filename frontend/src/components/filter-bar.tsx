@@ -1,8 +1,10 @@
 "use client"
 
 import { Search, X } from "lucide-react"
+import { motion } from "motion/react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { SPRING } from "@/lib/motion"
 
 export interface FilterOption {
   value: string
@@ -82,11 +84,13 @@ export function FilterBar({
             const isActive = option.value === active
 
             return (
-              <button
+              <motion.button
                 key={option.value}
                 type="button"
                 onClick={() => onActiveChange(isActive ? null : option.value)}
                 aria-pressed={isActive}
+                whileTap={{ scale: 0.97 }}
+                transition={SPRING}
                 className={cn(
                   /* 40px min-height matches the POS chips: same control, same
                      floor, one behaviour on both sides of the app. */
@@ -102,7 +106,7 @@ export function FilterBar({
                     {option.count}
                   </span>
                 ) : null}
-              </button>
+              </motion.button>
             )
           })}
         </div>

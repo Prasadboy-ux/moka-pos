@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { fillLoginForm } from "./auth.mjs";
 
 /**
  * Guards on the interface-guideline pass.
@@ -70,8 +71,7 @@ try {
   const skip = page.locator('a[href="#main"]');
   check("skip link exists", (await skip.count()) === 1);
 
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 

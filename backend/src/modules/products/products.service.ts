@@ -14,6 +14,13 @@ import type {
   SetActiveInput,
 } from './products.schemas.js';
 
+/**
+ * The menu is a picker screen, not a ledger: the whole active grid ships to the
+ * POS. 2,000 tops any real catalogue while keeping the reply bounded no matter
+ * what has been imported into the database.
+ */
+const PRODUCT_LIST_CAP = 2000;
+
 export async function listProducts(query: ProductQuery) {
   const filter: Record<string, unknown> = {};
 
@@ -29,7 +36,10 @@ export async function listProducts(query: ProductQuery) {
     filter.name = { $regex: escapeRegExp(query.search), $options: 'i' };
   }
 
-  return ProductModel.find(filter).sort({ name: 1 }).collation(NAME_COLLATION);
+  return ProductModel.find(filter)
+    .sort({ name: 1 })
+    .collation(NAME_COLLATION)
+    .limit(PRODUCT_LIST_CAP);
 }
 
 export async function getProduct(id: string) {
@@ -52,23 +62,33 @@ export async function createProduct(input: ProductInput, actor: SessionUser) {
 }
 
 export async function updateProduct(id: string, input: ProductInput) {
-  const product = await ProductModel.findById(id);
-  if (!product) throw ApiError.notFound('That product no longer exists.');
+  /**
+   * Transaction, not because several documents are written, but because a
+   * stockMode switch writes to `stock` (recipe -> direct starts it at zero) or
+   * unsets it (direct -> recipe). A sale decrements the same field with `$inc`
+   * outside the transaction's read-modify-write, and without the lock the
+   * switch's `save()` could commit over the sale's decrement. Serialising them
+   * keeps one losing write out of the ledger instead of two racing ones.
+   */
+  return withTransaction(async (session) => {
+    const product = await ProductModel.findById(id).session(session);
+    if (!product) throw ApiError.notFound('That product no longer exists.');
 
-  await assertCategoryExists(input.categoryId);
-  await assertRecipeIngredientsExist(input);
+    await assertCategoryExists(input.categoryId);
+    await assertRecipeIngredientsExist(input);
 
-  // Editing a product never writes stock. The opening level was recorded as a
-  // ledger movement at creation; later counts belong to `/stock/adjust`, and
-  // letting this form overwrite the number would break that audit trail.
-  product.set(normaliseUpdate(input));
-  if (input.stockMode !== 'direct') {
-    product.set('stock', undefined);
-    product.set('minStock', undefined);
-  }
-  await product.save();
+    // Editing a product never sets a count. The opening level was recorded as a
+    // ledger movement at creation; later counts belong to `/stock/adjust`, and
+    // letting this form overwrite the number would break that audit trail.
+    product.set(normaliseUpdate(input));
+    if (input.stockMode !== 'direct') {
+      product.set('stock', undefined);
+      product.set('minStock', undefined);
+    }
+    await product.save({ session });
 
-  return product;
+    return product;
+  });
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   Banknote,
   Check,
@@ -25,6 +26,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
 import { newIdempotencyKey } from "@/lib/idempotency";
+import { DURATION, EASE_OUT, collapse, shakeX, SPRING } from "@/lib/motion";
 import { getRepositories } from "@/lib/repositories";
 import {
   PAYMENT_LABEL,
@@ -61,16 +63,20 @@ interface CheckoutDialogProps {
 }
 
 /**
- * The dialog shell stays mounted so the open state is controlled, but the body
- * only mounts while open. That gives each checkout a clean set of state without
- * resetting it from an effect, which would cause a cascading render.
+ * The dialog shell stays mounted so the open state is controlled, and the
+ * body mounts through the content slot the moment the dialog opens. That gives
+ * each checkout a fresh set of state — a new idempotency key, empty fields —
+ * without resetting it from an effect, while the shell keeps rendering until
+ * the exit animation finishes.
  */
 export function CheckoutDialog(props: CheckoutDialogProps) {
   const { open, onOpenChange } = props;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open ? <CheckoutBody {...props} /> : null}
+      <DialogContent className="sm:max-w-lg">
+        <CheckoutBody {...props} />
+      </DialogContent>
     </Dialog>
   );
 }
@@ -180,13 +186,31 @@ function CheckoutBody({
 
       onCompleted(order);
     } catch (cause) {
-      // Stock can run out between the grid and this click, and the repository
-      // is the only layer that knows the real levels.
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not save the order. Check the connection and retry.",
-      );
+      const failure = cause as {
+        message?: string;
+        reason?: string;
+      };
+
+      /**
+       * An admin can change a price while a cart is still open. The till
+       * recomputes the total from current menu prices, so the sale fails as
+       * "short" even though the cashier collected exactly what the dialog
+       * showed a minute ago. Naming that explanation next to the shortfall —
+       * copy from the API, which owns the sentence — spares the cashier from
+       * suspecting they miscounted the cash.
+       */
+      if (failure.message?.includes("short of the total")) {
+        setError(
+          `${failure.message} The menu has changed since this cart was opened, and the till charges today's prices. Start the order again so the amounts line up.`,
+        );
+      } else {
+        // Stock can run out between the grid and this click, and the
+        // repository is the only layer that knows the real levels.
+        setError(
+          failure.message ??
+            "Could not save the order. Check the connection and retry.",
+        );
+      }
       setPending(false);
 
       /**
@@ -201,7 +225,7 @@ function CheckoutBody({
   }
 
   return (
-    <DialogContent className="sm:max-w-lg">
+    <>
       <DialogHeader>
         <DialogTitle>Complete payment</DialogTitle>
         <DialogDescription>
@@ -235,83 +259,103 @@ function CheckoutBody({
       </Tabs>
 
       <div className="space-y-4">
-        {method === "cash" ? (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="cash-given">Cash received</Label>
-              {/*
-                No autoFocus here. This dialog opens on a tablet at the till,
-                and focusing the field raises the software keyboard over the
-                cart on the way to typing a cash amount — the opposite of what
-                a cashier wants at that moment.
-              */}
-              <Input
-                id="cash-given"
-                name="cash-received"
-                inputMode="numeric"
-                placeholder="e.g. 50000…"
-                autoComplete="off"
-                value={cashGiven}
-                onChange={(e) => setCashGiven(e.target.value)}
-                className="text-lg font-semibold tabular-nums"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {quickAmounts.map((amount) => (
-                <Button
-                  key={amount}
-                  type="button"
-                  variant="outline"
-                  /* h-11 rather than size="sm": quick tender is a one-tap
-                     substitute for typing an amount, so it needs a thumb-sized
-                     hit area. */
-                  className="h-11 tabular-nums"
-                  onClick={() => setCashGiven(String(amount))}
-                >
-                  {formatIDR(amount)}
-                </Button>
-              ))}
-            </div>
-
-            <div className="rounded-xl border bg-muted/40 p-4">
-              {/*
-                A polite live region: the cashier taps a quick-tender button and
-                needs the new "Still due" / "Change" figure announced without
-                stealing focus mid-sale.
-              */}
-              <div
-                aria-live="polite"
-                className="flex items-baseline justify-between"
-              >
-                <span className="text-sm text-muted-foreground">
-                  {shortfall > 0 ? "Still due" : "Change"}
-                </span>
-                <span
-                  className={cn(
-                    "text-xl font-bold tabular-nums",
-                    shortfall > 0 ? "text-destructive" : "text-primary",
-                  )}
-                >
-                  {shortfall > 0
-                    ? formatIDR(shortfall)
-                    : formatIDR(change)}
-                </span>
+        <AnimatePresence initial={false} mode="wait">
+          {method === "cash" ? (
+            <motion.div
+              key="cash"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: DURATION.swap, ease: EASE_OUT }}
+              className="space-y-3"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="cash-given">Cash received</Label>
+                {/*
+                  No autoFocus here. This dialog opens on a tablet at the till,
+                  and focusing the field raises the software keyboard over the
+                  cart on the way to typing a cash amount — the opposite of what
+                  a cashier wants at that moment.
+                */}
+                <Input
+                  id="cash-given"
+                  name="cash-received"
+                  inputMode="numeric"
+                  placeholder="e.g. 50000…"
+                  autoComplete="off"
+                  value={cashGiven}
+                  onChange={(e) => setCashGiven(e.target.value)}
+                  className="text-lg font-semibold tabular-nums"
+                />
               </div>
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-xl border bg-muted/40 p-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              {method === "qris"
-                ? "Scan the QRIS code on the customer terminal to complete this payment."
-                : `Insert the card and follow the terminal prompt for ${PAYMENT_LABEL[method]}.`}
-            </p>
-            <p className="mt-3 text-2xl font-bold tabular-nums">
-              {formatIDR(totals.total)}
-            </p>
-          </div>
-        )}
+
+              <div className="flex flex-wrap gap-2">
+                {quickAmounts.map((amount) => (
+                  <Button
+                    key={amount}
+                    type="button"
+                    variant="outline"
+                    /* h-11 rather than size="sm": quick tender is a one-tap
+                       substitute for typing an amount, so it needs a thumb-sized
+                       hit area. */
+                    className="h-11 tabular-nums"
+                    onClick={() => setCashGiven(String(amount))}
+                  >
+                    {formatIDR(amount)}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="rounded-xl border bg-muted/40 p-4">
+                {/*
+                  A polite live region: the cashier taps a quick-tender button and
+                  needs the new "Still due" / "Change" figure announced without
+                  stealing focus mid-sale.
+                */}
+                <div
+                  aria-live="polite"
+                  className="flex items-baseline justify-between"
+                >
+                  <span className="text-sm text-muted-foreground">
+                    {shortfall > 0 ? "Still due" : "Change"}
+                  </span>
+                  <motion.span
+                    key={shortfall > 0 ? `due-${shortfall}` : `change-${change}`}
+                    initial={{ scale: 1.08, opacity: 0.7 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={SPRING}
+                    className={cn(
+                      "inline-block text-xl font-bold tabular-nums",
+                      shortfall > 0 ? "text-destructive" : "text-primary",
+                    )}
+                  >
+                    {shortfall > 0
+                      ? formatIDR(shortfall)
+                      : formatIDR(change)}
+                  </motion.span>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="other"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: DURATION.swap, ease: EASE_OUT }}
+              className="rounded-xl border bg-muted/40 p-6 text-center"
+            >
+              <p className="text-sm text-muted-foreground">
+                {method === "qris"
+                  ? "Scan the QRIS code on the customer terminal to complete this payment."
+                  : `Insert the card and follow the terminal prompt for ${PAYMENT_LABEL[method]}.`}
+              </p>
+              <p className="mt-3 text-2xl font-bold tabular-nums">
+                {formatIDR(totals.total)}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <dl className="space-y-1.5 rounded-xl border p-4 text-sm">
           <div className="flex justify-between text-muted-foreground">
@@ -350,72 +394,101 @@ function CheckoutBody({
             </span>
           </button>
 
-          {withCustomer ? (
-            <div className="space-y-3 border-t px-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="customer-name">Name</Label>
-                <Input
-                  id="customer-name"
-                  name="customer-name"
-                  autoComplete="name"
-                  placeholder="e.g. Dewi Lestari"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                />
-              </div>
+          <AnimatePresence initial={false}>
+            {withCustomer ? (
+              <motion.div
+                key="customer-details"
+                variants={collapse}
+                initial="hidden"
+                animate="show"
+                className="overflow-hidden"
+              >
+                <div className="space-y-3 border-t px-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-name">Name</Label>
+                    <Input
+                      id="customer-name"
+                      name="customer-name"
+                      autoComplete="name"
+                      placeholder="e.g. Dewi Lestari"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="customer-phone">WhatsApp number</Label>
-                <Input
-                  id="customer-phone"
-                  name="customer-phone"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  placeholder="08xx xxxx xxxx"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  aria-invalid={phoneInvalid}
-                  aria-describedby={
-                    phoneInvalid
-                      ? "customer-phone-error"
-                      : phonePreview
-                        ? "customer-phone-hint"
-                        : undefined
-                  }
-                />
-                {phoneInvalid ? (
-                  <p id="customer-phone-error" className="text-xs text-destructive">
-                    That number is not a valid Indonesian mobile number. The sale
-                    will still go through without it.
-                  </p>
-                ) : phonePreview ? (
-                  <p id="customer-phone-hint" className="text-xs text-muted-foreground">
-                    The receipt will be addressed to {phonePreview}.
-                  </p>
-                ) : null}
-              </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-phone">WhatsApp number</Label>
+                    <Input
+                      id="customer-phone"
+                      name="customer-phone"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="08xx xxxx xxxx"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      aria-invalid={phoneInvalid}
+                      aria-describedby={
+                        phoneInvalid
+                          ? "customer-phone-error"
+                          : phonePreview
+                            ? "customer-phone-hint"
+                            : undefined
+                      }
+                    />
+                    {phoneInvalid ? (
+                      <p id="customer-phone-error" className="text-xs text-destructive">
+                        That number is not a valid Indonesian mobile number. The sale
+                        will still go through without it.
+                      </p>
+                    ) : phonePreview ? (
+                      <p id="customer-phone-hint" className="text-xs text-muted-foreground">
+                        The receipt will be addressed to {phonePreview}.
+                      </p>
+                    ) : null}
+                  </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="customer-email">Email</Label>
-                <Input
-                  id="customer-email"
-                  name="customer-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="Optional"
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                />
-              </div>
-            </div>
-          ) : null}
+                  <div className="space-y-2">
+                    <Label htmlFor="customer-email">Email</Label>
+                    <Input
+                      id="customer-email"
+                      name="customer-email"
+                      type="email"
+                      autoComplete="email"
+                      placeholder="Optional"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </div>
 
-        {error ? (
-          <Alert variant="destructive" className="border-destructive/40 bg-destructive/5">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {error ? (
+            <motion.div
+              key="checkout-error"
+              variants={collapse}
+              initial="hidden"
+              animate="show"
+              className="overflow-hidden"
+            >
+              <motion.div
+                initial={{ x: 0 }}
+                animate={{ x: shakeX }}
+                transition={{ duration: 0.32, ease: EASE_OUT }}
+              >
+                <Alert
+                  variant="destructive"
+                  className="border-destructive/40 bg-destructive/5"
+                >
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {method === "cash" && shortfall > 0 && !pending ? (
           <p id="checkout-submit-hint" className="text-xs text-muted-foreground">
@@ -441,19 +514,33 @@ function CheckoutBody({
               : undefined
           }
         >
-          {pending ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Saving…
-            </>
-          ) : (
-            <>
-              <Check className="size-4" aria-hidden />
-              Complete sale
-            </>
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            {pending ? (
+              <motion.span
+                key="pending"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                className="inline-flex items-center gap-2"
+              >
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Saving…
+              </motion.span>
+            ) : (
+              <motion.span
+                key="idle"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                className="inline-flex items-center gap-2"
+              >
+                <Check className="size-4" aria-hidden />
+                Complete sale
+              </motion.span>
+            )}
+          </AnimatePresence>
         </Button>
       </DialogFooter>
-    </DialogContent>
+    </>
   );
 }

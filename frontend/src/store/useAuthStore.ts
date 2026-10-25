@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { create } from "zustand";
-import { ApiError } from "@/lib/repositories/http/client";
+import { ApiError, onUnauthenticated } from "@/lib/repositories/http/client";
 import { sessionRepository } from "@/lib/repositories/http/commerce";
 import type { Session, User } from "@/types/auth";
 
@@ -34,6 +34,19 @@ interface AuthState {
  * cookie it actually authenticates with had long expired, and every request then
  * failed. The cookie is now the only session, so there is nothing to persist.
  */
+/**
+ * One listener for the whole app: when any API call comes back 401, the session
+ * is gone and every store consumer must agree. Clearing the local copy is all
+ * that is needed — the dashboard layout's guard already navigates a cleared
+ * session to the login screen, so no redirect is duplicated here.
+ *
+ * `clearSession` is *not* this: it also calls the server, and the server has
+ * just answered, so there is no session left to end.
+ */
+onUnauthenticated(() => {
+  useAuthStore.setState({ session: null });
+});
+
 export const useAuthStore = create<AuthState>()((set) => ({
   hydrated: false,
   markHydrated: () => set({ hydrated: true }),

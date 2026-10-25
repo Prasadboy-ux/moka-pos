@@ -21,7 +21,16 @@ import type {
  * out of step with the numbers.
  */
 
-export async function listMovements(filter: MovementFilter) {
+/** One read of the audit trail, shaped like the order ledger's page. */
+export type MovementPage = {
+  data: unknown[];
+  /** Total matching rows before pagination, for the caller's page arithmetic. */
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export async function listMovements(filter: MovementFilter): Promise<MovementPage> {
   const query: Record<string, unknown> = {};
 
   if (filter.type) query.type = filter.type;
@@ -29,8 +38,19 @@ export async function listMovements(filter: MovementFilter) {
     query.ingredientId = new Types.ObjectId(filter.ingredientId);
   if (filter.productId) query.productId = new Types.ObjectId(filter.productId);
 
+  const limit = filter.limit ?? 200;
+  const offset = filter.offset ?? 0;
+
   // Newest first, which is the order every screen reads them in.
-  return StockMovementModel.find(query).sort({ createdAt: -1, _id: -1 });
+  const [data, total] = await Promise.all([
+    StockMovementModel.find(query)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(offset)
+      .limit(limit),
+    StockMovementModel.countDocuments(query),
+  ]);
+
+  return { data, total, limit, offset };
 }
 
 /**
@@ -142,42 +162,55 @@ export async function recordOpeningStock(
  * A manual stock change: a delivery in, waste out, or a correction.
  *
  * Runs in a transaction because it writes two documents. The level move and the
- * ledger row that explains it are one fact, and a crash between them would
+ * ledger row that explain it are one fact, and a crash between them would
  * leave stock that no movement accounts for — which is exactly the drift the
  * ledger exists to prevent.
+ *
+ * The level move itself is a *conditional `$inc`*, not a read-then-save. A sale
+ * decrementing the same field with its own `$inc` between this request's read
+ * and write would be silently lost when the adjust writes back the stale read
+ * plus the delta. Filtering on the level instead makes "enough on hand" part
+ * of the one atomic update, and `$inc` composes with concurrent sales instead
+ * of racing them.
  *
  * `actor` comes from the session. Anything named in the request body is ignored.
  */
 export async function adjustStock(input: AdjustInput, actor: SessionUser) {
   return withTransaction(async (session) => {
     if (input.target === 'ingredient') {
-      const ingredient = await IngredientModel.findById(input.targetId).session(
-        session,
+      const updated = await IngredientModel.findOneAndUpdate(
+        {
+          _id: input.targetId,
+          // A negative adjustment may only drive the level to exactly zero.
+          ...(input.qty < 0 ? { stock: { $gte: -input.qty } } : {}),
+        },
+        { $inc: { stock: input.qty } },
+        { session, returnDocument: 'after' },
       );
-      if (!ingredient)
-        throw ApiError.notFound('That ingredient no longer exists.');
 
-      const onHand = ingredient.stock;
-      const next = onHand + input.qty;
-
-      if (next < 0) {
+      if (!updated) {
+        // Distinguish "gone" from "not enough": 404 and 422 read differently,
+        // and only a follow-up read (visible inside this transaction) can tell
+        // which guard the update failed.
+        const existing = await IngredientModel.findById(input.targetId).session(
+          session,
+        );
+        if (!existing)
+          throw ApiError.notFound('That ingredient no longer exists.');
         throw ApiError.validation(
-          `Cannot remove ${Math.abs(input.qty)} ${ingredient.unit}; only ${onHand} on hand.`,
-          { qty: `Only ${onHand} ${ingredient.unit} on hand.` },
+          `Cannot remove ${Math.abs(input.qty)} ${existing.unit}; only ${existing.stock} on hand.`,
+          { qty: `Only ${existing.stock} ${existing.unit} on hand.` },
         );
       }
 
-      ingredient.stock = next;
-      await ingredient.save({ session });
-
       const movement = new StockMovementModel({
         type: input.type,
-        ingredientId: ingredient._id,
+        ingredientId: updated._id,
         productId: null,
         // Denormalised so the ledger still reads correctly after a rename.
-        label: ingredient.name,
+        label: updated.name,
         qty: input.qty,
-        unit: ingredient.unit,
+        unit: updated.unit,
         note: input.note,
         byUserId: actor.id,
         byUserName: actor.name,
@@ -200,18 +233,40 @@ export async function adjustStock(input: AdjustInput, actor: SessionUser) {
       );
     }
 
-    const onHand = product.stock ?? 0;
-    const next = onHand + input.qty;
+    // `$inc` refuses to operate on a null level; a direct product freshly
+    // switched over from a recipe carries one. Inside this transaction the
+    // initialisation is read-your-writes, so the guarded update below
+    // evaluates against 0.
+    if (product.stock == null) {
+      await ProductModel.updateOne(
+        { _id: product._id },
+        { $set: { stock: 0 } },
+        { session },
+      );
+    }
 
-    if (next < 0) {
+    const updatedProduct = await ProductModel.findOneAndUpdate(
+      {
+        _id: product._id,
+        // The mode could not change inside this transaction (the catalogue
+        // update that switches it is itself transactional), but stating it
+        // keeps the update honest in isolation.
+        stockMode: 'direct',
+        ...(input.qty < 0 ? { stock: { $gte: -input.qty } } : {}),
+      },
+      { $inc: { stock: input.qty } },
+      { session, returnDocument: 'after' },
+    );
+
+    if (!updatedProduct) {
+      const onHand = product.stock ?? 0;
+      const gone = await ProductModel.findById(input.targetId).session(session);
+      if (!gone) throw ApiError.notFound('That product no longer exists.');
       throw ApiError.validation(
         `Cannot remove ${Math.abs(input.qty)} pcs; only ${onHand} on hand.`,
         { qty: `Only ${onHand} pcs on hand.` },
       );
     }
-
-    product.stock = next;
-    await product.save({ session });
 
     const movement = new StockMovementModel({
       type: input.type,

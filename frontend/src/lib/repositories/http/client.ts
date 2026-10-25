@@ -98,6 +98,42 @@ export class ApiError extends Error {
 }
 
 /**
+ * Broadcasts "the session is gone" once, so every listener reacts to one event
+ * instead of each screen inventing its own.
+ *
+ * A registry rather than a direct store import: the auth store imports this
+ * module transitively, so reaching back would close a require cycle.
+ */
+type UnauthenticatedHandler = () => void;
+
+const unauthenticatedHandlers = new Set<UnauthenticatedHandler>();
+
+export function onUnauthenticated(handler: UnauthenticatedHandler): () => void {
+  unauthenticatedHandlers.add(handler);
+  return () => unauthenticatedHandlers.delete(handler);
+}
+
+function notifyUnauthenticated(): void {
+  for (const handler of unauthenticatedHandlers) handler();
+}
+
+/**
+ * Requests whose 401s are expected answers, not "you have been signed out".
+ *
+ * A wrong password on the login screen is a 401 the user caused on purpose, and
+ * the logout 401 means "there was no session to end" — neither should clear the
+ * session state or bounce anyone anywhere.
+ */
+const AUTH_EXEMPT: readonly string[] = ["/auth/login", "/auth/logout"];
+
+function failedUrl(error: unknown): string | undefined {
+  if (axios.isAxiosError(error)) {
+    return (error as AxiosError).config?.url;
+  }
+  return undefined;
+}
+
+/**
  * Normalises anything thrown by axios into an `ApiError`.
  *
  * A network failure or a 502 from a proxy has no envelope at all, and would
@@ -158,7 +194,20 @@ export async function request<T>(
     const response = await run();
     return response.data;
   } catch (error) {
-    throw toApiError(error);
+    const apiError = toApiError(error);
+
+    // One 401 outside the expected login/logout answers means the cookie died
+    // mid-session. Everyone subscribed clears their copy at once, and the
+    // layout's own guard — seeing no user — does the actual navigation.
+    const url = failedUrl(error);
+    if (
+      apiError.status === 401 &&
+      !AUTH_EXEMPT.some((exempt) => url?.startsWith(exempt))
+    ) {
+      notifyUnauthenticated();
+    }
+
+    throw apiError;
   }
 }
 

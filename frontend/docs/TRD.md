@@ -11,7 +11,8 @@ built, so a change can be made without rediscovering the reasoning.
 | UI runtime | React | ^19.3.1 | Required by Next 16 |
 | Language | TypeScript | ^5.9.3 | `strict` **and** `noUncheckedIndexedAccess` |
 | Styling | Tailwind CSS, CSS-first | ^4.3.3 | `@theme inline` maps tokens to utilities; no `tailwind.config` |
-| Animation | `tw-animate-css` | ^1.4.0 | Entry/exit keyframes for Radix overlays |
+| Animation | `motion` (Motion for React) | ^14.6.0 | Shared tokens in `lib/motion.ts`; overlay enter/exit via `AnimatePresence`, layout tweens via `layoutId` |
+| Keyframes fallback | `tw-animate-css` | ^1.4.0 | Skeleton pulse and one-shot CSS cues only |
 | Components | shadcn/ui, `new-york` style | — | Source in `components/ui`, not a dependency |
 | Primitive lib | `radix-ui` (unified) | ^1.8.1 | Ships every primitive the app uses |
 | Icons | `lucide-react` | ^1.59.0 | Tree-shaken, one package |
@@ -183,15 +184,24 @@ why the rule was testable before the server existed.
 
 | Component | Role |
 |---|---|
-| `DataTable` | Sortable columns, client pagination, skeleton and empty states |
-| `FilterBar` | Search with counted category chips |
+| `DataTable` | Sortable columns (animated chevron), client pagination, staggered row entrance, skeleton and empty states |
+| `FilterBar` | Search with counted category chips and whileTap feedback |
 | `ConfirmDialog` | Awaits the action, toasts failures, keeps the dialog open on failure |
 | `PageHeader` | Title, description, one primary action |
 | `ui/toast` | One polite live region; the no-op fallback means a missing provider can never break a screen |
+| `motion/*` | `MotionProvider` (`reducedMotion="user"`), `PageTransition`, `StaggerGroup`, `AnimatedNumber` (now takes a `format`), `SuccessCheck`, `FlyToCart` |
+| `ui/overlay-motion` | `useControlledOpen` + open-context factory — the pattern every animated Radix overlay roots on |
 
 22 shadcn primitives in `components/ui`, hand-authored against the installed
 `radix-ui` rather than fetched by the CLI — no network, no lockfile churn.
 `DataTable` is plain markup because Radix has no table primitive.
+
+`dialog`, `alert-dialog`, `dropdown-menu`, and `select` own `open` through
+`overlay-motion.tsx` and host their portal in an `AnimatePresence`, so overlays
+animate out instead of disappearing. Stateful dialog bodies mount *through*
+`DialogContent` (as children, never as a sibling conditional) so the exit
+animation keeps the last content and each open starts fresh — see
+`CheckoutDialog`, `ReceiptModal`, and `VoidOrderDialog`.
 
 ## 7. Routing and permissions
 

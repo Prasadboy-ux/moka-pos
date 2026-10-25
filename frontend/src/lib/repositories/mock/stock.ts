@@ -29,6 +29,8 @@ function recordMovement(
   return entry;
 }
 
+export { recordMovement };
+
 /**
  * Opening level for a newly created direct product.
  *
@@ -138,9 +140,13 @@ export function applySale(
 export const stockRepository: StockRepository = {
   async movements(filter = {}) {
     await simulateLatency(160);
-    const { type, ingredientId, productId } = filter;
+    const { type, ingredientId, productId, limit = 200, offset = 0 } = filter;
 
-    return readDb()
+    /**
+     * The mock stores movements newest first (`unshift` on every write), so
+     * the slice itself is the page.
+     */
+    const matching = readDb()
       .movements.map(clone)
       .filter((movement) => {
         if (type && movement.type !== type) return false;
@@ -148,6 +154,13 @@ export const stockRepository: StockRepository = {
         if (productId && movement.productId !== productId) return false;
         return true;
       });
+
+    return {
+      data: matching.slice(offset, offset + limit),
+      total: matching.length,
+      limit,
+      offset,
+    };
   },
 
   async adjust(input) {

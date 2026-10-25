@@ -1,10 +1,23 @@
+"use client";
+
 import type { LucideIcon } from "lucide-react";
+import { motion } from "motion/react";
 import { Card, CardContent } from "@/components/ui/card";
+import { AnimatedNumber } from "@/components/motion/AnimatedNumber";
 import { cn } from "@/lib/utils";
+import { DURATION, EASE_OUT } from "@/lib/motion";
 
 interface StatCardProps {
   label: string;
+  /** The static figure; also the `title` fallback for the animated one. */
   value: string;
+  /**
+   * When set, the headline counts up to this number inside the card instead of
+   * rendering `value` statically.
+   */
+  countUp?: number;
+  /** Formatter for `countUp`; defaults to IDR. */
+  format?: (value: number) => string;
   hint?: string;
   icon: LucideIcon;
   tone?: "brand" | "accent" | "warn" | "neutral";
@@ -20,6 +33,8 @@ const TONE_RING: Record<NonNullable<StatCardProps["tone"]>, string> = {
 export function StatCard({
   label,
   value,
+  countUp,
+  format,
   hint,
   icon: Icon,
   tone = "neutral",
@@ -49,7 +64,9 @@ export function StatCard({
             className="mt-1 truncate text-2xl font-bold tracking-tight tabular-nums"
             title={value}
           >
-            {value}
+            {countUp === undefined ? value : (
+              <AnimatedNumber value={countUp} format={format} />
+            )}
           </p>
           {hint ? (
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>
@@ -98,8 +115,18 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({ icon: Icon, title, description }: EmptyStateProps) {
+  /**
+   * Fades up on mount rather than appearing at full strength: these render in
+   * place of lists that just emptied, and an unreasonable-looking instant swap
+   * reads like the screen forgot its data.
+   */
   return (
-    <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: DURATION.base, ease: EASE_OUT }}
+      className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center"
+    >
       <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
         <Icon className="size-5" aria-hidden />
       </div>
@@ -107,6 +134,6 @@ export function EmptyState({ icon: Icon, title, description }: EmptyStateProps) 
       <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
         {description}
       </p>
-    </div>
+    </motion.div>
   );
 }

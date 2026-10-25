@@ -1,6 +1,6 @@
 # Moka POS — remediation handoff
 
-Last updated: 2026-10-23
+_Last updated: 2026-10-25 (second remediation pass, verified)._
 
 This file is the continuation point for the audit remediation work. It records
 what changed, what has been verified, and what still has to be done. It is not a
@@ -17,25 +17,57 @@ replacement for the product docs in `frontend/docs/` or the backend docs in
 
 ## Current status
 
-### Verified after the latest edits (2026-10-23)
+### Verified after the remediation passes (2026-10-25)
 
 - `backend`: `npm run lint` — pass, no warnings.
 - `backend`: `npm run typecheck` — pass.
 - `backend`: `npm test` — 15/15 unit tests pass.
-- `backend`: `npm run test:e2e` — 224/224 pass across 10 files (~208 s).
-- `backend`: 239 tests total.
-- `frontend`: `npm test` — 18/18 pass across 2 files.
-- `frontend`: `npm run lint` — pass.
-- `frontend`: `npm run typecheck` — pass.
-- `frontend`: `npm run build` — pass, 10 routes generated (12 static pages).
+- `backend`: `npm run test:e2e` — 267/267 pass across 12 files (~222 s):
+  app, auth, catalogue, contract, models, orders, rate-limit, reports, seed,
+  serverless-entry, stock, users-shifts.
+- `backend`: 282 tests total (267 e2e + 15 unit).
+- `frontend`: `npm run typecheck` and `npm run lint` — pass.
+- `frontend`: `npm test` — 20/20 across 2 files (includes the two
+  timezone-adoption tests).
+- `frontend`: `npm run build` — pass, 10 routes + the global error page
+  (12 static pages).
 - `frontend`: `npm run smoke` — 187/187 across 7 suites, against an isolated
-  seeded MongoDB replica set and the production build.
-- CI now runs the frontend unit suite before Build.
+  seeded MongoDB replica set and the production build (last full smoke run in
+  the earlier pass; the unit suites above cover every file changed since).
+- CI runs the frontend unit suite before Build.
 
-### Baseline before this pass
+### Baseline before the passes
 
 Backend was 210 e2e + 15 unit = 225 tests. The frontend had no unit suite. Both
-are now superseded by the counts above.
+are superseded by the counts above.
+
+## Second remediation pass (2026-10-25)
+
+### Backend
+
+| Area | Change |
+|---|---|
+| Report filters | `GET /api/reports/sales` accepts `method` and `q`, applied by the service with the same needle rules as the order list (receipt no., customer name, phone only when the needle carries digits). Tile KPIs grew a `withCustomer` count; the cashier rows still omit it. |
+| Movement paging | `GET /api/stock/movements` answers `{ data, total, limit, offset }` — newest first, `limit` default 200 / max 1000, `offset` ≤ 10 000. |
+| List pickers public bounds | Pickers stay unpaged but take server caps so no list can ship unbounded history: users 1000, shifts 1000, products 2000, ingredients 2000, categories 500. |
+| Adjustment atomicity | `adjustStock`'s level move is now a conditional `$inc` (`stock >= -qty` for removals) instead of read-then-save, so it composes with concurrent sale decrements instead of clobbering them. Qty must be a whole number. |
+| Product edit transaction | `updateProduct` writes mode switches (which set/unset `stock`) inside a transaction, closing the race with a concurrent sale's `$inc`. `setProductActive` stays a plain single-field write. |
+| Rate-limit tests | `rate-limit.e2e` now dynamically imports `createApp` after pinning env, so the limiters are built with the test's configuration. 5/5. |
+| Contract | `rate_limited` is in the documented error-code set; the 429 protocol is asserted in `rate-limit.e2e`. |
+
+### Frontend
+
+| Area | Change |
+|---|---|
+| Dashboard aggregates | `getAdminDashboard` asks the server for two aggregates (last 7 days, today) and `orders.recent(8)` — no order-history scan. Config is fetched first so the day keys are computed in the bucketing zone. |
+| Transactions screen | The ledger and its tiles share one filtered question: both `orders.list` and `reports.sales` take the same `method`/`q`. "All time" requests a named earliest window (`2000-01-01`, month-bucketed by the aggregate), so tiles never probe the whole history without saying so. |
+| Stock screen | Movement type filter is server-side (`?type=`), refetching per switch; the default page is 200 with an explicit "newest N of M" notice when truncated. |
+| Product form | In edit mode the stock level is read-only and `stockMode` is locked — counts belong to the Stock screen and the ledger records them there. Create still accepts both. |
+| Timezone | Day keys are computed in `config.storeTimezone` from `GET /api/config` (adopted in the config repositories, IANA-shaped validation, build-time `NEXT_PUBLIC_STORE_TIMEZONE` stays the fallback). The env var no longer has to match the backend exactly; `rangeFor`/preset windows are computed after adoption in the dashboard, transactions, and reports loaders. |
+| Checkout stale menu | When the till refuses a payment as short and menu prices changed while the cart was open, the dialog names the cause and the remedy instead of blaming the cash count. |
+| Startup failure | New `src/app/global-error.tsx` renders a document-complete fallback when the root layout itself fails. |
+| Dead code | Removed unused `paymentBreakdown()` and `trend()` helpers from `report-math.ts` (`paymentRowsToBreakdown`/`bucketTrend` remain in use). |
+
 
 ## What changed in this remediation pass
 
@@ -176,8 +208,16 @@ npm run build
   has no session. The HTTP path still takes the actor from the session.
 - The reports code assumes integer rupiah totals. Revisit if fractional pricing
   is ever introduced.
-- `NEXT_PUBLIC_STORE_TIMEZONE` must match the backend's `STORE_TIMEZONE`; it is
-  public because the browser needs it to group report days.
+- `NEXT_PUBLIC_STORE_TIMEZONE` is now an advisory fallback: the frontend adopts
+  the zone the API advertises on `GET /api/config` for day-key math, so a
+  rebuild is no longer required when the backend's `STORE_TIMEZONE` changes.
+  Set it anyway so the pre-config window (one request) computes in the right
+  zone too.
+- `frontend/asset/` is intentionally kept: it is the labelled source artwork the
+  served `public/menu/` copies are stripped from (see `frontend/README.md`).
+- `next build` warns that the `middleware` file convention is deprecated in
+  Next 16 (use `proxy` instead). Cosmetic today; migrate with
+  `npx @next/codemod@canary middleware-to-proxy .` when convenient.
 
 ## Environment
 

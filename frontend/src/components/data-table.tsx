@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, SearchX, type LucideIcon } from "lucide-react"
+import { ArrowUp, ChevronLeft, ChevronRight, SearchX, type LucideIcon } from "lucide-react"
 import {
   Table,
   TableBody,
@@ -13,8 +13,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/dashboard/StatCard"
+import { DURATION, EASE_OUT } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import { formatNumber } from "@/lib/format"
+import { motion } from "motion/react"
 
 export interface Column<T> {
   key: string
@@ -169,15 +171,19 @@ export function DataTable<T>({
                         )}
                       >
                         {column.header}
-                        {isSorted ? (
-                          sortDirection === "asc" ? (
-                            <ArrowUp className="size-3" />
-                          ) : (
-                            <ArrowDown className="size-3" />
-                          )
-                        ) : (
-                          <span className="size-3" aria-hidden />
-                        )}
+                        {/*
+                          One ArrowUp that rotates for descending order — the
+                          sorted glyph between directions instead of a swap,
+                          so the change reads as a rotation of the same data.
+                        */}
+                        <motion.span
+                          aria-hidden
+                          animate={{ rotate: isSorted && sortDirection === "desc" ? 180 : 0 }}
+                          transition={{ duration: DURATION.swap, ease: EASE_OUT }}
+                          className="grid size-3 place-items-center"
+                        >
+                          <ArrowUp className="size-3" />
+                        </motion.span>
                       </button>
                     ) : (
                       column.header
@@ -189,22 +195,42 @@ export function DataTable<T>({
           </TableHeader>
 
           <TableBody>
-            {visible.map((row) => (
-              <TableRow
-                key={rowKey(row)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={cn(onRowClick && "cursor-pointer")}
-              >
-                {columns.map((column) => (
-                  <TableCell
-                    key={column.key}
-                    className={cn(column.numeric && "text-right tabular-nums")}
-                  >
-                    {column.cell(row)}
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
+            {visible.map((row, index) => {
+              /**
+               * The composite key remounts the page's rows when sorting or
+               * paging, so the entrance plays for those interactions too —
+               * without it, rows that survive a sort would never animate.
+               */
+              const repeatKey = `${rowKey(row)}@${safePage}:${sortKey ?? "none"}:${sortDirection}`
+
+              return (
+                <motion.tr
+                  key={repeatKey}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  data-slot="table-row"
+                  className={cn(
+                    "border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted",
+                    onRowClick && "cursor-pointer",
+                  )}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: DURATION.base,
+                    ease: EASE_OUT,
+                    delay: Math.min(index * 0.03, 0.21),
+                  }}
+                >
+                  {columns.map((column) => (
+                    <TableCell
+                      key={column.key}
+                      className={cn(column.numeric && "text-right tabular-nums")}
+                    >
+                      {column.cell(row)}
+                    </TableCell>
+                  ))}
+                </motion.tr>
+              );
+            })}
           </TableBody>
         </Table>
       </div>

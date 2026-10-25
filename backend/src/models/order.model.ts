@@ -59,6 +59,21 @@ const orderSchema = new Schema(
      */
     shiftId: { type: Schema.Types.ObjectId, ref: 'Shift', default: null },
     customer: { type: customerSchema, default: null },
+    /**
+     * A sale, or a sale reversed. `voided` receipts stay on the record — a
+     * mistake that disappeared without trace could never be audited — but every
+     * report, summary and cash reconciliation treats them as never sold.
+     */
+    status: {
+      type: String,
+      enum: ['paid', 'voided'],
+      default: 'paid',
+      required: true,
+    },
+    voidedAt: { type: Date, default: null },
+    /** Denormalised at void time so the receipt shows the reversal history even after users change. */
+    voidedByName: { type: String, default: null },
+    voidReason: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now, required: true },
   },
   { toJSON: toApiJson, collection: 'orders' },
@@ -71,6 +86,8 @@ orderSchema.index({ createdAt: -1 });
 orderSchema.index({ cashierId: 1 });
 // Closing a shift sums its cash sales by this.
 orderSchema.index({ shiftId: 1 });
+// Reports and lists exclude or filter voided receipts by this.
+orderSchema.index({ status: 1 });
 
 export type OrderLine = {
   productId: unknown;
@@ -85,6 +102,8 @@ export type OrderCustomer = {
   phone: string;
   email: string | null;
 };
+
+export type OrderStatus = 'paid' | 'voided';
 
 export type Order = {
   _id: unknown;
@@ -101,6 +120,10 @@ export type Order = {
   cashierName: string;
   shiftId: unknown;
   customer: OrderCustomer | null;
+  status: OrderStatus;
+  voidedAt: Date | null;
+  voidedByName: string | null;
+  voidReason: string;
   createdAt: Date;
 };
 

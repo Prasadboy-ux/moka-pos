@@ -1,11 +1,12 @@
 import { ApiError } from '../../lib/errors.js';
-import { verifyPassword } from '../../lib/password.js';
+import { hashPassword, verifyPassword } from '../../lib/password.js';
 import {
   type SessionUser,
   findByUsername,
   toSessionUser,
+  UserModel,
 } from '../../models/user.model.js';
-import type { LoginInput } from './auth.schemas.js';
+import type { ChangePasswordInput, LoginInput } from './auth.schemas.js';
 
 /**
  * Authenticates a staff account.
@@ -78,4 +79,50 @@ async function burnTime(): Promise<void> {
     'no-such-user-placeholder',
     'scrypt$AAAAAAAAAAAAAAAAAAAAAA==$AAAA',
   );
+}
+
+/**
+ * Lets signed-in users rotate their own password.
+ *
+ * The current password is verified first, because a session cookie is held open
+ * on shared desks — possessing it must not be enough to take over the account.
+ * The new password is then stored and the session cookie is left alone: it
+ * authenticates the *user*, and rotating the password does not rotate who the
+ * cookie belongs to.
+ *
+ * A reused password is refused. Users reuse old passwords reflexively, and the
+ * whole point of the current-password check is that the account's past
+ * passwords are not equivalent credentials.
+ */
+export async function changePassword(
+  userId: string,
+  input: ChangePasswordInput,
+): Promise<void> {
+  const user = await UserModel.findById(userId).select('+passwordHash');
+
+  if (!user || !user.isActive) {
+    throw ApiError.unauthenticated(
+      'Your session is no longer valid. Please sign in again.',
+    );
+  }
+
+  const matches = await verifyPassword(
+    input.currentPassword,
+    user.passwordHash,
+  );
+
+  if (!matches) {
+    throw ApiError.validation('That is not your current password.', {
+      currentPassword: 'That is not your current password.',
+    });
+  }
+
+  if (input.newPassword === input.currentPassword) {
+    throw ApiError.validation('The new password must be different from the current one.', {
+      newPassword: 'The new password must be different from the current one.',
+    });
+  }
+
+  user.passwordHash = await hashPassword(input.newPassword);
+  await user.save();
 }

@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Banknote, RotateCcw } from "lucide-react";
+import { FlyToCart } from "@/components/motion/FlyToCart";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
 import { CheckoutDialog } from "@/components/pos/CheckoutDialog";
@@ -12,8 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useFlyToCart } from "@/hooks/useFlyToCart";
 import { useQueryState } from "@/hooks/useQueryState";
 import { formatDateTime, formatIDR } from "@/lib/format";
+import { DURATION, EASE_OUT } from "@/lib/motion";
 import { getRepositories } from "@/lib/repositories";
 import {
   cartLimit,
@@ -46,6 +50,9 @@ async function loadMenu() {
 
 export function PosScreen() {
   const user = useAuthStore((state) => state.session?.user ?? null);
+  const reduceMotion = useReducedMotion();
+  const cartDropRef = useRef<HTMLDivElement>(null);
+  const { flight, launch, clear: clearFlight } = useFlyToCart();
 
   const menu = useAsync(loadMenu);
 
@@ -55,10 +62,17 @@ export function PosScreen() {
    * a normal result, not a missing payload — and `useAsync` would otherwise
    * read a settled null as still-loading forever.
    *
-   * `userId` is ignored by the repository: the server reads the session.
+   * The session user's id is read straight from the store: the HTTP repository
+   * ignores it (the server resolves the session), while the mock has no session
+   * concept and genuinely needs the id to find the right open shift. Read at
+   * call time, not render time, so a late hydration cannot strand a "".
    */
   const shiftState = useAsync(
-    async () => ({ shift: await getRepositories().shifts.current("") }),
+    async () => ({
+      shift: await getRepositories().shifts.current(
+        useAuthStore.getState().session?.user?.id ?? "",
+      ),
+    }),
     [],
   );
   const shift = shiftState.data?.shift ?? null;
@@ -144,8 +158,16 @@ export function PosScreen() {
     return map;
   }, [lines, products, stockContext]);
 
-  function handleAdd(product: Product) {
+  function handleAdd(product: Product, origin: DOMRect) {
     add(product, 1, limits.get(product.id) ?? null);
+
+    if (reduceMotion) return;
+
+    const drop = cartDropRef.current?.getBoundingClientRect();
+    if (!drop) return;
+    if (drop.top > window.innerHeight || drop.bottom < 0) return;
+
+    launch(product.image, origin, drop);
   }
 
   function handleSetQty(productId: string, qty: number) {
@@ -221,7 +243,12 @@ export function PosScreen() {
   if (!shift) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: DURATION.page, ease: EASE_OUT }}
+          className="w-full max-w-md space-y-4 rounded-xl border bg-card p-8 text-center"
+        >
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-muted">
             <Banknote className="size-6 text-muted-foreground" aria-hidden />
           </div>
@@ -233,7 +260,7 @@ export function PosScreen() {
           <Button type="button" onClick={() => setOpenShiftOpen(true)}>
             Open shift
           </Button>
-        </div>
+        </motion.div>
 
         <OpenShiftDialog
           open={openShiftOpen}
@@ -292,7 +319,10 @@ export function PosScreen() {
           qtyOf={qtyOf}
         />
 
-        <div className="h-fit rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)]">
+        <div
+          ref={cartDropRef}
+          className="h-fit rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)]"
+        >
           <CartPanel
             lines={lines}
             limits={limits}
@@ -340,6 +370,8 @@ export function PosScreen() {
           if (!open) setReceipt(null);
         }}
       />
+
+      <FlyToCart flight={flight} onComplete={clearFlight} />
     </div>
   );
 }

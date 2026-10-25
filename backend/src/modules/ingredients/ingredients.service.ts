@@ -6,9 +6,17 @@ import type { IngredientInput } from './ingredients.schemas.js';
 /**
  * Ingredients are listed alphabetically because this is a picker, not a ledger
  * — staff are looking for one item by name, not reading a sequence.
+ *
+ * Capped for the same reason the menu is: the reply has to stay bounded no
+ * matter what a runaway bulk import puts in the database.
  */
+const INGREDIENT_LIST_CAP = 2000;
+
 export async function listIngredients() {
-  return IngredientModel.find().sort({ name: 1 }).collation(NAME_COLLATION);
+  return IngredientModel.find()
+    .sort({ name: 1 })
+    .collation(NAME_COLLATION)
+    .limit(INGREDIENT_LIST_CAP);
 }
 
 export async function getIngredient(id: string) {

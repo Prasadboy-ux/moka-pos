@@ -2,27 +2,58 @@
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
+import { motion, AnimatePresence } from "motion/react"
 import { buttonVariants } from "@/components/ui/button"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
+import { DURATION, EASE_OUT } from "@/lib/motion"
+
+import {
+  createOverlayOpenContext,
+  useControlledOpen,
+} from "@/components/ui/overlay-motion"
+
+const { Context: AlertDialogOpenContext, useOverlayOpen } =
+  createOverlayOpenContext()
 
 function AlertDialog({
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  const [open, setOpen] = useControlledOpen(openProp, onOpenChangeProp)
+
+  return (
+    <AlertDialogOpenContext.Provider value={{ open }}>
+      <AlertDialogPrimitive.Root
+        data-slot="alert-dialog"
+        open={open}
+        onOpenChange={setOpen}
+        {...props}
+      />
+    </AlertDialogOpenContext.Provider>
+  )
 }
 
 function AlertDialogTrigger({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
   return (
-    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
+    <AlertDialogPrimitive.Trigger
+      data-slot="alert-dialog-trigger"
+      {...props}
+    />
   )
 }
 
 function AlertDialogPortal({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
-  return <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
+  return (
+    <AlertDialogPrimitive.Portal
+      data-slot="alert-dialog-portal"
+      {...props}
+    />
+  )
 }
 
 function AlertDialogOverlay({
@@ -32,12 +63,25 @@ function AlertDialogOverlay({
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
-      className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
-        className
-      )}
+      className={cn("fixed inset-0 z-50 bg-black/50", className)}
       {...props}
     />
+  )
+}
+
+function AlertDialogOverlayMotion() {
+  return (
+    <AlertDialogOverlay asChild>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{
+          opacity: 0,
+          transition: { duration: DURATION.fast, ease: EASE_OUT },
+        }}
+        transition={{ duration: DURATION.base, ease: EASE_OUT }}
+      />
+    </AlertDialogOverlay>
   )
 }
 
@@ -45,18 +89,40 @@ function AlertDialogContent({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+  const open = useOverlayOpen()
+
   return (
-    <AlertDialogPortal>
-      <AlertDialogOverlay />
-      <AlertDialogPrimitive.Content
-        data-slot="alert-dialog-content"
-        className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
-          className
-        )}
-        {...props}
-      />
-    </AlertDialogPortal>
+    <AnimatePresence>
+      {open ? (
+        <AlertDialogPortal data-slot="alert-dialog-portal" forceMount>
+          <AlertDialogOverlayMotion />
+
+          <AlertDialogPrimitive.Content
+            data-slot="alert-dialog-content"
+            className={cn(
+              "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-lg border bg-background shadow-lg outline-none sm:max-w-lg",
+              className
+            )}
+            {...props}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{
+                opacity: 0,
+                y: 4,
+                scale: 0.97,
+                transition: { duration: DURATION.fast, ease: EASE_OUT },
+              }}
+              transition={{ duration: DURATION.base, ease: EASE_OUT }}
+              className="grid gap-4 p-6"
+            >
+              {props.children}
+            </motion.div>
+          </AlertDialogPrimitive.Content>
+        </AlertDialogPortal>
+      ) : null}
+    </AnimatePresence>
   )
 }
 

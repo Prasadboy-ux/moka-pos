@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Header } from "@/components/layout/Header";
+import { MobileSidebar } from "@/components/layout/MobileSidebar";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { MobileNav } from "@/components/layout/MobileNav";
+import { PageTransition } from "@/components/motion/PageTransition";
 import { Skeleton } from "@/components/ui/skeleton";
 import { canAccess, homeForPathname } from "@/lib/access";
 import { useAuthHydrated, useAuthStore } from "@/store/useAuthStore";
@@ -17,6 +18,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const hydrated = useAuthHydrated();
   const user = useAuthStore((state) => state.session?.user ?? null);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const allowed = hydrated && user ? canAccess(user.role, pathname) : false;
 
@@ -78,20 +80,23 @@ export default function DashboardLayout({
     <div className="flex min-h-screen flex-col md:flex-row">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
+        <Header onOpenNav={() => setMobileNavOpen(true)} />
         {/**
          * `id` matches the skip link in the root layout. The extra bottom padding
-         * keeps content clear of the mobile tab bar, which sits above the home
-         * indicator on a notched tablet.
+         * keeps content clear of the mobile home indicator on a notched tablet.
          */}
         <main
           id="main"
-          className="flex-1 overflow-x-hidden p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-6"
+          className="flex-1 overflow-x-hidden p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
         >
-          {children}
+          <PageTransition>{children}</PageTransition>
         </main>
-        <MobileNav />
       </div>
+
+      <MobileSidebar
+        open={mobileNavOpen}
+        onOpenChange={setMobileNavOpen}
+      />
     </div>
   );
 }

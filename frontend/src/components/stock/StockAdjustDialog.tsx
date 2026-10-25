@@ -42,7 +42,7 @@ import type { Ingredient, MovementType, Product } from "@/types/pos";
  * direction.
  */
 
-type Reason = Exclude<MovementType, "sale">;
+type Reason = Exclude<MovementType, "sale" | "void">;
 
 const REASONS: Array<{
   value: Reason;
@@ -93,7 +93,16 @@ export function StockAdjustDialog({
 }: StockAdjustDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open && target ? <AdjustBody target={target} onOpenChange={onOpenChange} onDone={onDone} /> : null}
+      {/**
+       * The body mounts through the content slot while the dialog is open, so
+       * the exit animation can run on the last-rendered content even after
+       * `open` goes false; each adjustment starts with clean form state.
+       */}
+      <DialogContent className="sm:max-w-md">
+        {target ? (
+          <AdjustBody target={target} onOpenChange={onOpenChange} onDone={onDone} />
+        ) : null}
+      </DialogContent>
     </Dialog>
   );
 }
@@ -197,7 +206,7 @@ function AdjustBody({
   }
 
   return (
-    <DialogContent className="sm:max-w-md">
+    <>
       <DialogHeader>
         <DialogTitle>Adjust stock</DialogTitle>
         <DialogDescription>
@@ -309,7 +318,7 @@ function AdjustBody({
           </Button>
         </DialogFooter>
       </form>
-    </DialogContent>
+    </>
   );
 }
 

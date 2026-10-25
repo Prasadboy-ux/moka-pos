@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { fillLoginForm } from "./auth.mjs";
 
 const BASE = "http://localhost:3000";
 const API = "http://localhost:3001";
@@ -79,8 +80,7 @@ page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`
 
 try {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 
@@ -169,7 +169,6 @@ try {
   // clearing the whole thing would wipe accounts and stock created earlier.
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /kasir \/ kasir123/ }).click().catch(() => {});
   await page.locator("#username").fill("dewi");
   await page.locator("#password").fill("dewi123");
   await page.getByRole("button", { name: /Sign in as/i }).click();
@@ -184,8 +183,7 @@ try {
   // clearing the whole thing would wipe accounts and stock created earlier.
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 
@@ -216,8 +214,7 @@ try {
   // clearing the whole thing would wipe accounts and stock created earlier.
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: /admin \/ admin123/ }).click();
-  await page.locator("#password").fill("admin123");
+  await fillLoginForm(page, "admin");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard", { timeout: 15000 });
 

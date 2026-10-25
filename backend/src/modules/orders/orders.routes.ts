@@ -1,24 +1,28 @@
 import { Router, type Request, type Response } from 'express';
 import { idParam } from '../../lib/schemas.js';
-import { parsed, validate } from '../../lib/validate.js';
-import { requireSession, sessionUser } from '../../middleware/session.js';
+import { parsed, routeId, validate } from '../../lib/validate.js';
+import { requireRole, requireSession, sessionUser } from '../../middleware/session.js';
 import {
   createOrderInput,
   orderQuery,
   recentQuery,
+  voidOrderInput,
   type CreateOrderInput,
   type OrderQuery,
+  type VoidOrderInput,
 } from './orders.schemas.js';
 import {
   createOrder,
   getOrder,
   listOrders,
   recentOrders,
+  voidOrder,
 } from './orders.service.js';
 
 /**
  * Sales and receipts. Open to both roles — cashiers take orders and reprint
- * receipts, which is exactly what the frontend's nav allows.
+ * receipts, which is exactly what the frontend's nav allows. Reversing a sale
+ * changes money already taken, so the void endpoint is admin-only.
  */
 export const router: Router = Router();
 
@@ -41,6 +45,13 @@ router.post(
 );
 router.get('/orders', requireSession, validate({ query: orderQuery }), list);
 router.get('/orders/:id', requireSession, validate({ params: idParam }), get);
+router.post(
+  '/orders/:id/void',
+  requireSession,
+  requireRole('admin'),
+  validate({ params: idParam, body: voidOrderInput }),
+  voidRoute,
+);
 
 async function list(req: Request, res: Response): Promise<void> {
   res
@@ -49,12 +60,24 @@ async function list(req: Request, res: Response): Promise<void> {
 }
 
 async function get(req: Request, res: Response): Promise<void> {
-  res.status(200).json(await getOrder(routeIdOf(req)));
+  res.status(200).json(await getOrder(routeId(req)));
 }
 
 async function recent(req: Request, res: Response): Promise<void> {
   const { limit } = parsed<unknown, { limit: number }>(req).query;
   res.status(200).json(await recentOrders(limit));
+}
+
+async function voidRoute(req: Request, res: Response): Promise<void> {
+  const { reason } = parsed<VoidOrderInput>(req).body;
+  const result = await voidOrder(routeId(req), reason, sessionUser(req));
+
+  // Warnings ride along with the receipt: some stock may have been impossible
+  // to restore, and the admin should not have to dig for the response body to
+  // learn that. A warning is not an error — the reversal itself succeeded.
+  res
+    .status(200)
+    .json({ order: result.order, movements: result.movements, warnings: result.warnings });
 }
 
 async function create(req: Request, res: Response): Promise<void> {
@@ -72,10 +95,6 @@ async function create(req: Request, res: Response): Promise<void> {
     .status(result.replayed ? 200 : 201)
     .set('Idempotent-Replay', result.replayed ? 'true' : 'false')
     .json({ order: result.order, movements: result.movements });
-}
-
-function routeIdOf(req: Request): string {
-  return parsed<unknown, unknown, { id: string }>(req).params.id;
 }
 
 function header(req: Request, name: string): string | undefined {

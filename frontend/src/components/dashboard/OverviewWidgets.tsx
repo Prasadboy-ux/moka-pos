@@ -45,11 +45,19 @@ export function RecentOrdersTable({ orders }: { orders: Order[] }) {
         <tbody>
           {orders.map((order) => {
             const itemCount = order.lines.reduce((n, l) => n + l.qty, 0);
+            const voided = order.status === "voided";
 
             return (
               <tr key={order.id} className="border-b last:border-0 hover:bg-muted/40">
                 <td className="px-5 py-3 font-mono text-xs whitespace-nowrap">
-                  {order.receiptNo}
+                  <span className="inline-flex items-center gap-2">
+                    {order.receiptNo}
+                    {voided ? (
+                      <Badge variant="destructive" className="text-[10px]">
+                        Voided
+                      </Badge>
+                    ) : null}
+                  </span>
                 </td>
                 <td className="px-3 py-3 text-xs whitespace-nowrap text-muted-foreground">
                   {formatDateTime(order.createdAt)}
@@ -60,7 +68,13 @@ export function RecentOrdersTable({ orders }: { orders: Order[] }) {
                 <td className="px-3 py-3 text-right text-xs tabular-nums whitespace-nowrap text-muted-foreground">
                   {formatNumber(itemCount)}
                 </td>
-                <td className="px-5 py-3 text-right font-semibold whitespace-nowrap tabular-nums">
+                <td
+                  className={
+                    voided
+                      ? "px-5 py-3 text-right font-semibold whitespace-nowrap tabular-nums text-muted-foreground line-through"
+                      : "px-5 py-3 text-right font-semibold whitespace-nowrap tabular-nums"
+                  }
+                >
                   {formatIDR(order.total)}
                 </td>
               </tr>

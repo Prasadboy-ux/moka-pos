@@ -116,6 +116,13 @@ export function normalisePhone(raw: string): string | null {
   return null;
 }
 
+/**
+ * A sale, or a sale that was reversed. A voided receipt stays on the record for
+ * audit — with who voided it and why — but every report, summary and cash
+ * reconciliation treats it as never sold.
+ */
+export type OrderStatus = "paid" | "voided";
+
 export interface Order {
   id: string;
   /** Human-friendly receipt number, e.g. "MOKA-1042". */
@@ -135,10 +142,15 @@ export interface Order {
   shiftId?: string | null;
   /** Null for a walk-in sale. */
   customer: OrderCustomer | null;
+  status: OrderStatus;
+  voidedAt?: string | null;
+  /** Denormalised at void time. Null while the order is paid. */
+  voidedByName?: string | null;
+  voidReason?: string | null;
   createdAt: string;
 }
 
-export type MovementType = "sale" | "purchase" | "adjustment" | "waste";
+export type MovementType = "sale" | "purchase" | "adjustment" | "waste" | "void";
 
 export interface StockMovement {
   id: string;

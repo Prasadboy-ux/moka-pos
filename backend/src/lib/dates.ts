@@ -132,3 +132,36 @@ export function dayRange(
   if (to) range.$lt = nextDayStartUtc(to, timeZone);
   return range;
 }
+
+// ------------------------------------------------------------------ keys
+
+const keyFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** `en-CA` yields ISO-like `yyyy-mm-dd` / `yyyy-mm` directly. */
+function keyFormatterFor(
+  timeZone: string,
+  withDay: boolean,
+): Intl.DateTimeFormat {
+  const cacheKey = `${timeZone}|${withDay}`;
+  let formatter = keyFormatters.get(cacheKey);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      ...(withDay ? { day: '2-digit' } : {}),
+    });
+    keyFormatters.set(cacheKey, formatter);
+  }
+  return formatter;
+}
+
+/** `yyyy-mm-dd` for an instant, in the store's timezone. */
+export function dayKey(instant: Date, timeZone: string): string {
+  return keyFormatterFor(timeZone, true).format(instant);
+}
+
+/** `yyyy-mm` for an instant, in the store's timezone. */
+export function monthKey(instant: Date, timeZone: string): string {
+  return keyFormatterFor(timeZone, false).format(instant);
+}

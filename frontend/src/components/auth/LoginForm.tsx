@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { AnimatePresence, motion } from "motion/react";
 import { Eye, EyeOff, Loader2, LogIn } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -14,9 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RolePicker } from "@/components/auth/RolePicker";
 import { getRepositories } from "@/lib/repositories";
-import { DEMO_CREDENTIALS } from "@/lib/demo";
+import { collapse, fadeUp, stagger } from "@/lib/motion";
 import { useAuthHydrated, useAuthStore } from "@/store/useAuthStore";
-import { LOGIN_ERROR_MESSAGE, ROLE_HOME, ROLE_LABEL, type Role } from "@/types/auth";
+import { LOGIN_ERROR_MESSAGE, ROLE_HOME, ROLE_LABEL } from "@/types/auth";
 
 const loginSchema = z.object({
   role: z.enum(["kasir", "admin"]),
@@ -74,16 +75,14 @@ export function LoginForm() {
     router.replace(ROLE_HOME[result.user.role]);
   }
 
-  function fillDemoCredentials(demoRole: Role, username: string, password: string) {
-    setValue("role", demoRole, { shouldValidate: true });
-    setValue("username", username, { shouldValidate: true });
-    setValue("password", password, { shouldValidate: true });
-    setFormError(null);
-  }
-
   return (
-    <div className="w-full max-w-md space-y-7">
-      <div className="space-y-3 text-center lg:text-left">
+    <motion.div
+      variants={stagger}
+      initial="hidden"
+      animate="show"
+      className="w-full max-w-md space-y-7"
+    >
+      <motion.div variants={fadeUp} className="space-y-3 text-center lg:text-left">
         {/*
           Small screens get the logo row; large screens get the tracked eyebrow.
           Both used to render at once and print "Moka Cafe" twice.
@@ -116,26 +115,43 @@ export function LoginForm() {
         <p className="text-sm text-muted-foreground">
           Sign in to start your shift at the counter.
         </p>
-      </div>
+      </motion.div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
-        <RolePicker
-          value={role}
-          onChange={(next) => setValue("role", next, { shouldValidate: true })}
-        />
+      <motion.form
+        variants={stagger}
+        onSubmit={handleSubmit(onSubmit)}
+        className="space-y-5"
+        noValidate
+      >
+        <motion.div variants={fadeUp}>
+          <RolePicker
+            value={role}
+            onChange={(next) => setValue("role", next, { shouldValidate: true })}
+          />
+        </motion.div>
 
-        {formError ? (
-          <Alert
-            variant="destructive"
-            role="alert"
-            aria-live="assertive"
-            className="border-destructive/40 bg-destructive/5"
-          >
-            <AlertDescription>{formError}</AlertDescription>
-          </Alert>
-        ) : null}
+        <AnimatePresence initial={false}>
+          {formError ? (
+            <motion.div
+              key="form-error"
+              variants={collapse}
+              initial="hidden"
+              animate="show"
+              className="overflow-hidden"
+            >
+              <Alert
+                variant="destructive"
+                role="alert"
+                aria-live="assertive"
+                className="border-destructive/40 bg-destructive/5"
+              >
+                <AlertDescription>{formError}</AlertDescription>
+              </Alert>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
-        <div className="space-y-2">
+        <motion.div variants={fadeUp} className="space-y-2">
           <Label htmlFor="username">Username</Label>
           <Input
             id="username"
@@ -151,9 +167,9 @@ export function LoginForm() {
               {errors.username.message}
             </p>
           ) : null}
-        </div>
+        </motion.div>
 
-        <div className="space-y-2">
+        <motion.div variants={fadeUp} className="space-y-2">
           <Label htmlFor="password">Password</Label>
           <div className="relative">
             <Input
@@ -184,47 +200,24 @@ export function LoginForm() {
               {errors.password.message}
             </p>
           ) : null}
-        </div>
+        </motion.div>
 
-        <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
-          {isSubmitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Signing in…
-            </>
-          ) : (
-            <>
-              <LogIn className="size-4" aria-hidden />
-              Sign in as {ROLE_LABEL[role]}
-            </>
-          )}
-        </Button>
-      </form>
-
-      <div className="rounded-xl border border-dashed bg-muted/40 p-4">
-        <p className="mb-3 text-xs font-semibold text-muted-foreground">
-          Demo accounts — click to fill
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {DEMO_CREDENTIALS.map((demo) => (
-            <button
-              key={demo.username}
-              type="button"
-              onClick={() =>
-                fillDemoCredentials(demo.role, demo.username, demo.password)
-              }
-              className="rounded-lg border bg-background px-3 py-2 text-left transition-colors hover:border-primary hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
-            >
-              <span className="block text-xs font-semibold text-foreground">
-                {ROLE_LABEL[demo.role]}
-              </span>
-              <span className="block font-mono text-[11px] text-muted-foreground">
-                {demo.username} / {demo.password}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+        <motion.div variants={fadeUp}>
+          <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Signing in…
+              </>
+            ) : (
+              <>
+                <LogIn className="size-4" aria-hidden />
+                Sign in as {ROLE_LABEL[role]}
+              </>
+            )}
+          </Button>
+        </motion.div>
+      </motion.form>
+    </motion.div>
   );
 }

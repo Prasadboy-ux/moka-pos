@@ -67,9 +67,34 @@ export const shiftRepository: ShiftRepository = {
       if (!shift) throw new Error("Shift not found.");
       if (shift.status === "closed") throw new Error("That shift is already closed.");
 
+      const closedAt = new Date().toISOString();
+
+      /**
+       * Reconciliation mirrors the server close: cash-only takings for this
+       * cashier inside the shift's window. The mock has no `shiftId` on its
+       * orders, so the window stands in for the link the API stamps at sale
+       * time. Voided receipts are excluded — their cash went back to the
+       * customer — and the difference against the counted float is the
+       * variance today's drawer has to answer for.
+       */
+      const openedAt = new Date(shift.openedAt).getTime();
+      const closedAtTime = new Date(closedAt).getTime();
+      const cashSales = db.orders
+        .filter((o) => {
+          if (o.cashierId !== shift.userId) return false;
+          if (o.paymentMethod !== "cash") return false;
+          if (o.status !== "paid") return false;
+          const at = new Date(o.createdAt).getTime();
+          return at >= openedAt && at < closedAtTime;
+        })
+        .reduce((sum, o) => sum + o.total, 0);
+
       shift.status = "closed";
-      shift.closedAt = new Date().toISOString();
+      shift.closedAt = closedAt;
       shift.closingCounted = roundIDR(counted);
+      shift.cashSales = roundIDR(cashSales);
+      shift.expectedCash = roundIDR(shift.openingFloat + cashSales);
+      shift.variance = roundIDR(counted - (shift.expectedCash ?? 0));
       return clone(shift);
     });
   },

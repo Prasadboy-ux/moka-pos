@@ -14,6 +14,8 @@ export const CONFLICT_REASONS = [
   'already-closed-shift',
   'no-open-shift',
   'username-taken',
+  'order-already-voided',
+  'idempotency-key-foreign',
 ] as const;
 
 export type ConflictReason = (typeof CONFLICT_REASONS)[number];
@@ -37,6 +39,7 @@ export type ApiErrorCode =
   | 'validation'
   | 'conflict'
   | 'insufficient-stock'
+  | 'rate_limited'
   | 'internal';
 
 export type ApiErrorBody = {

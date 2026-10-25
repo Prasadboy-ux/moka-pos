@@ -2,7 +2,9 @@
 
 import type { LucideIcon } from "lucide-react"
 import { Plus } from "lucide-react"
+import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
+import { fadeUp } from "@/lib/motion"
 
 /**
  * Title, explanation, and the screen's one primary action.
@@ -30,7 +32,12 @@ export function PageHeader({
   secondary,
 }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <motion.div
+      initial="hidden"
+      animate="show"
+      variants={fadeUp}
+      className="flex flex-wrap items-start justify-between gap-4"
+    >
       <div className="min-w-0">
         {/* The screen's real heading; the app header shows only muted context. */}
         <h1 className="text-xl font-bold tracking-tight text-balance">{title}</h1>
@@ -48,6 +55,6 @@ export function PageHeader({
       ) : (
         secondary
       )}
-    </div>
+    </motion.div>
   )
 }
