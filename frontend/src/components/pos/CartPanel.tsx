@@ -203,6 +203,7 @@ export function CartPanel({
           <span className="text-sm font-semibold">Total</span>
           <AnimatedNumber
             value={totals.total}
+            animateOnMount={false}
             className="inline-block text-xl font-bold tabular-nums"
           />
         </div>

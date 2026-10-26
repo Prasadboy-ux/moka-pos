@@ -134,9 +134,17 @@ the reports as the same experience:
 | `DURATION.flight` | `0.48` | add-to-cart tile→cart fly |
 | `EASE_OUT` | `[0.22, 1, 0.36, 1]` | tweened entrances |
 | `SPRING` / `SPRING_SOFT` | Motion springs | pills, indicator slides, badges |
+| `LIST_STAGGER` | `{ step: 0.03, max: 0.21 }` | row/tile entrance delay |
+| `FEEDBACK_HOLD_MS` | `550` | success check hold before close |
 
 Variants (`fadeUp`, `pop`, `collapse`) and the named entrances live beside them;
 one shared `PageTransition`, one shared `StaggerGroup`.
+
+`AnimatedNumber` counts up from zero on mount by default; pass
+`animateOnMount={false}` where a live value must not rewind (cart total).
+Form-level errors mount through shared `FormError` so the banner collapses and
+shakes; field-level messages stay static. `TabsContent` fades and slides on
+mount so a tab switch never snaps.
 
 **One layout id per indicator.** The sidebar pill, the sliding tab underline, and
 any future "moving highlight" pattern use a single shared `layoutId` owned only
@@ -204,7 +212,7 @@ Shared app components:
 | `FilterBar` | Search plus counted category chips with whileTap feedback |
 | `ConfirmDialog` | Awaits the action, toasts failures, stays open on failure |
 | `PageHeader` | Title, description, one primary action |
-| `motion/*` | `MotionProvider`, `PageTransition`, `StaggerGroup`, `AnimatedNumber`, `SuccessCheck`, `FlyToCart` — shared Motion choreography |
+| `motion/*` | `MotionProvider`, `PageTransition`, `StaggerGroup`, `AnimatedNumber`, `SuccessCheck`, `FormError`, `FlyToCart` — shared Motion choreography |
 
 ## 8. Print
 

@@ -55,9 +55,8 @@ function ReceiptBody({
   const voided = order.status === "voided";
 
   return (
-    <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
+    <div className="contents">
+      <DialogHeader>
           {voided ? null : <SuccessCheck className="mx-auto sm:mx-0" />}
           <DialogTitle>{voided ? "Receipt voided" : "Payment complete"}</DialogTitle>
           <DialogDescription>
@@ -204,8 +203,7 @@ function ReceiptBody({
             New order
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }
 

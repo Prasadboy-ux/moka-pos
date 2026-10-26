@@ -172,12 +172,10 @@ export function AdminOverview() {
       animate="show"
       className="space-y-5"
     >
-      <motion.div variants={fadeUp}>
-        <PageHeader
-          title="Overview"
-          description="What the counter, drawer, and shelf look like right now"
-        />
-      </motion.div>
+      <PageHeader
+        title="Overview"
+        description="What the counter, drawer, and shelf look like right now"
+      />
 
       <motion.section
         variants={stagger}

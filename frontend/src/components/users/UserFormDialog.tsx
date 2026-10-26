@@ -5,6 +5,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { FormError } from "@/components/motion/FormError";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -242,11 +243,7 @@ function UserFormBody({
           />
         </div>
 
-        {formError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {formError}
-          </p>
-        ) : null}
+        <FormError message={formError} />
 
         <DialogFooter>
           <Button

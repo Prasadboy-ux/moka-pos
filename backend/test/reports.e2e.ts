@@ -227,6 +227,51 @@ describe('GET /api/reports/sales', () => {
     });
   });
 
+  it('excludes receipts outside the requested day', async () => {
+    const line = {
+      productId: waterId,
+      name: 'Mineral Water',
+      price: 5000,
+      qty: 1,
+      stockMode: 'direct' as const,
+    };
+
+    await paidOrder({
+      lines: [line],
+      total: 99900,
+      paymentMethod: 'cash',
+      createdAt: '2026-10-15T13:30:00Z',
+    });
+    await paidOrder({
+      lines: [line],
+      total: 88800,
+      paymentMethod: 'qris',
+      createdAt: '2026-10-17T13:30:00Z',
+    });
+
+    const response = await admin.agent
+      .get('/api/reports/sales?from=2026-10-16&to=2026-10-16')
+      .expect(200);
+
+    expect(response.body.kpi.revenue).toBe(78100);
+    expect(response.body.kpi.transactions).toBe(3);
+  });
+
+  it('returns zero for a range with no receipts', async () => {
+    const response = await admin.agent
+      .get('/api/reports/sales?from=2020-01-01&to=2020-01-07')
+      .expect(200);
+
+    expect(response.body.kpi).toEqual({
+      revenue: 0,
+      transactions: 0,
+      averageOrderValue: 0,
+      itemsSold: 0,
+      withCustomer: 0,
+    });
+    expect(response.body.paymentBreakdown).toEqual([]);
+  });
+
   it('narrows the tiles the way the ledger narrows them', async () => {
     const byMethod = await admin.agent
       .get('/api/reports/sales?from=2026-10-16&to=2026-10-16&method=cash')

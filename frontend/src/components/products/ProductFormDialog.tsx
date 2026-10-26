@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   useFieldArray,
   useForm,
@@ -13,6 +14,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ImageIcon, Loader2, Plus, Trash2 } from "lucide-react";
+import { FormError } from "@/components/motion/FormError";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,6 +38,7 @@ import { useToast } from "@/components/ui/toast";
 import { getRepositories } from "@/lib/repositories";
 import type { ProductInput } from "@/lib/repositories/types";
 import { formatIDR, formatNumber } from "@/lib/format";
+import { SPRING_SOFT } from "@/lib/motion";
 import type {
   Category,
   Ingredient,
@@ -478,11 +481,7 @@ function ProductFormBody({
           />
         </div>
 
-        {formError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {formError}
-          </p>
-        ) : null}
+        <FormError message={formError} />
 
         <DialogFooter>
           <Button
@@ -544,40 +543,50 @@ function RecipeEditor({
         </p>
       ) : (
         <ul className="space-y-2">
-          {fields.map((field, index) => (
-            <li key={field.id} className="flex items-end gap-2">
-              <RecipeIngredientField
-                index={index}
-                control={control}
-                ingredients={ingredients}
-              />
-
-              <div className="w-28 space-y-1.5">
-                <Label htmlFor={`recipe-qty-${field.id}`} className="sr-only">
-                  Quantity
-                </Label>
-                <Input
-                  id={`recipe-qty-${field.id}`}
-                  type="number"
-                  inputMode="decimal"
-                  step="any"
-                  min={0}
-                  placeholder="Qty"
-                  {...register(`recipe.${index}.qty`, { valueAsNumber: true })}
-                />
-              </div>
-
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label="Remove ingredient"
-                onClick={() => onRemove(index)}
+          <AnimatePresence initial={false}>
+            {fields.map((field, index) => (
+              <motion.li
+                key={field.id}
+                layout="position"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={SPRING_SOFT}
+                className="flex items-end gap-2"
               >
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
-            </li>
-          ))}
+                <RecipeIngredientField
+                  index={index}
+                  control={control}
+                  ingredients={ingredients}
+                />
+
+                <div className="w-28 space-y-1.5">
+                  <Label htmlFor={`recipe-qty-${field.id}`} className="sr-only">
+                    Quantity
+                  </Label>
+                  <Input
+                    id={`recipe-qty-${field.id}`}
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    min={0}
+                    placeholder="Qty"
+                    {...register(`recipe.${index}.qty`, { valueAsNumber: true })}
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Remove ingredient"
+                  onClick={() => onRemove(index)}
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </motion.li>
+            ))}
+          </AnimatePresence>
         </ul>
       )}
 

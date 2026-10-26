@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { motion } from "motion/react";
 import { ArrowRight, Package, ShoppingCart, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState, SectionCard } from "@/components/dashboard/StatCard";
 import { formatDateTime, formatIDR, formatNumber } from "@/lib/format";
+import { DURATION, EASE_OUT, LIST_STAGGER } from "@/lib/motion";
 import type { Order } from "@/types/pos";
 
 export function RecentOrdersTable({ orders }: { orders: Order[] }) {
@@ -43,12 +45,25 @@ export function RecentOrdersTable({ orders }: { orders: Order[] }) {
           </tr>
         </thead>
         <tbody>
-          {orders.map((order) => {
+          {orders.map((order, index) => {
             const itemCount = order.lines.reduce((n, l) => n + l.qty, 0);
             const voided = order.status === "voided";
 
             return (
-              <tr key={order.id} className="border-b last:border-0 hover:bg-muted/40">
+              <motion.tr
+                key={order.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: DURATION.base,
+                  ease: EASE_OUT,
+                  delay: Math.min(
+                    index * LIST_STAGGER.step,
+                    LIST_STAGGER.max,
+                  ),
+                }}
+                className="border-b last:border-0 hover:bg-muted/40"
+              >
                 <td className="px-5 py-3 font-mono text-xs whitespace-nowrap">
                   <span className="inline-flex items-center gap-2">
                     {order.receiptNo}
@@ -77,7 +92,7 @@ export function RecentOrdersTable({ orders }: { orders: Order[] }) {
                 >
                   {formatIDR(order.total)}
                 </td>
-              </tr>
+              </motion.tr>
             );
           })}
         </tbody>
@@ -110,8 +125,18 @@ export function LowStockList({
 
   return (
     <ul className="divide-y">
-      {items.map((item) => (
-        <li key={`${item.kind}-${item.id}`} className="flex items-center gap-3 px-5 py-3">
+      {items.map((item, index) => (
+        <motion.li
+          key={`${item.kind}-${item.id}`}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{
+            duration: DURATION.base,
+            ease: EASE_OUT,
+            delay: Math.min(index * LIST_STAGGER.step, LIST_STAGGER.max),
+          }}
+          className="flex items-center gap-3 px-5 py-3"
+        >
           <TriangleAlert
             className="size-4 shrink-0 text-destructive"
             aria-hidden
@@ -130,7 +155,7 @@ export function LowStockList({
           <Badge variant="destructive" className="shrink-0 tabular-nums">
             {formatNumber(item.stock)} {item.unit}
           </Badge>
-        </li>
+        </motion.li>
       ))}
     </ul>
   );

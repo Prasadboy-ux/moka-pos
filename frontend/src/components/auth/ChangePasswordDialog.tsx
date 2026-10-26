@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { FormError } from "@/components/motion/FormError";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -137,14 +138,10 @@ function ChangePasswordBody({
       </DialogHeader>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-        {formError ? (
-          <p
-            role="alert"
-            className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-          >
-            {formError}
-          </p>
-        ) : null}
+        <FormError
+          message={formError}
+          className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2"
+        />
 
         <div className="space-y-2">
           <Label htmlFor="current-password">Current password</Label>

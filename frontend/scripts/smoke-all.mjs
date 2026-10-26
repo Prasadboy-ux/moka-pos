@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 const SUITES = [
+  ["auth", "smoke-auth-race.mjs"],
   ["products", "smoke-products.mjs"],
   ["stock", "smoke-stock.mjs"],
   ["reports", "smoke-reports.mjs"],

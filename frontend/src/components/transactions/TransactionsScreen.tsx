@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { motion } from "motion/react";
 import { Ban, MessageCircle, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 
 import { DataTable, type Column } from "@/components/data-table";
+import { AnimatedNumber } from "@/components/motion/AnimatedNumber";
 import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
 import { ReceiptModal } from "@/components/pos/ReceiptModal";
@@ -19,6 +21,7 @@ import { useQueryState } from "@/hooks/useQueryState";
 import { dayKeyDaysAgo, todayKey } from "@/lib/repositories/read-models";
 import { getRepositories } from "@/lib/repositories";
 import { formatDate, formatDateTime, formatIDR, formatNumber } from "@/lib/format";
+import { SPRING } from "@/lib/motion";
 import { whatsAppLink } from "@/lib/receipt";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -353,13 +356,15 @@ export function TransactionsScreen() {
 
         <div className="flex flex-wrap gap-2 pb-0.5">
           {METHODS.map((option) => (
-            <button
+            <motion.button
               key={option.label}
               type="button"
               aria-pressed={method === option.value}
               onClick={() =>
                 setQuery({ method: option.value ?? null })
               }
+              whileTap={{ scale: 0.97 }}
+              transition={SPRING}
               className={cn(
                 "rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
@@ -369,7 +374,7 @@ export function TransactionsScreen() {
               )}
             >
               {option.label}
-            </button>
+            </motion.button>
           ))}
           {voidedCount > 0 ? (
             <Badge variant="destructive" className="rounded-full self-center px-3.5 py-1.5">
@@ -398,18 +403,25 @@ export function TransactionsScreen() {
 
         <StaggerItem>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryTile label="Revenue" value={formatIDR(kpi.revenue)} />
+            <SummaryTile
+              label="Revenue"
+              value={kpi.revenue}
+              format={formatIDR}
+            />
             <SummaryTile
               label="Transactions"
-              value={formatNumber(kpi.transactions)}
+              value={kpi.transactions}
+              format={formatNumber}
             />
             <SummaryTile
               label="Average order"
-              value={formatIDR(kpi.averageOrderValue)}
+              value={kpi.averageOrderValue}
+              format={formatIDR}
             />
             <SummaryTile
               label="With customer details"
-              value={formatNumber(kpi.withCustomer)}
+              value={kpi.withCustomer}
+              format={formatNumber}
               hint="can be sent"
             />
           </div>
@@ -471,10 +483,12 @@ export function TransactionsScreen() {
 function SummaryTile({
   label,
   value,
+  format,
   hint,
 }: {
   label: string;
-  value: string;
+  value: number;
+  format: (value: number) => string;
   hint?: string;
 }) {
   return (
@@ -482,7 +496,9 @@ function SummaryTile({
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
       </p>
-      <p className="mt-1 text-xl font-bold tracking-tight tabular-nums">{value}</p>
+      <p className="mt-1 text-xl font-bold tracking-tight tabular-nums">
+        <AnimatedNumber value={value} format={format} />
+      </p>
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );

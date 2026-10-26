@@ -58,21 +58,36 @@ export function LoginForm() {
   }, [hydrated, session, router]);
 
   async function onSubmit(values: LoginValues) {
+    // The effect that reads an existing session is still in flight. Signing in
+    // now would race that response: a late 401 could erase the new session, or
+    // a late 200 could replace it with the old user.
+    if (!useAuthStore.getState().hydrated) return;
+
     setFormError(null);
 
-    const result = await getRepositories().users.authenticate(
-      values.username,
-      values.password,
-      values.role,
-    );
+    try {
+      const result = await getRepositories().users.authenticate(
+        values.username,
+        values.password,
+        values.role,
+      );
 
-    if (!result.ok) {
-      setFormError(LOGIN_ERROR_MESSAGE[result.reason]);
-      return;
+      if (!result.ok) {
+        setFormError(LOGIN_ERROR_MESSAGE[result.reason]);
+        return;
+      }
+
+      setSession(result.user);
+      router.replace(ROLE_HOME[result.user.role]);
+    } catch (error) {
+      // Rate limits and network failures reach here as an ApiError. Showing its
+      // message keeps the reason distinct from a wrong password.
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Cannot sign in right now. Please try again.",
+      );
     }
-
-    setSession(result.user);
-    router.replace(ROLE_HOME[result.user.role]);
   }
 
   return (
@@ -203,8 +218,19 @@ export function LoginForm() {
         </motion.div>
 
         <motion.div variants={fadeUp}>
-          <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? (
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full"
+            disabled={!hydrated || isSubmitting}
+            aria-busy={!hydrated || isSubmitting}
+          >
+            {!hydrated ? (
+              <>
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+                Checking session…
+              </>
+            ) : isSubmitting ? (
               <>
                 <Loader2 className="size-4 animate-spin" aria-hidden />
                 Signing in…

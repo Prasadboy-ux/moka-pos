@@ -3,10 +3,15 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
+import pino from 'pino';
 import { pinoHttp } from 'pino-http';
 import { corsOrigins } from './config/env.js';
 import { errorHandler, notFoundHandler } from './lib/errors.middleware.js';
-import { logger } from './lib/logger.js';
+import {
+  logger,
+  requestLogSerializer,
+  responseLogSerializer,
+} from './lib/logger.js';
 import { apiLimiter } from './lib/rate-limit.js';
 import { router as apiRouter } from './routes/index.js';
 
@@ -39,6 +44,14 @@ export function createApp(): Express {
   app.use(
     pinoHttp({
       logger,
+      // Keep cookies and authorization headers out of the log drain. Passing raw
+      // serializers is deliberate: pino-http's default ones copy every header.
+      wrapSerializers: false,
+      serializers: {
+        req: requestLogSerializer,
+        res: responseLogSerializer,
+        err: pino.stdSerializers.err,
+      },
       // The health probe is polled by the platform every few seconds; logging
       // it would drown every line that matters.
       autoLogging: {

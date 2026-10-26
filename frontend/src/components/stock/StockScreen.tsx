@@ -470,7 +470,7 @@ export function StockScreen() {
 
         <StaggerItem>
       <Tabs value={tab} onValueChange={(value) => setQuery({ tab: value === "ingredients" ? null : value })}>
-        <TabsList>
+        <TabsList variant="line">
           <TabsTrigger value="ingredients">Ingredients</TabsTrigger>
           <TabsTrigger value="products">Counted products</TabsTrigger>
           <TabsTrigger value="movements">Movements</TabsTrigger>

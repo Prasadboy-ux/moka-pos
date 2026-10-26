@@ -181,6 +181,15 @@ export function toApiError(error: unknown): ApiError {
   return new ApiError(0, "unknown", "Something went wrong. Please try again.");
 }
 
+export interface RequestOptions {
+  /**
+   * A 401 here is an expected answer, not proof that the current session is
+   * gone. Hydration uses this: its request was sent before the user signed in,
+   * so a late 401 must not erase the session that just replaced it.
+   */
+  suppressUnauthenticated?: boolean;
+}
+
 /**
  * Runs a request and re-throws anything as an `ApiError`.
  *
@@ -189,6 +198,7 @@ export function toApiError(error: unknown): ApiError {
  */
 export async function request<T>(
   run: () => Promise<{ data: T }>,
+  options: RequestOptions = {},
 ): Promise<T> {
   try {
     const response = await run();
@@ -202,6 +212,7 @@ export async function request<T>(
     const url = failedUrl(error);
     if (
       apiError.status === 401 &&
+      !options.suppressUnauthenticated &&
       !AUTH_EXEMPT.some((exempt) => url?.startsWith(exempt))
     ) {
       notifyUnauthenticated();

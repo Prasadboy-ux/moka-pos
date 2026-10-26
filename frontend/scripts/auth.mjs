@@ -25,7 +25,9 @@ export async function fillLoginForm(page, role) {
   }
 
   const roleLabel = role === "admin" ? "Admin" : "Cashier";
-  await page.getByRole("radio", { name: roleLabel }).check();
+  // The radio is `sr-only`; its visible label and icon sit over the 1x1 input,
+  // so Playwright's hit-target check needs to be bypassed for the click.
+  await page.getByRole("radio", { name: roleLabel }).check({ force: true });
   await page.locator("#username").fill(creds.username);
   await page.locator("#password").fill(creds.password);
 }

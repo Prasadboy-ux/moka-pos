@@ -57,6 +57,12 @@ curl http://localhost:3001/api/health
 The frontend dev server runs on 3000; the API is on 3001 so they can run side by
 side.
 
+### Secrets
+
+`backend/.env*` is ignored except `.env.example`, including manual backups.
+Never commit a backup of a live environment. If a secret reaches git, rotate it
+first; deleting the file does not remove it from history.
+
 ## Scripts
 
 | Script | Purpose |

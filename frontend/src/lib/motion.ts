@@ -26,6 +26,15 @@ export const DURATION = {
   flight: 0.48,
 } as const;
 
+/** Shared cadence for list entrances: rows and product tiles. */
+export const LIST_STAGGER = {
+  step: 0.03,
+  max: 0.21,
+} as const;
+
+/** How long the "just added" tile overlay stays visible. */
+export const FEEDBACK_HOLD_MS = 550;
+
 export const SPRING: Transition = {
   type: "spring",
   stiffness: 420,

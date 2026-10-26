@@ -477,7 +477,7 @@ function CheckoutBody({
               <motion.div
                 initial={{ x: 0 }}
                 animate={{ x: shakeX }}
-                transition={{ duration: 0.32, ease: EASE_OUT }}
+                transition={{ duration: DURATION.page, ease: EASE_OUT }}
               >
                 <Alert
                   variant="destructive"

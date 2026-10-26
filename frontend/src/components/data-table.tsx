@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/dashboard/StatCard"
-import { DURATION, EASE_OUT } from "@/lib/motion"
+import { DURATION, EASE_OUT, LIST_STAGGER } from "@/lib/motion"
 import { cn } from "@/lib/utils"
 import { formatNumber } from "@/lib/format"
 import { motion } from "motion/react"
@@ -217,7 +217,10 @@ export function DataTable<T>({
                   transition={{
                     duration: DURATION.base,
                     ease: EASE_OUT,
-                    delay: Math.min(index * 0.03, 0.21),
+                    delay: Math.min(
+                      index * LIST_STAGGER.step,
+                      LIST_STAGGER.max,
+                    ),
                   }}
                 >
                   {columns.map((column) => (

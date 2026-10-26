@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { getRepositories } from "@/lib/repositories";
+import { SPRING_SOFT } from "@/lib/motion";
 import type { Category } from "@/types/pos";
 
 /**
@@ -147,14 +149,20 @@ export function CategoryManagerDialog({
         </DialogHeader>
 
         <ul className="max-h-72 space-y-1.5 overflow-y-auto">
-          {categories.map((category, index) => {
-            const count = usage.get(category.id) ?? 0;
+          <AnimatePresence initial={false}>
+            {categories.map((category, index) => {
+              const count = usage.get(category.id) ?? 0;
 
-            return (
-              <li
-                key={category.id}
-                className="flex items-center gap-2 rounded-lg border px-3 py-2"
-              >
+              return (
+                <motion.li
+                  key={category.id}
+                  layout="position"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={SPRING_SOFT}
+                  className="flex items-center gap-2 rounded-lg border px-3 py-2"
+                >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{category.name}</p>
                   <p className="text-xs text-muted-foreground tabular-nums">
@@ -204,9 +212,10 @@ export function CategoryManagerDialog({
                     <Trash2 className="size-4" aria-hidden />
                   )}
                 </Button>
-              </li>
-            );
-          })}
+                </motion.li>
+              );
+            })}
+          </AnimatePresence>
         </ul>
 
         <form onSubmit={onCreate} className="flex items-end gap-2">

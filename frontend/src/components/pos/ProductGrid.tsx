@@ -7,7 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
-import { DURATION, EASE_OUT, SPRING, SPRING_SOFT } from "@/lib/motion";
+import {
+  DURATION,
+  EASE_OUT,
+  FEEDBACK_HOLD_MS,
+  LIST_STAGGER,
+  SPRING,
+  SPRING_SOFT,
+} from "@/lib/motion";
 import type { Category, Product } from "@/types/pos";
 
 /**
@@ -155,7 +162,10 @@ function ProductTile({
 
   useEffect(() => {
     if (!justAdded) return;
-    const timer = window.setTimeout(() => setJustAdded(false), 550);
+    const timer = window.setTimeout(
+      () => setJustAdded(false),
+      FEEDBACK_HOLD_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [justAdded]);
 
@@ -174,7 +184,7 @@ function ProductTile({
       transition={{
         duration: DURATION.base,
         ease: EASE_OUT,
-        delay: Math.min(index * 0.025, 0.2),
+        delay: Math.min(index * LIST_STAGGER.step, LIST_STAGGER.max),
       }}
       whileTap={available ? { scale: 0.97, transition: SPRING } : undefined}
       className={cn(

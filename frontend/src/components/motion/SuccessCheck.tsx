@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "motion/react";
+import { DURATION } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 interface SuccessCheckProps {
@@ -30,7 +31,7 @@ export function SuccessCheck({ className }: SuccessCheckProps) {
           show: {
             pathLength: 1,
             opacity: 1,
-            transition: { duration: 0.4 },
+            transition: { duration: DURATION.page },
           },
         }}
       />
@@ -46,7 +47,10 @@ export function SuccessCheck({ className }: SuccessCheckProps) {
           show: {
             pathLength: 1,
             opacity: 1,
-            transition: { duration: 0.25, delay: 0.22 },
+            transition: {
+              duration: DURATION.base,
+              delay: DURATION.swap,
+            },
           },
         }}
       />

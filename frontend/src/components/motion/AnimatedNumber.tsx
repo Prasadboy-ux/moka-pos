@@ -16,6 +16,11 @@ interface AnimatedNumberProps {
   /** Formats the interpolated figure at every frame of the count-up. */
   format?: (value: number) => string;
   className?: string;
+  /**
+   * Count up from zero on first render. Live totals that already have a
+   * meaningful value can opt out and only tween when the value changes.
+   */
+  animateOnMount?: boolean;
 }
 
 /**
@@ -27,9 +32,10 @@ export function AnimatedNumber({
   value,
   format = formatIDR,
   className,
+  animateOnMount = true,
 }: AnimatedNumberProps) {
   const reduce = useReducedMotion();
-  const raw = useMotionValue(value);
+  const raw = useMotionValue(animateOnMount ? 0 : value);
   const display = useTransform(raw, (current) => format(Math.round(current)));
 
   useEffect(() => {

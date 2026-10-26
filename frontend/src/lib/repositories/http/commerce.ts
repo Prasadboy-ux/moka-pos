@@ -120,7 +120,10 @@ export const shiftRepository: ShiftRepository = {
 
 /** Replaced the localStorage session; the cookie is now the only session. */
 export const sessionRepository = {
-  me: () => request<{ user: User }>(() => http.get("/auth/me")),
+  me: () =>
+    request<{ user: User }>(() => http.get("/auth/me"), {
+      suppressUnauthenticated: true,
+    }),
   logout: () => request<void>(() => http.post("/auth/logout")),
 
   /**

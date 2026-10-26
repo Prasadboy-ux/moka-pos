@@ -291,7 +291,7 @@ export async function salesReport(query: ReportQuery): Promise<SalesReport> {
   }
 
   const filter: Record<string, unknown> = {
-    ...dayRange(from, to, timezone),
+    createdAt: dayRange(from, to, timezone),
     status: 'paid' as const,
   };
 

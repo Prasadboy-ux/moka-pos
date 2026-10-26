@@ -2,8 +2,10 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DURATION, EASE_OUT } from "@/lib/motion";
 
 export default function DashboardError({
   error,
@@ -18,7 +20,12 @@ export default function DashboardError({
   }, [error]);
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col items-center justify-center rounded-2xl border border-destructive/40 bg-destructive/5 px-6 py-16 text-center">
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: DURATION.page, ease: EASE_OUT }}
+      className="mx-auto flex max-w-lg flex-col items-center justify-center rounded-2xl border border-destructive/40 bg-destructive/5 px-6 py-16 text-center"
+    >
       <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
         <AlertTriangle className="size-6" aria-hidden />
       </div>
@@ -44,6 +51,6 @@ export default function DashboardError({
           <Link href="/dashboard">Back to dashboard</Link>
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }

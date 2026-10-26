@@ -12,6 +12,10 @@ backend/.mongo-uri
 .env
 .env.local
 .env*.local
+# Manual backend backups (for example `.env.backup-20261025-143904`) hold live
+# credentials. Keep copies out of git; `.env.example` remains the template.
+backend/.env*
+!backend/.env.example
 *.tsbuildinfo
 next-env.d.ts
 
