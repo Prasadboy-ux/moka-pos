@@ -208,7 +208,7 @@ Shared app components:
 
 | Component | Purpose |
 |---|---|
-| `DataTable` | Sortable columns (animated chevron), client pagination, staggered row entrance, skeleton and empty states |
+| `DataTable` | Sortable columns (animated chevron), client pagination with an opt-in server-pager mode, staggered row entrance, skeleton and empty states |
 | `FilterBar` | Search plus counted category chips with whileTap feedback |
 | `ConfirmDialog` | Awaits the action, toasts failures, stays open on failure |
 | `PageHeader` | Title, description, one primary action |

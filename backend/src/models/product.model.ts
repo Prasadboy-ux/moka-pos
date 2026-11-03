@@ -41,8 +41,22 @@ const productSchema = new Schema(
     price: { type: Number, required: true, min: 0 },
     image: { type: String, required: true, trim: true },
     stockMode: { type: String, enum: ['recipe', 'direct'], required: true },
-    stock: { type: Number, min: 0 },
-    minStock: { type: Number, min: 0 },
+    stock: {
+      type: Number,
+      min: 0,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: 'Stock must be a whole number.',
+      },
+    },
+    minStock: {
+      type: Number,
+      min: 0,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: 'Minimum stock must be a whole number.',
+      },
+    },
     recipe: { type: [recipeItemSchema], default: [] },
     isActive: { type: Boolean, default: true, required: true },
   },

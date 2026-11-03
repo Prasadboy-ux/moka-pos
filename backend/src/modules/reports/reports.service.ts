@@ -76,6 +76,13 @@ export function allocateGrossRevenue(
 /** The trend's granularity: one bar per day until the range gets long. */
 const MONTH_BUCKET_AFTER_DAYS = 31;
 
+/**
+ * Reports are computed in Node from every matching order, so an unbounded
+ * range is both a memory and a CPU denial-of-service vector for any signed-in
+ * user. A year plus leap day covers the reporting windows the POS exposes.
+ */
+export const MAX_REPORT_RANGE_DAYS = 366;
+
 const UNCATEGORISED_ID = '__uncategorised__';
 
 function spanInDays(from: string, to: string): number {
@@ -100,7 +107,11 @@ function nextMonth(key: string): string {
 }
 
 /** Every period key from `from` to `to` inclusive. Empty when inverted. */
-function periodKeys(from: string, to: string, bucket: 'day' | 'month'): string[] {
+function periodKeys(
+  from: string,
+  to: string,
+  bucket: 'day' | 'month',
+): string[] {
   if (from > to) return [];
 
   const keys: string[] = [];
@@ -169,7 +180,9 @@ export function summariseOrders(orders: ReportOrder[]): SalesReport['kpi'] {
   };
 }
 
-function paymentBreakdown(orders: ReportOrder[]): SalesReport['paymentBreakdown'] {
+function paymentBreakdown(
+  orders: ReportOrder[],
+): SalesReport['paymentBreakdown'] {
   const map = new Map<
     'cash' | 'qris' | 'debit' | 'credit',
     { count: number; total: number }
@@ -207,7 +220,9 @@ function categorySales(
         : null, // No category (or a soft-deleted association) maps to nothing.
     ]),
   );
-  const nameOf = new Map(categories.map((category) => [String(category._id), category.name]));
+  const nameOf = new Map(
+    categories.map((category) => [String(category._id), category.name]),
+  );
   const totals = new Map<string, { revenue: number; itemsSold: number }>();
 
   for (const order of orders) {
@@ -241,9 +256,12 @@ function productSales(orders: ReportOrder[], limit = 10): ProductSalesRow[] {
 
     for (const [index, line] of order.lines.entries()) {
       const id = String(line.productId);
-      const entry =
-        totals.get(id) ??
-        { productId: id, quantity: 0, name: line.name, revenue: 0 };
+      const entry = totals.get(id) ?? {
+        productId: id,
+        quantity: 0,
+        name: line.name,
+        revenue: 0,
+      };
 
       entry.quantity += line.qty;
       entry.revenue += revenue[index] ?? 0;
@@ -251,7 +269,9 @@ function productSales(orders: ReportOrder[], limit = 10): ProductSalesRow[] {
     }
   }
 
-  return [...totals.values()].sort((a, b) => b.revenue - a.revenue).slice(0, limit);
+  return [...totals.values()]
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit);
 }
 
 function cashierSales(orders: ReportOrder[]): CashierSalesRow[] {
@@ -265,7 +285,8 @@ function cashierSales(orders: ReportOrder[]): CashierSalesRow[] {
 
   return [...grouped.entries()]
     .map(([cashierId, bucket]) => {
-      const { withCustomer: _withCustomer, ...summary } = summariseOrders(bucket);
+      const { withCustomer: _withCustomer, ...summary } =
+        summariseOrders(bucket);
       void _withCustomer;
       return {
         cashierId,
@@ -288,6 +309,13 @@ export async function salesReport(query: ReportQuery): Promise<SalesReport> {
     throw ApiError.validation('The report range ends before it starts.', {
       to: 'Set the end date on or after the start date.',
     });
+  }
+
+  if (spanInDays(from, to) + 1 > MAX_REPORT_RANGE_DAYS) {
+    throw ApiError.validation(
+      `The report range cannot exceed ${MAX_REPORT_RANGE_DAYS} days.`,
+      { to: `Choose a range of ${MAX_REPORT_RANGE_DAYS} days or fewer.` },
+    );
   }
 
   const filter: Record<string, unknown> = {
@@ -314,7 +342,9 @@ export async function salesReport(query: ReportQuery): Promise<SalesReport> {
 
   const [orders, products, categories] = await Promise.all([
     OrderModel.find(filter)
-      .select('createdAt total paymentMethod cashierId cashierName customer lines')
+      .select(
+        'createdAt total paymentMethod cashierId cashierName customer lines',
+      )
       .lean<ReportOrder[]>(),
     // Deleted products still have to resolve their category; the report reads
     // every product ever, not just the ones currently on the shelf.

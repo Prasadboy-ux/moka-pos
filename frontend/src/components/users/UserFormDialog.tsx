@@ -52,11 +52,11 @@ const schema = z
   })
   .superRefine((values, ctx) => {
     if (values.password.length === 0) return;
-    if (values.password.length < 6) {
+    if (values.password.length < 12) {
       ctx.addIssue({
         code: "custom",
         path: ["password"],
-        message: "At least 6 characters",
+        message: "At least 12 characters",
       });
     }
   });
@@ -188,7 +188,7 @@ function UserFormBody({
               id="user-password"
               type={showPassword ? "text" : "password"}
               autoComplete="new-password"
-              placeholder={user ? "Leave blank to keep the current one" : "At least 6 characters"}
+              placeholder={user ? "Leave blank to keep the current one" : "At least 12 characters"}
               aria-invalid={Boolean(errors.password)}
               className="pr-10"
               {...register("password")}

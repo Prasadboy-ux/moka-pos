@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 import { sessionRepository } from "@/lib/repositories/http/commerce";
+import { useAuthStore } from "@/store/useAuthStore";
 
 /**
  * Rotates the signed-in user's own password.
@@ -27,14 +28,14 @@ import { sessionRepository } from "@/lib/repositories/http/commerce";
  * admin in front of everyone at the counter should be able to fix it, not file
  * a request to an admin to fix it for them.
  *
- * The strength floor mirrors the API (six characters). Failures already arrive
- * as sentences — "That is not your current password", per-field — so the form
- * surfaces whatever the server says rather than translating it.
+ * The strength floor mirrors the API (twelve characters). Failures already
+ * arrive as sentences — "That is not your current password", per-field — so the
+ * form surfaces whatever the server says rather than translating it.
  */
 
 const schema = z.object({
   currentPassword: z.string().min(1, "Enter your current password"),
-  newPassword: z.string().min(6, "Use at least 6 characters"),
+  newPassword: z.string().min(12, "Use at least 12 characters"),
   confirmPassword: z.string().min(1, "Repeat the new password"),
 });
 
@@ -96,9 +97,13 @@ function ChangePasswordBody({
       toast({
         title: "Password updated",
         description:
-          "Use the new password the next time you sign in. Your current session carries on.",
+          "Every device has been signed out. Sign in again with your new password.",
         variant: "success",
       });
+      // The API bumped the account's session epoch and cleared this cookie.
+      // Clearing the store makes the dashboard guard route to /login instead
+      // of leaving the user on a page whose next request would 401.
+      useAuthStore.getState().clearSession();
     } catch (cause) {
       setFormError(
         cause instanceof Error
@@ -132,8 +137,8 @@ function ChangePasswordBody({
       <DialogHeader>
         <DialogTitle>Change password</DialogTitle>
         <DialogDescription>
-          This account keeps its session — other devices signed in as you keep
-          theirs until they sign out or the session expires.
+          Changing your password signs out every device, including this one. You
+          will need to sign in again with the new password.
         </DialogDescription>
       </DialogHeader>
 

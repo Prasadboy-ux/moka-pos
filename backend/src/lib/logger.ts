@@ -14,9 +14,26 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
  * present, and a logger that crashes on boot takes the whole API with it.
  * Tests default to silent so vitest output stays readable.
  */
+const LOG_LEVELS = new Set([
+  'fatal',
+  'error',
+  'warn',
+  'info',
+  'debug',
+  'trace',
+  'silent',
+]);
+
+const fallbackLevel = process.env.NODE_ENV === 'test' ? 'silent' : 'info';
+const requestedLevel = process.env.LOG_LEVEL?.trim().toLowerCase();
+
+// pino throws on an unknown level, and this runs before env validation. A typo
+// in a deployment variable must degrade to useful logging, not take the API
+// down before it can serve a request.
 const level =
-  process.env.LOG_LEVEL ??
-  (process.env.NODE_ENV === 'test' ? 'silent' : 'info');
+  requestedLevel && LOG_LEVELS.has(requestedLevel)
+    ? requestedLevel
+    : fallbackLevel;
 
 export const logger = pino({
   level,
@@ -47,7 +64,9 @@ export function requestLogSerializer(
   return {
     id,
     method: req.method,
-    url: req.url,
+    // Query strings can carry a customer name or phone from the order/report
+    // search. The path is enough to identify the operation.
+    url: req.url?.split('?')[0],
     remoteAddress: req.socket?.remoteAddress,
     remotePort: req.socket?.remotePort,
   };

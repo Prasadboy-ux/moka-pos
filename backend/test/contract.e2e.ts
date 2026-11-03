@@ -160,6 +160,7 @@ describe('the endpoint surface', () => {
 describe('nothing beyond the contract', () => {
   const NOT_ALLOWED = [
     'DELETE /api/ingredients/:id',
+    'GET /api/users/:id',
     'DELETE /api/users/:id',
     'DELETE /api/orders/:id',
     'PATCH /api/categories/:id',

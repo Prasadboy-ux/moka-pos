@@ -132,6 +132,7 @@ function AdjustBody({
     handleSubmit,
     control,
     setValue,
+    setError,
     formState: { errors },
   } = useForm<Values>({
     resolver: zodResolver(schema),
@@ -166,6 +167,20 @@ function AdjustBody({
   const projectionText = `${formatNumber(nextLevel)} ${unit}`;
 
   async function onSubmit(values: Values) {
+    /**
+     * The API accepts fractional quantities because ingredients are measured
+     * in grams and millilitres; a direct product is counted in whole pcs. The
+     * form knows which target it is editing, so it can say so before a round
+     * trip.
+     */
+    if (target.kind === "product" && !Number.isInteger(values.qty)) {
+      setError("qty", {
+        type: "manual",
+        message: "Use a whole number of pcs.",
+      });
+      return;
+    }
+
     setPending(true);
     setFormError(null);
 
@@ -249,9 +264,9 @@ function AdjustBody({
           <Input
             id="adjust-qty"
             type="number"
-            inputMode="decimal"
+            inputMode={target.kind === "ingredient" ? "decimal" : "numeric"}
             min={reason === "adjustment" ? undefined : 0}
-            step="any"
+            step={target.kind === "ingredient" ? "any" : "1"}
             placeholder={reason === "adjustment" ? "e.g. -3…" : "0"}
             aria-invalid={Boolean(errors.qty)}
             aria-describedby={

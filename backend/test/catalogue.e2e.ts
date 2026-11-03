@@ -438,6 +438,27 @@ describe('products', () => {
     expect(response.body.recipe).toEqual([]);
   });
 
+  it('rejects a fractional stock count on a direct product', async () => {
+    const snack = await CategoryModel.findOne({ name: 'Snack' });
+
+    const response = await admin.agent
+      .post('/api/products')
+      .send({
+        name: 'Butter Croissant',
+        categoryId: String(snack!._id),
+        price: 22000,
+        image: '/menu/snack/butter_croissant.svg',
+        stockMode: 'direct',
+        stock: 9.5,
+        minStock: 12,
+        recipe: [],
+        isActive: true,
+      })
+      .expect(422);
+
+    expect(response.body.fields).toHaveProperty('stock');
+  });
+
   it('records opening stock as a purchase movement on create', async () => {
     const snack = await CategoryModel.findOne({ name: 'Snack' });
 

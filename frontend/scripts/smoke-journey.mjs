@@ -261,7 +261,13 @@ try {
   await page.getByRole("button", { name: "Close shift" }).first().click();
   await page.locator("#counted").fill(String(expectedCash));
   await page.getByRole("dialog").getByRole("button", { name: "Close shift" }).click();
-  await page.waitForTimeout(1000);
+  // The close is a real transaction and can take a couple of seconds; wait for
+  // the result phase instead of assuming a fixed delay is enough.
+  await page
+    .getByRole("dialog")
+    .getByText(/Drawer (not )?balanced/)
+    .waitFor({ timeout: 15000 })
+    .catch(() => undefined);
   const drawer = await page.getByRole("dialog").innerText();
   check(
     "closing the shift reconciles the drawer",

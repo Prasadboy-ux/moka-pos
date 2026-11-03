@@ -31,9 +31,23 @@ export const rupiah = z
   .int('Money must be a whole number of rupiah — no decimals.')
   .min(0, 'Amount cannot be negative.');
 
-export const quantity = z
+/**
+ * A measured recipe amount. Fractions are legitimate here: 18.5 g of beans or
+ * 180 ml of milk are ordinary recipe rows.
+ */
+export const positiveQuantity = z
   .number({ message: 'A quantity is required.' })
   .positive('Quantity must be greater than zero.');
+
+/**
+ * A sellable unit count. Whole numbers only: a receipt for 0.0001 of a cup can
+ * round to zero rupiah while still consuming stock and writing a sale.
+ */
+export const orderQuantity = z
+  .number({ message: 'A quantity is required.' })
+  .int('Quantity must be a whole number.')
+  .positive('Quantity must be greater than zero.')
+  .max(10_000, 'Quantity cannot exceed 10,000 per line.');
 
 export const nonNegativeNumber = z
   .number()

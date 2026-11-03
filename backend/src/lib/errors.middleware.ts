@@ -116,7 +116,7 @@ function toApiError(error: unknown): ApiError {
 
   if (isDuplicateKey(error)) {
     return ApiError.conflict(
-      undefined,
+      'duplicate',
       'That value is already taken. Please choose a different one.',
     );
   }

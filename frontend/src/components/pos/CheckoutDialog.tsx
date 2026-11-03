@@ -25,7 +25,6 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatIDR } from "@/lib/format";
-import { newIdempotencyKey } from "@/lib/idempotency";
 import { DURATION, EASE_OUT, collapse, shakeX, SPRING } from "@/lib/motion";
 import { getRepositories } from "@/lib/repositories";
 import {
@@ -52,6 +51,12 @@ interface CheckoutDialogProps {
   taxRate: number;
   cashierId: string;
   cashierName: string;
+  /**
+   * Owned by the POS screen, not this dialog. It survives a cancel/reopen of an
+   * unchanged cart, so a retry after an ambiguous failure replays the receipt
+   * instead of creating a second sale.
+   */
+  idempotencyKey: string;
   onCompleted: (order: Order) => void;
   /**
    * Called when the server refuses the sale with `409 no-open-shift` — the
@@ -62,20 +67,41 @@ interface CheckoutDialogProps {
   onShiftRequired?: () => void;
 }
 
+interface CheckoutBodyProps extends CheckoutDialogProps {
+  pending: boolean;
+  setPending: (pending: boolean) => void;
+}
+
 /**
  * The dialog shell stays mounted so the open state is controlled, and the
  * body mounts through the content slot the moment the dialog opens. That gives
- * each checkout a fresh set of state — a new idempotency key, empty fields —
- * without resetting it from an effect, while the shell keeps rendering until
- * the exit animation finishes.
+ * each checkout a fresh set of fields without resetting them from an effect.
+ * The idempotency key is the exception: it belongs to the cart, not the dialog,
+ * so the screen passes it in and it survives a reopen.
  */
 export function CheckoutDialog(props: CheckoutDialogProps) {
   const { open, onOpenChange } = props;
+  const [pending, setPending] = useState(false);
 
+  /**
+   * Dismissal is blocked while the request is in flight. Escape or the close
+   * button used to unmount the body mid-POST: the server could still commit the
+   * sale, but with nothing mounted to show the receipt or clear the cart the
+   * cashier's next attempt looked like a new sale.
+   *
+   * `pending` is cleared by the body when the request settles, so the shell
+   * never has to reset it from an effect.
+   */
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <CheckoutBody {...props} />
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && pending) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-lg" showCloseButton={!pending}>
+        <CheckoutBody {...props} pending={pending} setPending={setPending} />
       </DialogContent>
     </Dialog>
   );
@@ -88,20 +114,16 @@ function CheckoutBody({
   taxRate,
   cashierId,
   cashierName,
+  idempotencyKey,
   onCompleted,
   onShiftRequired,
-}: CheckoutDialogProps) {
+  pending,
+  setPending,
+}: CheckoutBodyProps) {
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [cashGiven, setCashGiven] = useState("");
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /**
-   * One key per opened checkout, not per HTTP attempt. If the request reaches
-   * the server but the response is lost, tapping Complete sale again replays the
-   * receipt instead of charging the customer a second time.
-   */
-  const [idempotencyKey] = useState(newIdempotencyKey);
 
   const [withCustomer, setWithCustomer] = useState(false);
   const [customerName, setCustomerName] = useState("");
@@ -145,6 +167,7 @@ function CheckoutBody({
 
   const canSubmit =
     !pending &&
+    idempotencyKey.length > 0 &&
     lines.length > 0 &&
     (method !== "cash" || cashValue >= totals.total);
 
@@ -184,6 +207,7 @@ function CheckoutBody({
           : null,
       });
 
+      setPending(false);
       onCompleted(order);
     } catch (cause) {
       const failure = cause as {

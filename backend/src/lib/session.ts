@@ -18,6 +18,10 @@ import { ApiError } from './errors.js';
 
 export const SESSION_COOKIE = 'moka_session';
 
+/** Pinned so a token minted for another service can never be replayed here. */
+const SESSION_ISSUER = 'moka-pos';
+const SESSION_AUDIENCE = 'moka-pos-web';
+
 let cachedKey: Uint8Array | undefined;
 
 function signingKey(): Uint8Array {
@@ -25,19 +29,34 @@ function signingKey(): Uint8Array {
   return cachedKey;
 }
 
-export async function signSession(userId: string): Promise<string> {
+/**
+ * The epoch is the account's `sessionEpoch` at issue time. `requireSession`
+ * compares it with the database value, which is what makes a password change or
+ * sign-out revoke tokens that are otherwise still cryptographically valid.
+ */
+export async function signSession(
+  userId: string,
+  sessionEpoch: number,
+): Promise<string> {
   const { SESSION_TTL_HOURS } = env();
 
-  return new SignJWT({})
+  return new SignJWT({ epoch: sessionEpoch })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(`${SESSION_TTL_HOURS}h`)
     .sign(signingKey());
 }
 
+export type VerifiedSession = {
+  userId: string;
+  epoch: number;
+};
+
 /**
- * Returns the user id, or throws a 401.
+ * Returns the user id and epoch, or throws a 401.
  *
  * `algorithms` is pinned rather than taken from the token header: without it an
  * attacker could present `alg: none` or swap in an asymmetric algorithm and
@@ -49,25 +68,35 @@ export async function signSession(userId: string): Promise<string> {
  * misreports the cause and tells an attacker they produced a structurally valid
  * token rather than an invalid one.
  */
-export async function verifySession(token: string): Promise<string> {
+export async function verifySession(token: string): Promise<VerifiedSession> {
   let subject: unknown;
+  let epoch: unknown;
   try {
     const { payload } = await jwtVerify(token, signingKey(), {
       algorithms: ['HS256'],
+      issuer: SESSION_ISSUER,
+      audience: SESSION_AUDIENCE,
     });
     subject = payload.sub;
+    epoch = payload.epoch;
   } catch {
     throw ApiError.unauthenticated(
       'Your session is no longer valid. Please sign in again.',
     );
   }
 
-  if (typeof subject !== 'string' || subject.length === 0) {
+  if (
+    typeof subject !== 'string' ||
+    subject.length === 0 ||
+    typeof epoch !== 'number' ||
+    !Number.isInteger(epoch) ||
+    epoch < 0
+  ) {
     throw ApiError.unauthenticated(
       'Your session is no longer valid. Please sign in again.',
     );
   }
-  return subject;
+  return { userId: subject, epoch };
 }
 
 /**

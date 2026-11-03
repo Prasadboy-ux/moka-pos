@@ -14,10 +14,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RolePicker } from "@/components/auth/RolePicker";
+import { DEMO_CREDENTIALS } from "@/components/auth/demo-credentials";
 import { getRepositories } from "@/lib/repositories";
 import { collapse, fadeUp, stagger } from "@/lib/motion";
 import { useAuthHydrated, useAuthStore } from "@/store/useAuthStore";
-import { LOGIN_ERROR_MESSAGE, ROLE_HOME, ROLE_LABEL } from "@/types/auth";
+import {
+  LOGIN_ERROR_MESSAGE,
+  ROLE_HOME,
+  ROLE_LABEL,
+  type Role,
+} from "@/types/auth";
+
+/**
+ * The seeded accounts are part of the demo, not a real deployment. The panel is
+ * hidden unless NEXT_PUBLIC_DEMO_CREDENTIALS=true is set at build time, so a
+ * forgotten variable fails closed rather than advertising admin credentials on
+ * a live sign-in page. The accounts themselves still have to be replaced in the
+ * database; the API refuses to start in production if they still work.
+ */
+const SHOW_DEMO_CREDENTIALS =
+  process.env.NEXT_PUBLIC_DEMO_CREDENTIALS === "true";
 
 const loginSchema = z.object({
   role: z.enum(["kasir", "admin"]),
@@ -56,6 +72,17 @@ export function LoginForm() {
       router.replace(ROLE_HOME[session.user.role]);
     }
   }, [hydrated, session, router]);
+
+  function fillDemoCredentials(
+    demoRole: Role,
+    username: string,
+    password: string,
+  ) {
+    setValue("role", demoRole, { shouldValidate: true });
+    setValue("username", username, { shouldValidate: true });
+    setValue("password", password, { shouldValidate: true });
+    setFormError(null);
+  }
 
   async function onSubmit(values: LoginValues) {
     // The effect that reads an existing session is still in flight. Signing in
@@ -244,6 +271,40 @@ export function LoginForm() {
           </Button>
         </motion.div>
       </motion.form>
+
+      {SHOW_DEMO_CREDENTIALS ? (
+        <motion.div
+          variants={fadeUp}
+          className="rounded-xl border border-dashed bg-muted/40 p-4"
+        >
+          <p className="mb-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Demo accounts - click to fill
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {DEMO_CREDENTIALS.map((demo) => (
+              <button
+                key={demo.username}
+                type="button"
+                onClick={() =>
+                  fillDemoCredentials(
+                    demo.role,
+                    demo.username,
+                    demo.password,
+                  )
+                }
+                className="rounded-lg border bg-background px-3 py-2 text-left transition-colors hover:border-primary hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                <span className="block text-xs font-semibold text-foreground">
+                  {ROLE_LABEL[demo.role]}
+                </span>
+                <span className="block font-mono text-[11px] text-muted-foreground">
+                  {demo.username} / {demo.password}
+                </span>
+              </button>
+            ))}
+          </div>
+        </motion.div>
+      ) : null}
     </motion.div>
   );
 }

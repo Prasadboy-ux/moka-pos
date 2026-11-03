@@ -1,5 +1,9 @@
 import { Router, type Request, type Response } from 'express';
-import { loginLimiter } from '../../lib/rate-limit.js';
+import {
+  loginLimiter,
+  loginUsernameLimiter,
+  passwordLimiter,
+} from '../../lib/rate-limit.js';
 import { validate } from '../../lib/validate.js';
 import {
   SESSION_COOKIE,
@@ -13,7 +17,11 @@ import {
   type ChangePasswordInput,
   type LoginInput,
 } from './auth.schemas.js';
-import { authenticate, changePassword } from './auth.service.js';
+import {
+  authenticate,
+  changePassword,
+  revokeSessionsForToken,
+} from './auth.service.js';
 
 export const router: Router = Router();
 
@@ -21,6 +29,7 @@ router.post(
   '/auth/login',
   loginLimiter(),
   validate({ body: loginSchema }),
+  loginUsernameLimiter(),
   login,
 );
 router.post('/auth/logout', logout);
@@ -34,6 +43,7 @@ router.get('/auth/me', requireSession, me);
 router.post(
   '/auth/change-password',
   requireSession,
+  passwordLimiter(),
   validate({ body: changePasswordSchema }),
   changePasswordRoute,
 );
@@ -41,22 +51,26 @@ router.post(
 async function login(req: Request, res: Response): Promise<void> {
   const input = req.validated?.body as LoginInput;
 
-  const user = await authenticate(input);
-  const token = await signSession(user.id);
+  const { user, sessionEpoch } = await authenticate(input);
+  const token = await signSession(user.id, sessionEpoch);
 
   res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
   res.status(200).json({ user });
 }
 
 /**
- * Clears the cookie and nothing else.
+ * Clears the cookie and revokes the token server-side.
  *
- * There is no session table, so a token stays valid until it expires even after
- * logout. That is the usual trade for stateless cookies, and it is acceptable
- * here because the token is re-validated against the user document on every
- * request — a deactivated account cannot use a leaked token at all.
+ * A stateless JWT cannot be deleted, so the account's epoch is bumped. That
+ * signs out every device for the account, not just this one — the price of
+ * having no session table. Revocation is best-effort: a database failure must
+ * not leave the browser holding a cookie it asked to be rid of.
  */
-function logout(_req: Request, res: Response): void {
+async function logout(req: Request, res: Response): Promise<void> {
+  const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
+  if (token) {
+    await revokeSessionsForToken(token).catch(() => undefined);
+  }
   res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
   res.status(204).end();
 }
@@ -70,13 +84,15 @@ function me(req: Request, res: Response): void {
 }
 
 /**
- * 204: the password has changed, and there is nothing to hand back — the caller
- * learns the outcome from the status alone, and the session carries on.
+ * 204: the password has changed, and there is nothing to hand back. The
+ * service has bumped the account's session epoch, so this cookie is already
+ * dead; clearing it here saves the browser one guaranteed 401.
  */
 async function changePasswordRoute(req: Request, res: Response): Promise<void> {
   await changePassword(
     sessionUser(req).id,
     req.validated?.body as ChangePasswordInput,
   );
+  res.clearCookie(SESSION_COOKIE, sessionCookieOptions());
   res.status(204).end();
 }

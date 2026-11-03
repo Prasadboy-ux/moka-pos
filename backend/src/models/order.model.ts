@@ -19,7 +19,15 @@ const orderLineSchema = new Schema(
     productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
     name: { type: String, required: true },
     price: { type: Number, required: true, min: 0 },
-    qty: { type: Number, required: true, min: 0.001 },
+    qty: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: (value: number) => Number.isInteger(value),
+        message: 'Quantity must be a whole number.',
+      },
+    },
     stockMode: { type: String, enum: ['recipe', 'direct'], required: true },
   },
   { _id: false },
@@ -71,6 +79,8 @@ const orderSchema = new Schema(
       required: true,
     },
     voidedAt: { type: Date, default: null },
+    /** The account id that reversed the sale, kept even if the user is renamed later. */
+    voidedBy: { type: String, default: null },
     /** Denormalised at void time so the receipt shows the reversal history even after users change. */
     voidedByName: { type: String, default: null },
     voidReason: { type: String, default: '' },
@@ -122,6 +132,7 @@ export type Order = {
   customer: OrderCustomer | null;
   status: OrderStatus;
   voidedAt: Date | null;
+  voidedBy: string | null;
   voidedByName: string | null;
   voidReason: string;
   createdAt: Date;

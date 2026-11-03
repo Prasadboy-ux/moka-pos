@@ -90,10 +90,13 @@ Four decisions in this layer are not obvious from the code alone:
 - **The session is an httpOnly cookie**, so axios sends it with
   `withCredentials: true` and there is no interceptor and no `Authorization`
   header anywhere.
-- **The client is lazy.** The axios instance is created behind a `Proxy` on first
-  property access. Constructing it at module load threw on a missing
-  `NEXT_PUBLIC_API_URL` and aborted the whole production build, even though the
-  variable is needed by exactly one request.
+- **The client is lazy and same-origin by default.** The axios instance is
+  created behind a `Proxy` on first property access. With no
+  `NEXT_PUBLIC_API_URL`, requests go to this app's own `/api` path and the
+  Next.js rewrite forwards them to `API_PROXY_TARGET`, so the build works from
+  localhost, a LAN address, or a deployed domain without a baked-in hostname.
+  Constructing at module load once aborted the whole production build when the
+  variable was missing.
 - **`Idempotency-Key` is generated per `create()` call**, so a checkout resent on
   flaky cafe wifi replays the original order instead of minting a second receipt.
 - **Identity is stripped from request bodies.** `actor` and `cashier` exist on the
@@ -184,7 +187,7 @@ why the rule was testable before the server existed.
 
 | Component | Role |
 |---|---|
-| `DataTable` | Sortable columns (animated chevron), client pagination, staggered row entrance, skeleton and empty states |
+| `DataTable` | Sortable columns (animated chevron), client pagination with an opt-in server-pager mode, staggered row entrance, skeleton and empty states |
 | `FilterBar` | Search with counted category chips and whileTap feedback |
 | `ConfirmDialog` | Awaits the action, toasts failures, keeps the dialog open on failure |
 | `PageHeader` | Title, description, one primary action |
@@ -247,7 +250,7 @@ re-reads the user document on every request.
 
 | Decision | Reason |
 |---|---|
-| Client-side sorting and pagination | The API returns a whole range at once. Server-driven paging would be architecture for a problem this app does not have. It belongs in the repository, not in every screen. |
+| Client-side sorting and bounded pagination | Bounded lists (menu, users, shifts) sort and page in the browser. The order ledger and stock movements page on the server (`limit`/`offset`, `total`) because their history grows without bound; the pager state lives in the screen, the bounds travel through the repository. |
 | No virtualisation | 20 menu tiles is well under the ~50-item threshold. |
 | Menu art as plain `<img>` | `next/image` refuses SVG optimisation without `dangerouslyAllowSVG`; these are ~1 KB trusted local assets that gain nothing from rasterising. |
 | No layout reads in render | No `getBoundingClientRect` / `offsetHeight` during render. |
@@ -301,15 +304,15 @@ npm run lint         # eslint .
 npm run build
 npm run start        # required before the smoke suites
 
-npm run smoke        # all 7 suites, sequential
+npm run smoke        # all 8 suites, sequential
 ```
 
 The smoke suites need the API up and seeded on `http://localhost:3001` as well —
-five of the seven sign out over HTTP, because the session cookie is httpOnly and
+five of the eight sign out over HTTP, because the session cookie is httpOnly and
 the page cannot clear it.
 
-187 checks across 7 suites, plus 18 Vitest unit tests. See
-[`TESTING.md`](./TESTING.md).
+194 checks across 8 suites, plus 30 Vitest unit tests. `npm run smoke:ci` starts
+and stops the whole stack around those suites; see [`TESTING.md`](./TESTING.md).
 
 Playwright browsers are not version-pinned; a fresh clone needs
 `npx playwright install chromium`.
@@ -321,7 +324,7 @@ architecture, and its outcome is the evidence that the seam held.
 
 | Step | Change | Result |
 |---|---|---|
-| 1 | Write the API against `docs/API-CONTRACT.md`. | Done — 35 routes in `../backend` |
+| 1 | Write the API against `docs/API-CONTRACT.md`. | Done — 38 routes in `../backend` |
 | 2 | Add an `http/` implementation of the eight repositories. | Done — 342 lines across 3 files |
 | 3 | Point `getRepositories()` at it — **one file changes**. | Done — 27 lines in `index.ts` |
 | 4 | Replace the `localStorage` session with an httpOnly cookie, and add a server-side route guard. | Done — `moka_session` + `requireRole` |

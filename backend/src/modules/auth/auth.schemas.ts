@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { strongPassword } from '../../lib/password-policy.js';
 
 /**
  * The contract's three failure reasons map onto `LoginFailureReason` in the
@@ -30,10 +31,7 @@ export const changePasswordSchema = z.object({
     .string()
     .min(1, 'Enter your current password.')
     .max(200),
-  newPassword: z
-    .string()
-    .min(6, 'Password must be at least 6 characters.')
-    .max(200),
+  newPassword: strongPassword,
 });
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

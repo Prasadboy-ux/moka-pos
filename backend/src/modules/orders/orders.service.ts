@@ -4,7 +4,6 @@ import { withTransaction } from '../../db/transaction.js';
 import { dayRange } from '../../lib/dates.js';
 import { ApiError } from '../../lib/errors.js';
 import { calculateTax, normalisePhone, roundIDR } from '../../lib/money.js';
-import { isDuplicateKey } from '../../lib/mongo-errors.js';
 import { escapeRegExp } from '../../lib/schemas.js';
 import { CounterModel } from '../../models/counter.model.js';
 import { IdempotencyKeyModel } from '../../models/idempotency-key.model.js';
@@ -100,11 +99,19 @@ export async function listOrders(query: OrderQuery): Promise<OrderPage> {
   const limit = query.limit ?? 50;
   const offset = query.offset ?? 0;
 
+  /**
+   * Sort the filtered set first, then page it. `_id` is the tiebreak so two
+   * receipts written in the same millisecond keep a stable order across pages;
+   * without it the database is free to return them differently on each skip.
+   */
+  const direction = query.direction === 'asc' ? 1 : -1;
+  const sort: Record<string, 1 | -1> = {
+    [query.sort]: direction,
+    _id: direction,
+  };
+
   const [data, total] = await Promise.all([
-    OrderModel.find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .skip(offset)
-      .limit(limit),
+    OrderModel.find(filter).sort(sort).skip(offset).limit(limit),
     OrderModel.countDocuments(filter),
   ]);
 
@@ -129,7 +136,11 @@ export async function createOrder(
   // Fast path for a retry of a request that already succeeded. Outside the
   // transaction so a plain replay costs one indexed read and no transaction.
   if (idempotencyKey) {
-    const replay = await findReplay(idempotencyKey, cashier);
+    const replay = await findReplay(
+      idempotencyKey,
+      cashier,
+      await openShiftId(cashier),
+    );
     if (replay) return replay;
   }
 
@@ -137,10 +148,18 @@ export async function createOrder(
     const { order, movements } = await runSale(input, cashier, idempotencyKey);
     return { order, movements, replayed: false };
   } catch (error) {
-    // Two retries raced. One won and inserted the key; the loser hit the unique
-    // index. Return the winner's receipt instead of charging the customer twice.
-    if (idempotencyKey && isDuplicateKey(error)) {
-      const replay = await findReplay(idempotencyKey, cashier);
+    // Two retries raced. The loser can fail on the unique key, but it can also
+    // fail earlier: with one unit left, its coverage check or conditional stock
+    // decrement sees the winner's committed sale first and raises
+    // `insufficient-stock`. Either way the winner's key is already committed, so
+    // look for the receipt before surfacing an error that would tell the cashier
+    // a sale that succeeded did not happen.
+    if (idempotencyKey) {
+      const replay = await findReplay(
+        idempotencyKey,
+        cashier,
+        await openShiftId(cashier),
+      );
       if (replay) return replay;
     }
     throw error;
@@ -158,7 +177,7 @@ export async function createOrder(
  * Stock is restored from the *current* catalogue, not the moment of sale. The
  * order trustfully denormalises what was charged, but a recipe or mode is
  * changed by later edits, and the shelf that exists today is the one that has
-  * to be corrected today. Where the catalogue can no longer express what the
+ * to be corrected today. Where the catalogue can no longer express what the
  * sale consumed, the line is skipped with a warning instead of guessed at.
  */
 export async function voidOrder(
@@ -176,6 +195,28 @@ export async function voidOrder(
         'order-already-voided',
         `${order.receiptNo} has already been voided.`,
       );
+    }
+
+    /**
+     * A closed shift is a reconciled cash drawer: its counted cash, expected
+     * cash, and variance have been signed off. Reversing a sale from that shift
+     * would silently restate a document the manager already took away, so the
+     * correction has to be a new movement against today's drawer instead.
+     *
+     * Orders from before shifts were mandatory (and some seeded history) carry
+     * no `shiftId`; those remain voidable because there is no closed drawer to
+     * contradict.
+     */
+    if (order.shiftId) {
+      const shift = await ShiftModel.findById(order.shiftId)
+        .select('status')
+        .session(session);
+      if (shift?.status === 'closed') {
+        throw ApiError.conflict(
+          'shift-closed',
+          `${order.receiptNo} belongs to a closed shift and cannot be voided.`,
+        );
+      }
     }
 
     // --- 1. Claim the receipt. Everything below rides on having won this.
@@ -215,7 +256,11 @@ export async function voidOrder(
     const productNow = new Map(products.map((p) => [String(p._id), p]));
 
     const ingredientNeed = new Map<string, number>();
-    const directRestore: { productId: Types.ObjectId; label: string; qty: number }[] = [];
+    const directRestore: {
+      productId: Types.ObjectId;
+      label: string;
+      qty: number;
+    }[] = [];
 
     for (const line of order.lines) {
       const product = productNow.get(String(line.productId));
@@ -245,7 +290,10 @@ export async function voidOrder(
       // Recipe restore uses the recipe as it stands now.
       for (const item of product.recipe) {
         const key = String(item.ingredientId);
-        ingredientNeed.set(key, (ingredientNeed.get(key) ?? 0) + item.qty * line.qty);
+        ingredientNeed.set(
+          key,
+          (ingredientNeed.get(key) ?? 0) + item.qty * line.qty,
+        );
       }
     }
 
@@ -275,8 +323,14 @@ export async function voidOrder(
       _id: { $in: [...ingredientNeed.keys()] },
     })
       .select('name unit')
-      .session(session)) as unknown as { _id: Types.ObjectId; name: string; unit: 'gram' | 'ml' | 'pcs' }[];
-    const ingredientById = new Map(ingredientDocs.map((i) => [String(i._id), i]));
+      .session(session)) as unknown as {
+      _id: Types.ObjectId;
+      name: string;
+      unit: 'gram' | 'ml' | 'pcs';
+    }[];
+    const ingredientById = new Map(
+      ingredientDocs.map((i) => [String(i._id), i]),
+    );
 
     for (const [id, needed] of ingredientNeed) {
       const ingredient = ingredientById.get(id);
@@ -401,7 +455,7 @@ async function runSale(
     }
 
     // --- 3. Coverage across the whole cart, before anything moves.
-    await assertCoverage(lines, byId);
+    await assertCoverage(lines, byId, session);
 
     // --- 4. Receipt number, allocated atomically so two tills cannot collide.
     const counter = await CounterModel.findOneAndUpdate(
@@ -450,6 +504,7 @@ async function runSale(
             _id: idempotencyKey,
             userId: cashier.id,
             orderId: order!._id,
+            shiftId: shift._id,
             createdAt: new Date(),
           },
         ],
@@ -471,6 +526,7 @@ async function runSale(
 async function assertCoverage(
   lines: SaleLine[],
   byId: Map<string, SellableProduct>,
+  session: ClientSession,
 ): Promise<void> {
   /** id -> total quantity needed across every line that touches it. */
   const ingredientNeed = new Map<string, number>();
@@ -497,9 +553,11 @@ async function assertCoverage(
   const [ingredients, directProducts] = await Promise.all([
     IngredientModel.find({ _id: { $in: [...ingredientNeed.keys()] } })
       .select('name unit stock')
+      .session(session)
       .lean(),
     ProductModel.find({ _id: { $in: [...directNeed.keys()] } })
       .select('name stock')
+      .session(session)
       .lean(),
   ]);
 
@@ -699,12 +757,31 @@ function normaliseCustomer(input: CreateOrderInput) {
   };
 }
 
+async function openShiftId(
+  cashier: SessionUser,
+): Promise<Types.ObjectId | null> {
+  const shift = await ShiftModel.findOne({
+    userId: new Types.ObjectId(cashier.id),
+    status: 'open',
+  })
+    .select('_id')
+    .lean<{ _id: Types.ObjectId } | null>();
+  return shift?._id ?? null;
+}
+
 async function findReplay(
   idempotencyKey: string,
   cashier: SessionUser,
+  currentShiftId: Types.ObjectId | null,
 ): Promise<OrderResult | null> {
   const record = await IdempotencyKeyModel.findById(idempotencyKey);
   if (!record) return null;
+
+  const foreignKey = () =>
+    ApiError.conflict(
+      'idempotency-key-foreign',
+      'This payment was already submitted by another cashier or shift. Start a new sale instead of retrying this one.',
+    );
 
   // A key is one cashier's retry token, not a shared receipt id. Whoever holds
   // another user's key must not be handed that user's receipt back — totals,
@@ -712,14 +789,32 @@ async function findReplay(
   // key instead, which keeps this refusal silent about the key's existence
   // beyond the fact that it is not theirs.
   if (String(record.userId) !== cashier.id) {
-    throw ApiError.conflict(
-      'idempotency-key-foreign',
-      'This payment was already submitted by another cashier. Start a new sale instead of retrying this one.',
-    );
+    throw foreignKey();
+  }
+
+  // The same teller on a later shift is a different sale context. A stale key
+  // must not resurrect yesterday's receipt on today's drawer.
+  if (
+    record.shiftId &&
+    currentShiftId &&
+    String(record.shiftId) !== String(currentShiftId)
+  ) {
+    throw foreignKey();
   }
 
   const order = await OrderModel.findById(record.orderId);
   if (!order) return null;
+
+  // Legacy records predate `shiftId`; the shift stamped on the order is the
+  // next-best binding.
+  if (
+    !record.shiftId &&
+    currentShiftId &&
+    order.shiftId &&
+    String(order.shiftId) !== String(currentShiftId)
+  ) {
+    throw foreignKey();
+  }
 
   // The ledger is re-readable on its own endpoint; a replay does not restate it.
   return { order, movements: [], replayed: true };

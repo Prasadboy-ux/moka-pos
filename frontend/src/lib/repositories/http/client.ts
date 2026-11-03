@@ -12,16 +12,14 @@ import axios, { AxiosError, type AxiosInstance } from "axios";
 /**
  * Base URL, resolved once at module load.
  *
- * A missing value fails loudly rather than defaulting to localhost, so a
- * misconfigured build cannot quietly talk to a developer's machine.
+ * When unset, calls go to this app's own origin (`/api`) and the Next.js
+ * rewrite introduced in `next.config.ts` forwards them to `API_PROXY_TARGET`.
+ * That is the portable default: the same build works on localhost, on a LAN
+ * address, and on the deployed domain, because no machine-specific hostname is
+ * baked into the bundle. Setting `NEXT_PUBLIC_API_URL` still points the browser
+ * straight at an API on another origin.
  */
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
-function missingApiUrl(): Error {
-  return new Error(
-    "NEXT_PUBLIC_API_URL is not set. Copy .env.local.example to .env.local and point it at the API.",
-  );
-}
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL?.trim();
 
 /**
  * `withCredentials` sends the session cookie.
@@ -40,10 +38,8 @@ function missingApiUrl(): Error {
 let instance: AxiosInstance | null = null;
 
 function createInstance(): AxiosInstance {
-  if (!BASE_URL) throw missingApiUrl();
-
   return axios.create({
-    baseURL: `${BASE_URL.replace(/\/$/, "")}/api`,
+    baseURL: BASE_URL ? `${BASE_URL.replace(/\/$/, "")}/api` : "/api",
     withCredentials: true,
     timeout: 20_000,
     headers: { "Content-Type": "application/json" },
@@ -136,9 +132,9 @@ function failedUrl(error: unknown): string | undefined {
 /**
  * Normalises anything thrown by axios into an `ApiError`.
  *
- * A network failure or a 502 from a proxy has no envelope at all, and would
- * otherwise surface as "Request failed with status code 502" — which tells a
- * cashier nothing about whether to retry.
+ * A network failure or a 5xx from the Next.js rewrite has no envelope at all,
+ * and would otherwise surface as "Request failed with status code 502" — which
+ * tells a cashier nothing about whether to retry.
  */
 export function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
@@ -166,6 +162,18 @@ export function toApiError(error: unknown): ApiError {
     if (!axiosError.response) {
       return new ApiError(
         0,
+        "network",
+        "Cannot reach the server. Check the connection and try again.",
+      );
+    }
+
+    // The API always writes an `error`/`message` envelope, so a 5xx without a
+    // message did not come from the API. It is the rewrite reporting that the
+    // API process is down — the same failure, just one hop away, and the user
+    // needs the same advice: check the connection and try again.
+    if (axiosError.response.status >= 500) {
+      return new ApiError(
+        axiosError.response.status,
         "network",
         "Cannot reach the server. Check the connection and try again.",
       );

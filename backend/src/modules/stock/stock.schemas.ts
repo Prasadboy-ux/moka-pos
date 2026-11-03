@@ -48,13 +48,17 @@ export const adjustInput = z
      * "purchase" can quietly remove stock and the ledger reads the opposite of
      * what happened. A correction may point either way, but never nowhere.
      *
-     * Whole pcs only: stock is counted in cups and packets, and a fractional
-     * adjustment would let the level drift to 10.5 pcs that no ledger movement
-     * of an on-sale decrement can ever explain.
+     * Ingredients are measured in grams and millilitres, so a counted
+     * correction may be fractional. Direct products are counted in whole pcs;
+     * that rule needs the target document, so the service enforces it after
+     * loading the item rather than guessing from the request alone.
      */
     qty: z
       .number({ message: 'A quantity is required.' })
-      .int('Quantity must be a whole number.'),
+      .refine(
+        (value) => Math.abs(value * 1000 - Math.round(value * 1000)) < 1e-9,
+        'Use at most three decimal places.',
+      ),
     note: z.string().trim().max(240).default(''),
   })
   .superRefine((input, ctx) => {

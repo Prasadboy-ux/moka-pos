@@ -34,6 +34,12 @@ only matches `/api` and would drop `/api/products` and the rest. The frontend
 proxies `/api/*` to this service through a Next.js rewrite so the session cookie
 stays same-origin — see the frontend's `next.config.ts`.
 
+`/api/health` is mounted separately from the API router in both entries. In
+`createApp` it sits before the body parser and the rate limiter; in the
+serverless wrapper it sits before the connect hook and bounds the wait for a
+cold connection. A probe must answer `503 degraded` while Mongo or the limiter
+store is unavailable — otherwise an outage looks like a 500 or a hanging probe.
+
 Module folders export `router`; `routes/index.ts` is the only file that knows
 the full URL surface. Adding a module means adding one folder and one line.
 
@@ -100,23 +106,38 @@ mean summing a growing table on every keystroke.
 The sale is the only place where several collections must move together. It runs
 inside a single MongoDB transaction, and stock decrements are *conditional*
 (`$inc` filtered on `stock: { $gte: qty }`) so two tills cannot oversell each
-other even under concurrency. See `modules/orders/`.
+other even under concurrency. Coverage reads also run inside that transaction,
+so the stock they check is the stock the sale writes. See `modules/orders/`.
+
+Idempotency keys are owned by the shift that minted them. A retry after the
+shift closed but before a new one opened still replays; once a different shift
+is open, the key answers `409 idempotency-key-foreign` rather than putting
+yesterday's receipt on today's drawer.
 
 ### Sessions are cookies; roles are re-checked every request
 
-The session is a signed JWT in an httpOnly cookie. The token carries **only the
-user id** — `requireSession` re-reads the user from the database on each request
-rather than trusting the token body, so deactivating an account takes effect
-immediately instead of at token expiry. A staff member fired at closing time has
-to stop working now, not in twelve hours.
+The session is a signed JWT in an httpOnly cookie. The token carries the user id
+and a `sessionEpoch` — `requireSession` re-reads the user from the database on
+each request rather than trusting the token body, so deactivating an account
+takes effect immediately instead of at token expiry. A staff member fired at
+closing time has to stop working now, not in twelve hours.
+
+The epoch is what makes logout and password changes real: the service increments
+the user's `sessionEpoch`, and every token minted with the old value fails the
+comparison. An admin password reset and any activation-state change bump it too,
+so a reset cookie dies and reactivating an account cannot revive an old session.
+A stateless JWT cannot be deleted, so this is the revocation mechanism. Logout
+is best-effort and never blocks clearing the cookie.
 
 Role checks happen on the route. Hiding a nav link is presentation, not
 authorisation.
 
-Three details that are easy to get wrong and are pinned in `lib/session.ts`:
+Four details that are easy to get wrong and are pinned in `lib/session.ts`:
 
 - **The algorithm is pinned to HS256** rather than read from the token header.
   Without that, a token claiming `alg: none` would skip signature verification.
+- **The issuer and audience are pinned** so a token minted for another service
+  cannot be replayed here.
 - **Every jose failure becomes a 401**, never a 500. A malformed cookie is a
   routine client state, and letting the error escape also tells an attacker
   whether their forged token was structurally valid.
@@ -136,11 +157,24 @@ cost, so a wrong username and a wrong password take the same time to reject.
 See `.env.example`. Notable defaults, all in `config/env.ts`:
 
 - `PORT` 3001 — Next.js dev already binds 3000.
-- `COOKIE_SECURE` false for local HTTP. True behind HTTPS, or the browser drops
-  the cookie and login silently stops working.
+- `COOKIE_SECURE` false for local HTTP. Production requires `true`: env
+  validation refuses to start otherwise, because a session cookie must not
+  travel over plain HTTP. Behind HTTPS, leaving it false also makes the browser
+  drop the cookie and login silently stop working.
+- `TRUST_PROXY` unset means no proxy: `X-Forwarded-For` is ignored so a direct
+  client cannot choose its own IP. Vercel is auto-detected as one hop; set this
+  explicitly behind nginx or another known proxy.
+- `RATE_LIMIT_LOGIN_MAX`, `RATE_LIMIT_LOGIN_USERNAME_MAX`,
+  `RATE_LIMIT_PASSWORD_MAX`, `RATE_LIMIT_API_MAX` — per-IP login, per-username
+  failed login, per-user+IP password change, and whole-API limits. Disabled only
+  under `NODE_ENV=test`.
 - `STORE_TIMEZONE` `Asia/Jakarta` — report day boundaries resolve here, not in
   the server's zone, or a day of sales shifts across midnight UTC.
 - `TAX_RATE_DEFAULT` 0.1 — Indonesian VAT.
+
+Production also refuses to start if `admin`/`kasir`/`kasir2` still use their
+seeded passwords while active, if `SESSION_SECRET` is a placeholder, or if
+`CORS_ORIGIN` is `*`.
 
 ## Testing
 

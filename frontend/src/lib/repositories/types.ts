@@ -233,6 +233,14 @@ export interface CreateOrderInput {
   customer?: OrderCustomer | null;
 }
 
+/** Fields the API can order the ledger by. */
+export type OrderSortField =
+  | "createdAt"
+  | "receiptNo"
+  | "total"
+  | "paymentMethod"
+  | "cashierName";
+
 export interface OrderQuery {
   cashierId?: string;
   /** Inclusive start, inclusive end. */
@@ -246,6 +254,9 @@ export interface OrderQuery {
    */
   q?: string;
   method?: PaymentMethod;
+  /** Applied to the whole filtered set before the page window. */
+  sort?: OrderSortField;
+  direction?: "asc" | "desc";
   /**
    * Page bounds. `total` on the reply is the number of rows matching the
    * filters, so the caller can page without ever loading the whole ledger.

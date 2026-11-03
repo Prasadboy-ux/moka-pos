@@ -42,6 +42,12 @@ describe('app shell', () => {
 
     expect(response.headers['x-powered-by']).toBeUndefined();
   });
+
+  it('forbids caching of API responses', async () => {
+    const response = await request(app).get('/api/health');
+
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
 });
 
 describe('error helpers', () => {

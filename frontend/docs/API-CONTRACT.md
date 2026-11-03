@@ -54,7 +54,8 @@ as a sentence with a next step where one exists — not "Invalid input".
 
 Reasons in use: `last-active-admin` · `category-in-use` · `already-open-shift` ·
 `already-closed-shift` · `no-open-shift` · `username-taken` ·
-`order-already-voided` · `idempotency-key-foreign`.
+`order-already-voided` · `idempotency-key-foreign` · `duplicate` (the generic
+unique-index fallback, used when the service cannot name the conflicting field).
 
 ### Rate limits
 
@@ -150,6 +151,20 @@ wrong, so usernames cannot be enumerated.
 Replaces reading the persisted session from `localStorage`. Called once on app
 load; every guard waits on it — the same reason the mock has a `hydrated` flag.
 
+### `POST /api/auth/change-password`
+
+```jsonc
+// request
+{ "currentPassword": "admin123", "newPassword": "a-new-password" }
+```
+
+Both fields are required. A wrong current password is `422 validation` with
+`fields.currentPassword`; a new password under 12 characters, one in the common
+password blocklist, or one identical to the current one, is `422 validation`
+with `fields.newPassword`. Success is `204` with no body, clears the session
+cookie, and revokes every session for the account — the user must sign in again
+with the new password.
+
 ## 4. Categories
 
 `CategoryRepository`
@@ -226,8 +241,8 @@ ProductInput {
   price: number            // rupiah
   image: string            // public path, e.g. "/menu/coffee/iced_americano.svg"
   stockMode: "recipe" | "direct"
-  stock?: number           // optional; defaults to 0 when direct
-  minStock?: number        // optional; defaults to 0 when direct
+  stock?: number           // whole pieces; optional, defaults to 0 when direct
+  minStock?: number        // whole pieces; optional, defaults to 0 when direct
   recipe: RecipeItem[]     // required and non-empty when recipe
   isActive: boolean
 }
@@ -258,7 +273,8 @@ Server-side validation the client also enforces, so both fail the same way:
 - `direct` mode: `stock` and `minStock` default to `0` when omitted.
 - `recipe` is ignored (stored empty) in `direct` mode.
 - Switching a direct product to recipe unsets `stock` and `minStock`; switching
-  it back does not resurrect the old count.
+  it back starts at `stock: 0` rather than resurrecting the old count, so the
+  response always carries the numeric fields `direct` promises.
 
 **Product edits write stock in exactly one place.** `POST /api/products` is the
 only edit path that accepts `stock`, and it treats the value as the *opening*
@@ -379,6 +395,10 @@ Server rules:
 - **Usernames unique case-insensitively.** `409 username-taken`.
 - **`409 last-active-admin`** when deactivating the last active admin. Without
   this the app can be left with no account that can reach user management.
+- **Auth changes revoke sessions.** An admin password reset, or any activation
+  state change, bumps the target account's `sessionEpoch`; every cookie issued
+  before the change answers `401`. Reactivating an account therefore does not
+  revive a session from before it was deactivated.
 - **No delete endpoint.** Orders reference the cashier by id; deactivation is how
   someone leaves.
 
@@ -391,10 +411,16 @@ small; the cap only guards against an unbounded array.
 
 | Method | Endpoint |
 |---|---|
-| `list(query)` | `GET /api/orders?cashierId&from&to` |
+| `list(query)` | `GET /api/orders?cashierId&from&to&status&q&method&limit&offset` |
 | `getById(id)` | `GET /api/orders/:id` |
 | `recent(limit)` | `GET /api/orders/recent?limit=8` |
 | `create(input)` | `POST /api/orders` → `201` |
+
+`list` is paged on the server. `limit` defaults to **50** and is capped at
+**100**; `offset` defaults to 0 and is capped at **10,000**. `total` is the
+number of rows matching the filters before the page bounds, so the transactions
+ledger asks for 12 at a time and draws its pager from `total`. Omitting both
+bounds keeps the historical first-50 reply.
 
 ```jsonc
 // POST /api/orders
@@ -411,6 +437,10 @@ small; the cap only guards against an unbounded array.
   // cashier is taken from the session and ignored in the body
 }
 ```
+
+Each line's `qty` is a positive whole number (no fractional cups); a cart is
+limited to **100 lines**. Recipe quantities remain fractional because they are
+grams and millilitres, not sellable units.
 
 ```jsonc
 // 201
@@ -488,12 +518,16 @@ duplicate charge.
 - A blank header is treated as absent, so two deliberate sales are still two
   sales.
 - Concurrent retries of one key race on the unique key index; the loser returns
-  the winner's receipt rather than charging twice.
+  the winner's receipt rather than charging twice. This holds even when the loser
+  fails the stock check because the winner took the last unit: the key is looked
+  up before the refusal is surfaced.
 - Replaying does not decrement stock again.
 - A key is owned by the (shift, teller) combination that produced it: replaying
   a key with a body that binds it to a different cashier or shift answers
   `409 conflict` reason `idempotency-key-foreign` rather than handing over a
-  receipt that is not the caller's.
+  receipt that is not the caller's. A network retry after the shift closed but
+  before a new shift opened still replays the original receipt; once a new shift
+  is open, the old key is foreign.
 
 ### Voiding a receipt
 
@@ -542,9 +576,10 @@ out of every revenue aggregate; the transactions screen remains the view of
 Server rules:
 
 - **`from` and `to` are required** — a report never quietly defaults to a
-  window. Long spans intentionally get "all time": the transactions screen asks
-  from an explicit named earliest day (`2000-01-01`) and the aggregate answers
-  month buckets for it.
+  window. The range is capped at **366 days** (`422 validation`, `fields.to`):
+  the aggregate is computed from every matching order in Node, so an unbounded
+  span is a denial-of-service vector. A longer history needs narrower windows or
+  a server-side aggregate, not a wider request.
 - **Only paid receipts count.** A void was never a sale; the transactions
   screen is the audit view of reversals.
 - `method` narrows by payment method; `q` is the same customer-facing needle
@@ -653,12 +688,13 @@ Stated explicitly so nobody builds it:
   `lib/repositories/read-models.ts` and `types/pos.ts` from returned data. Only
   `StockRepository.value()` is a server call, because it multiplies levels by
   costs.
-- **Sorting, pagination, filtering UI** — mostly client-side. The one server-side
-  exception is the stock movement ledger: `GET /api/stock/movements` accepts
-  `limit`/`offset` and returns `{ data, total, limit, offset }` (section 7),
-  because that history is the only list that grows without bound. General
-  pagination stays client-side; when it moves server-side, that logic goes in
-  the repository, not in the screens.
+- **Sorting, pagination, filtering UI** — sorting stays client-side; pagination
+  is server-side for the two lists that grow without bound. The stock movement
+  ledger (`GET /api/stock/movements`, section 7) and the order ledger
+  (`GET /api/orders`, section 9) both accept `limit`/`offset` and return
+  `{ data, total, limit, offset }`. The transactions screen requests 12 orders
+  per page and derives its pager from `total`. Every other list is bounded by a
+  cap, so its pagination stays client-side.
 - **The dashboard and report aggregations** — the frontend already sums, trends,
   and splits. Moving them server-side is a performance option, not a requirement.
 - **Route-level guards** — the client keeps its own; the server just has to

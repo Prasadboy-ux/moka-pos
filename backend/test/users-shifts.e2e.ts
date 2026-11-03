@@ -102,7 +102,7 @@ describe('POST /api/users', () => {
       .send({
         name: 'Andi Wijaya',
         username: 'kasir2',
-        password: 'kasir123',
+        password: 'kasir-pass-2026',
         role: 'kasir',
         isActive: true,
       })
@@ -115,7 +115,7 @@ describe('POST /api/users', () => {
     });
 
     const stored = await findByUsername('kasir2').select('+passwordHash');
-    expect(stored?.passwordHash).not.toBe('kasir123');
+    expect(stored?.passwordHash).not.toBe('kasir-pass-2026');
     expect(stored?.passwordHash.startsWith('scrypt$')).toBe(true);
   });
 
@@ -125,7 +125,7 @@ describe('POST /api/users', () => {
       .send({
         name: 'Impostor',
         username: 'ADMIN',
-        password: 'secret123',
+        password: 'secret-pass-2026',
         role: 'admin',
         isActive: true,
       })
@@ -139,7 +139,7 @@ describe('POST /api/users', () => {
     const body = {
       name: 'Race User',
       username: 'raceuser',
-      password: 'secret123',
+      password: 'secret-pass-2026',
       role: 'kasir',
       isActive: true,
     };
@@ -170,7 +170,7 @@ describe('POST /api/users', () => {
       .expect(422);
   });
 
-  it('rejects a password under six characters', async () => {
+  it('rejects a password under twelve characters', async () => {
     await admin.agent
       .post('/api/users')
       .send({
@@ -189,7 +189,7 @@ describe('POST /api/users', () => {
       .send({
         name: 'Odd Name',
         username: 'bad name!',
-        password: 'secret123',
+        password: 'secret-pass-2026',
         role: 'kasir',
         isActive: true,
       })
@@ -206,7 +206,7 @@ describe('PUT /api/users/:id', () => {
       .send({
         name: 'Andi Wijaya',
         username: 'kasir2',
-        password: 'kasir123',
+        password: 'kasir-pass-2026',
         role: 'kasir',
         isActive: true,
       })
@@ -231,6 +231,37 @@ describe('PUT /api/users/:id', () => {
     expect(after?.passwordHash).toBe(before?.passwordHash);
   });
 
+  it('treats an empty password as unchanged', async () => {
+    const before = await findByUsername('kasir2').select('+passwordHash');
+
+    await admin.agent
+      .put(`/api/users/${targetId}`)
+      .send({
+        name: 'Andi W',
+        username: 'kasir2',
+        role: 'kasir',
+        isActive: true,
+        password: '',
+      })
+      .expect(200);
+
+    const after = await findByUsername('kasir2').select('+passwordHash');
+    expect(after?.passwordHash).toBe(before?.passwordHash);
+  });
+
+  it('requires an explicit active flag on update', async () => {
+    const response = await admin.agent
+      .put(`/api/users/${targetId}`)
+      .send({
+        name: 'Andi W',
+        username: 'kasir2',
+        role: 'kasir',
+      })
+      .expect(422);
+
+    expect(response.body.fields).toHaveProperty('isActive');
+  });
+
   it('changes the password when one is sent', async () => {
     const before = await findByUsername('kasir2').select('+passwordHash');
 
@@ -241,7 +272,7 @@ describe('PUT /api/users/:id', () => {
         username: 'kasir2',
         role: 'kasir',
         isActive: true,
-        password: 'newpass123',
+        password: 'newpass-2026-ok',
       })
       .expect(200);
 
@@ -316,7 +347,7 @@ describe('PATCH /api/users/:id/active', () => {
       .send({
         name: 'Second Admin',
         username: 'admin2',
-        password: 'admin123',
+        password: 'admin-pass-2026',
         role: 'admin',
         isActive: true,
       })
@@ -325,7 +356,7 @@ describe('PATCH /api/users/:id/active', () => {
     const secondAgent = request.agent(app);
     await secondAgent
       .post('/api/auth/login')
-      .send({ username: 'admin2', password: 'admin123' })
+      .send({ username: 'admin2', password: 'admin-pass-2026' })
       .expect(200);
 
     const [first, other] = await Promise.all([
@@ -354,7 +385,7 @@ describe('PATCH /api/users/:id/active', () => {
       .send({
         name: 'Second Admin',
         username: 'admin2',
-        password: 'secret123',
+        password: 'secret-pass-2026',
         role: 'admin',
         isActive: true,
       })
@@ -384,6 +415,88 @@ describe('PATCH /api/users/:id/active', () => {
 
   it('has no delete route, because orders reference the cashier', async () => {
     await admin.agent.delete(`/api/users/${kasir.user.id}`).expect(404);
+  });
+});
+
+describe('session revocation on account changes', () => {
+  it('revokes the target sessions when an admin resets the password', async () => {
+    await admin.agent
+      .put(`/api/users/${kasir.user.id}`)
+      .send({
+        name: 'Siti Rahayu',
+        username: 'kasir',
+        role: 'kasir',
+        isActive: true,
+        password: 'new-kasir-pass-2026',
+      })
+      .expect(200);
+
+    await kasir.agent.get('/api/auth/me').expect(401);
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: 'new-kasir-pass-2026' })
+      .expect(200);
+  });
+
+  it('keeps sessions when an update leaves the password unchanged', async () => {
+    await admin.agent
+      .put(`/api/users/${kasir.user.id}`)
+      .send({
+        name: 'Siti Rahayu',
+        username: 'kasir',
+        role: 'kasir',
+        isActive: true,
+        password: '',
+      })
+      .expect(200);
+
+    await kasir.agent.get('/api/auth/me').expect(200);
+  });
+
+  it('does not revive a session after deactivation and reactivation', async () => {
+    await kasir.agent.get('/api/auth/me').expect(200);
+
+    await admin.agent
+      .patch(`/api/users/${kasir.user.id}/active`)
+      .send({ isActive: false })
+      .expect(200);
+    await kasir.agent.get('/api/auth/me').expect(401);
+
+    await admin.agent
+      .patch(`/api/users/${kasir.user.id}/active`)
+      .send({ isActive: true })
+      .expect(200);
+    await kasir.agent.get('/api/auth/me').expect(401);
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: TEST_PASSWORD })
+      .expect(200);
+  });
+
+  it('does not revive a session reactivated through the update route', async () => {
+    await admin.agent
+      .patch(`/api/users/${kasir.user.id}/active`)
+      .send({ isActive: false })
+      .expect(200);
+    await kasir.agent.get('/api/auth/me').expect(401);
+
+    await admin.agent
+      .put(`/api/users/${kasir.user.id}`)
+      .send({
+        name: 'Siti Rahayu',
+        username: 'kasir',
+        role: 'kasir',
+        isActive: true,
+      })
+      .expect(200);
+    await kasir.agent.get('/api/auth/me').expect(401);
+
+    await request(app)
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: TEST_PASSWORD })
+      .expect(200);
   });
 });
 
@@ -491,7 +604,10 @@ describe('shifts', () => {
       .expect(201);
 
     await OrderModel.create([
-      { ...cashOrder(opened.body.id, kasir.user.id, 'MOKA-9003', 50000), paymentMethod: 'qris' },
+      {
+        ...cashOrder(opened.body.id, kasir.user.id, 'MOKA-9003', 50000),
+        paymentMethod: 'qris',
+      },
     ]);
 
     const closed = await kasir.agent
@@ -510,7 +626,9 @@ describe('shifts', () => {
       .send({ openingFloat: 0 })
       .expect(201);
 
-    await OrderModel.create([cashOrder(opened.body.id, kasir.user.id, 'MOKA-9004', 100000)]);
+    await OrderModel.create([
+      cashOrder(opened.body.id, kasir.user.id, 'MOKA-9004', 100000),
+    ]);
 
     const closed = await kasir.agent
       .post(`/api/shifts/${opened.body.id}/close`)

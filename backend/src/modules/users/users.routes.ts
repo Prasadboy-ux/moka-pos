@@ -11,7 +11,6 @@ import {
 } from './users.schemas.js';
 import {
   createUser,
-  getUser,
   listUsers,
   setUserActive,
   updateUser,
@@ -40,13 +39,6 @@ router.post(
   create,
 );
 router.get('/users', requireSession, requireRole('admin'), list);
-router.get(
-  '/users/:id',
-  requireSession,
-  requireRole('admin'),
-  validate({ params: idParam }),
-  get,
-);
 router.put(
   '/users/:id',
   requireSession,
@@ -57,10 +49,6 @@ router.put(
 
 async function list(_req: Request, res: Response): Promise<void> {
   res.status(200).json(await listUsers());
-}
-
-async function get(req: Request, res: Response): Promise<void> {
-  res.status(200).json(await getUser(routeId(req)));
 }
 
 async function create(req: Request, res: Response): Promise<void> {

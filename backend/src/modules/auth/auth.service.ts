@@ -1,5 +1,6 @@
 import { ApiError } from '../../lib/errors.js';
 import { hashPassword, verifyPassword } from '../../lib/password.js';
+import { verifySession } from '../../lib/session.js';
 import {
   type SessionUser,
   findByUsername,
@@ -7,6 +8,11 @@ import {
   UserModel,
 } from '../../models/user.model.js';
 import type { ChangePasswordInput, LoginInput } from './auth.schemas.js';
+
+export type AuthenticatedSession = {
+  user: SessionUser;
+  sessionEpoch: number;
+};
 
 /**
  * Authenticates a staff account.
@@ -23,7 +29,9 @@ import type { ChangePasswordInput, LoginInput } from './auth.schemas.js';
  * they are active, without already knowing the password.
  */
 
-export async function authenticate(input: LoginInput): Promise<SessionUser> {
+export async function authenticate(
+  input: LoginInput,
+): Promise<AuthenticatedSession> {
   const user = await findByUsername(input.username).select('+passwordHash');
 
   // Identical status and message for "no such user" and "wrong password", so a
@@ -57,7 +65,10 @@ export async function authenticate(input: LoginInput): Promise<SessionUser> {
     );
   }
 
-  return toSessionUser(user);
+  return {
+    user: toSessionUser(user),
+    sessionEpoch: user.sessionEpoch ?? 0,
+  };
 }
 
 function invalidCredentials(): ApiError {
@@ -86,9 +97,11 @@ async function burnTime(): Promise<void> {
  *
  * The current password is verified first, because a session cookie is held open
  * on shared desks — possessing it must not be enough to take over the account.
- * The new password is then stored and the session cookie is left alone: it
- * authenticates the *user*, and rotating the password does not rotate who the
- * cookie belongs to.
+ *
+ * Every session is then revoked by bumping `sessionEpoch`. A password change is
+ * the moment a user expects other devices to be signed out: if a cookie was
+ * copied from an unlocked till, changing the password is how they take the
+ * account back. The caller therefore has to sign in again with the new password.
  *
  * A reused password is refused. Users reuse old passwords reflexively, and the
  * whole point of the current-password check is that the account's past
@@ -124,5 +137,42 @@ export async function changePassword(
   }
 
   user.passwordHash = await hashPassword(input.newPassword);
+  user.sessionEpoch = (user.sessionEpoch ?? 0) + 1;
   await user.save();
+}
+
+/**
+ * Revokes every session belonging to the token's account.
+ *
+ * Logout cannot delete a stateless JWT, so it bumps the epoch instead. The
+ * epoch is only bumped when the presented token is still current: otherwise a
+ * copied old token could be replayed as a logout and keep signing the real user
+ * out after they had already rotated their password.
+ *
+ * An invalid, expired, or stale token is a no-op. Logout must always clear the
+ * cookie, even when there is nothing left on the server to revoke.
+ */
+export async function revokeSessionsForToken(token: string): Promise<void> {
+  let session: Awaited<ReturnType<typeof verifySession>>;
+  try {
+    session = await verifySession(token);
+  } catch {
+    return;
+  }
+
+  const { userId, epoch } = session;
+  // Accounts created before `sessionEpoch` existed have no field; treat that
+  // as zero so their first logout still revokes the token they are holding.
+  const currentEpoch =
+    epoch === 0
+      ? {
+          _id: userId,
+          $or: [
+            { sessionEpoch: 0 },
+            { sessionEpoch: { $exists: false } },
+          ],
+        }
+      : { _id: userId, sessionEpoch: epoch };
+
+  await UserModel.updateOne(currentEpoch, { $inc: { sessionEpoch: 1 } });
 }

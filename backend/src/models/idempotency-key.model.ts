@@ -15,6 +15,12 @@ const idempotencyKeySchema = new Schema(
     _id: { type: String, required: true },
     userId: { type: Schema.Types.ObjectId, required: true },
     orderId: { type: Schema.Types.ObjectId, required: true },
+    /**
+     * The shift that minted the key. Optional so records written before shift
+     * scoping was added remain readable; `findReplay` falls back to the order's
+     * stamped shift for those.
+     */
+    shiftId: { type: Schema.Types.ObjectId, ref: 'Shift', default: null },
     createdAt: { type: Date, default: Date.now, required: true },
   },
   { collection: 'idempotency_keys', versionKey: false },

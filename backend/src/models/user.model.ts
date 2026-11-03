@@ -28,6 +28,16 @@ const userSchema = new Schema(
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ['admin', 'kasir'], required: true },
     isActive: { type: Boolean, default: true, required: true },
+    /**
+     * Bumped whenever every outstanding session for this account must stop
+     * working: a password change, or an explicit sign-out. The value is carried
+     * in the session JWT and compared on every request, so a token issued
+     * before the bump is refused even though its signature is still valid.
+     *
+     * A counter rather than a timestamp because it is exact: two changes in the
+     * same millisecond must still invalidate the sessions from the first.
+     */
+    sessionEpoch: { type: Number, default: 0, required: true },
     createdAt: { type: Date, default: Date.now, required: true },
   },
   { toJSON: toApiJson, collection: 'users' },
@@ -91,6 +101,7 @@ export type User = {
   passwordHash: string;
   role: Role;
   isActive: boolean;
+  sessionEpoch: number;
   createdAt: Date;
 };
 

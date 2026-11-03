@@ -340,9 +340,10 @@ describe('GET /api/reports/sales', () => {
 
     expect(response.body.trend.bucket).toBe('month');
     expect(
-      response.body.trend.points.map(
-        (p: { date: string; revenue: number }) => [p.date, p.revenue],
-      ),
+      response.body.trend.points.map((p: { date: string; revenue: number }) => [
+        p.date,
+        p.revenue,
+      ]),
     ).toEqual([
       ['2026-09', 0],
       ['2026-10', 78100],
@@ -370,9 +371,12 @@ describe('GET /api/reports/sales', () => {
         itemsSold: 3,
       },
     ]);
-    expect(response.body.byCategory.reduce((sum: number, row: { revenue: number }) => sum + row.revenue, 0)).toBe(
-      response.body.kpi.revenue,
-    );
+    expect(
+      response.body.byCategory.reduce(
+        (sum: number, row: { revenue: number }) => sum + row.revenue,
+        0,
+      ),
+    ).toBe(response.body.kpi.revenue);
   });
 
   it('ranks the top sellers by gross revenue', async () => {
@@ -462,5 +466,14 @@ describe('GET /api/reports/sales', () => {
     expect(response.body.fields?.to).toBe(
       'Set the end date on or after the start date.',
     );
+  });
+
+  it('refuses a range longer than a year', async () => {
+    const response = await admin.agent
+      .get('/api/reports/sales?from=2025-01-01&to=2026-10-16')
+      .expect(422);
+
+    expect(response.body.message).toMatch(/cannot exceed 366 days/i);
+    expect(response.body.fields).toHaveProperty('to');
   });
 });

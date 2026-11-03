@@ -1,12 +1,5 @@
 import type { Express } from 'express';
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { resetEnv } from '../src/config/env.js';
 import { RateLimitModel } from '../src/lib/rate-limit-store.js';
@@ -102,17 +95,22 @@ describe('login limiter', () => {
 
   it('persists counters as Mongo documents namespaced per limiter', async () => {
     await attempt(appA).expect(401);
-    await request(appA).get('/api/health').expect(200);
+    await request(appA).get('/api/config').expect(200);
 
-    // One document per limiter: the login hit lands in its own namespace and
-    // the health probe in the API's, never merging each other's windows.
+    // One document per limiter: the failed login spends both the per-IP and
+    // the per-username budget, and the config probe lands in the API's. The
+    // three namespaces never merge each other's windows.
     const rows = await RateLimitModel.find().lean();
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     const namespaced = rows.map((row) => String(row._id).split(':')[0]).sort();
-    expect(namespaced).toEqual(['api', 'login']);
+    expect(namespaced).toEqual(['api', 'login', 'login-user']);
 
     const loginRow = rows.find((row) => String(row._id).startsWith('login:'));
     expect(loginRow?.hits).toBe(1);
+    const usernameRow = rows.find((row) =>
+      String(row._id).startsWith('login-user:'),
+    );
+    expect(usernameRow?.hits).toBe(1);
     expect(loginRow?.resetAt.getTime()).toBeGreaterThan(Date.now());
   });
 });
@@ -120,15 +118,25 @@ describe('login limiter', () => {
 describe('api limiter', () => {
   it('refuses a runaway client beyond its window', async () => {
     for (let i = 0; i < 10; i += 1) {
-      await request(appA).get('/api/health').expect(200);
+      await request(appA).get('/api/config').expect(200);
     }
 
-    const refused = await request(appA).get('/api/health').expect(429);
+    const refused = await request(appA).get('/api/config').expect(429);
     expect(refused.headers['retry-after']).toBeTruthy();
     expect(refused.body.error).toBe('rate_limited');
     expect(refused.body.message).toBe(
       'Too many requests. Please wait a moment and try again.',
     );
+  });
+
+  it('does not spend the budget on health probes', async () => {
+    // More than the API window, all bypassing the limiter. If health were
+    // counted, the final config request would already be refused.
+    for (let i = 0; i < 15; i += 1) {
+      await request(appA).get('/api/health').expect(200);
+    }
+
+    await request(appA).get('/api/config').expect(200);
   });
 });
 

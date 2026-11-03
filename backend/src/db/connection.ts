@@ -12,6 +12,14 @@ import { logger } from '../lib/logger.js';
 export type DatabaseState =
   'up' | 'down' | 'connecting' | 'disconnecting' | 'uninitialised';
 
+/**
+ * A connection string with any `user:password@` part replaced. Startup logs
+ * name the host and port so a stale `.env` is obvious, but never the secret.
+ */
+export function redactMongoUri(uri: string): string {
+  return uri.replace(/\/\/[^@/]*@/, '//***:***@');
+}
+
 export async function connectDatabase(uri: string): Promise<void> {
   mongoose.set('strictQuery', true);
 

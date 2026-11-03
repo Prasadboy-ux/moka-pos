@@ -141,9 +141,9 @@ try {
   await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForTimeout(500);
   let dialogText = await page.locator('[role="dialog"]').innerText();
-  check("short password rejected", /At least 6 characters/.test(dialogText));
+  check("short password rejected", /At least 12 characters/.test(dialogText));
 
-  await page.locator("#user-password").fill("dewi123");
+  await page.locator("#user-password").fill("dewi-pass-2026");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForTimeout(1300);
   check("account created", (await page.locator('[role="dialog"]').count()) === 0);
@@ -156,7 +156,7 @@ try {
   await page.waitForSelector('[role="dialog"]');
   await page.locator("#user-name").fill("Someone Else");
   await page.locator("#user-username").fill("DEWI");
-  await page.locator("#user-password").fill("dewi456");
+  await page.locator("#user-password").fill("dewi-other-2026");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.waitForTimeout(700);
   dialogText = await page.locator('[role="dialog"]').innerText();
@@ -170,7 +170,7 @@ try {
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.locator("#username").fill("dewi");
-  await page.locator("#password").fill("dewi123");
+  await page.locator("#password").fill("dewi-pass-2026");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForURL("**/dashboard/pos", { timeout: 15000 });
   check("created cashier can sign in", page.url().includes("/dashboard/pos"));
@@ -203,7 +203,7 @@ try {
   await signOut(page);
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.locator("#username").fill("dewi");
-  await page.locator("#password").fill("dewi123");
+  await page.locator("#password").fill("dewi-pass-2026");
   await page.getByRole("button", { name: /Sign in as/i }).click();
   await page.waitForTimeout(1500);
   const loginText = await page.locator("body").innerText();

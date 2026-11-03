@@ -1,6 +1,8 @@
 # Moka POS — remediation handoff
 
-_Last updated: 2026-10-25 (second remediation pass, verified)._
+_Last updated: 2026-11-03 (security hardening: session revocation, password
+policy, rate limits, the production demo-account guard, and admin-reset /
+reactivation revocation)._
 
 This file is the continuation point for the audit remediation work. It records
 what changed, what has been verified, and what still has to be done. It is not a
@@ -17,15 +19,74 @@ replacement for the product docs in `frontend/docs/` or the backend docs in
 
 ## Current status
 
-### Verified after the remediation passes (2026-10-25)
+### Security hardening (2026-11-02)
+
+- Sessions now carry a `sessionEpoch`; logout and password change bump it, so
+  every outstanding JWT for the account stops working. An admin password reset
+  and any activation-state change also bump it, so a reset cookie dies and
+  reactivating an account cannot revive old sessions. The JWT also pins
+  issuer/audience.
+- Password policy is shared by create, update, and self-service change: minimum
+  12 characters plus a common-password blocklist. The login schema still accepts
+  existing short passwords so a deploy cannot lock everyone out.
+- New per-username login and per-user+IP password-change limiters complement the
+  existing per-IP login and API limits. `trust proxy` is off by default and
+  auto-detects Vercel.
+- API responses send `Cache-Control: no-store`; production rejects `CORS_ORIGIN=*`,
+  a placeholder `SESSION_SECRET`, and `COOKIE_SECURE=false`.
+- The login demo panel is hidden unless `NEXT_PUBLIC_DEMO_CREDENTIALS=true`.
+  Production refuses to start while an active seeded demo password still works;
+  the guard covers `admin`, `kasir`, and `kasir2`.
+
+### Verified after the security hardening pass (2026-11-02)
+
+- `backend`: `npm run lint`, `npm run typecheck`, `npm test` (19/19),
+  `npm run build`, `npm run test:e2e` (292/292) — pass.
+- `frontend`: `npm run typecheck`, `npm run lint`, `npm test` (30/30 across
+  4 files), `npm run build` (12 static pages) — pass.
+- `frontend`: `npm run smoke:ci` — starts MongoDB, seeds, boots the API and the
+  production frontend, passes 194/194 across 8 suites, and tears the whole
+  stack down. This is what `.github/workflows/smoke.yml` runs weekly and on
+  demand.
+- `npm audit --omit=dev` — 0 production vulnerabilities in both apps. The
+  frontend's remaining 16 moderate advisories are dev-only eslint/minimatch
+  chain issues; fixing them needs a breaking `--force` upgrade.
+- The checkout dialog now keeps one idempotency key per unchanged cart and
+  blocks dismissal while a POST is in flight; the key is reused after a retry
+  and cleared after a completed sale.
+- `middleware.ts` was renamed to `proxy.ts` (`export function proxy`) for the
+  Next 16 convention, and `next.config.ts` sets a baseline set of response
+  headers.
+
+### Verified after the third pass and audit fixes (2026-10-28) — backend
 
 - `backend`: `npm run lint` — pass, no warnings.
 - `backend`: `npm run typecheck` — pass.
-- `backend`: `npm test` — 15/15 unit tests pass.
-- `backend`: `npm run test:e2e` — 267/267 pass across 12 files (~222 s):
+- `backend`: `npm test` — 19/19 unit tests pass.
+- `backend`: `npm run test:e2e` — 280/280 pass across 13 files (~287 s):
   app, auth, catalogue, contract, models, orders, rate-limit, reports, seed,
-  serverless-entry, stock, users-shifts.
-- `backend`: 282 tests total (267 e2e + 15 unit).
+  serverless-entry, serverless-health, stock, users-shifts.
+- `backend`: 299 tests total (280 e2e + 19 unit).
+
+### Verified after the All-time follow-up (2026-10-28) — frontend
+
+- `frontend`: `npm run typecheck` and `npm run lint` — pass.
+- `frontend`: `npm test` — 23/23 across 3 files.
+- `frontend`: `npm run build` — pass, 12 static pages.
+- `frontend`: `npm run smoke` — 194/194 across 8 suites against a seeded
+  in-memory replica set and the production build.
+
+### Login demo access (2026-10-28)
+
+The seeded accounts are listed under the sign-in form again as click-to-fill
+buttons (`frontend/src/components/auth/demo-credentials.ts`):
+`admin` / `admin123` and `kasir` / `kasir123`. The repository refactor had
+dropped the panel the frontend README already promised. These credentials work
+when the backend database has been seeded (`npm run seed`). Browser-checked:
+both buttons render and fill the role picker, username, and password.
+
+### Verified in the second pass (2026-10-25) — frontend
+
 - `frontend`: `npm run typecheck` and `npm run lint` — pass.
 - `frontend`: `npm test` — 20/20 across 2 files (includes the two
   timezone-adoption tests).
@@ -40,6 +101,30 @@ replacement for the product docs in `frontend/docs/` or the backend docs in
 
 Backend was 210 e2e + 15 unit = 225 tests. The frontend had no unit suite. Both
 are superseded by the counts above.
+
+## Third remediation pass (2026-10-27)
+
+Backend-only hardening on top of the second pass. No contract routes changed;
+the frontend source was not touched.
+
+| Area | Change |
+|---|---|
+| Health probe | Extracted to `src/lib/health.ts`. Registered before the body parser and limiter in `createApp`, and before the connect hook in the serverless wrapper, so a database outage answers `503 degraded` instead of a 500 or a hung probe. The serverless probe bounds its cold-start wait. |
+| Cookie policy | Production now refuses to boot with `COOKIE_SECURE=false`; env validation fails with a pointed message. `.env.example` documents the requirement. |
+| Log hygiene | Request logging keeps the path and drops the query string, which can carry a customer name or phone from order/report search. |
+| Quantities | Order line `qty` must be a whole number in `[1, 10_000]`; a cart is capped at 100 lines. Recipe quantities remain fractional (grams and millilitres). Direct-product `stock`/`minStock` must be whole pieces. |
+| Idempotency | Keys record the minting shift. A replay from another shift answers `409 idempotency-key-foreign`; legacy keys fall back to the shift stamped on the order. Coverage reads join the sale transaction. |
+| Product modes | Switching a product back to `direct` initialises `stock` to `0` instead of leaving it undefined, so the response always carries the numeric fields `direct` promises. `levelOf` reports `0` rather than `null` for a direct product with no count. |
+| Report bounds | `GET /api/reports/sales` rejects ranges longer than 366 days (`422`, `fields.to`). The aggregate loads every matching order in Node, so the cap is a memory/CPU guard. |
+| Users | `PUT /api/users/:id` requires an explicit `isActive`; an empty-string password means "leave the existing one alone". |
+| Regression coverage | 10 new e2e cases: serverless health degraded paths, fractional order quantity, closed-shift idempotency replay, health bypassing the limiter, the report range cap, fractional product stock, required `isActive`, empty password. |
+
+**Cross-cutting follow-up (resolved 2026-10-28):** the frontend Transactions
+screen's "All time" preset asked the sales report from `2000-01-01`, which the
+new 366-day cap rejected. The preset is now **Last 12 months**
+(`monthStartMonthsAgo(11)`), the same shape as the reports screen; twelve
+calendar months fit inside the cap, including a leap day. The ledger and the
+tiles share the window, and `smoke:screens` opens `?range=12m`.
 
 ## Second remediation pass (2026-10-25)
 
@@ -60,7 +145,7 @@ are superseded by the counts above.
 | Area | Change |
 |---|---|
 | Dashboard aggregates | `getAdminDashboard` asks the server for two aggregates (last 7 days, today) and `orders.recent(8)` — no order-history scan. Config is fetched first so the day keys are computed in the bucketing zone. |
-| Transactions screen | The ledger and its tiles share one filtered question: both `orders.list` and `reports.sales` take the same `method`/`q`. "All time" requests a named earliest window (`2000-01-01`, month-bucketed by the aggregate), so tiles never probe the whole history without saying so. |
+| Transactions screen | The ledger and its tiles share one filtered question: both `orders.list` and `reports.sales` take the same `method`/`q`. The longest preset is **Last 12 months** (`monthStartMonthsAgo(11)`), which fits inside the report's 366-day cap. The ledger is server-paged 12 rows at a time and the voided badge counts the whole filtered window. |
 | Stock screen | Movement type filter is server-side (`?type=`), refetching per switch; the default page is 200 with an explicit "newest N of M" notice when truncated. |
 | Product form | In edit mode the stock level is read-only and `stockMode` is locked — counts belong to the Stock screen and the ledger records them there. Create still accepts both. |
 | Timezone | Day keys are computed in `config.storeTimezone` from `GET /api/config` (adopted in the config repositories, IANA-shaped validation, build-time `NEXT_PUBLIC_STORE_TIMEZONE` stays the fallback). The env var no longer has to match the backend exactly; `rangeFor`/preset windows are computed after adoption in the dashboard, transactions, and reports loaders. |
@@ -179,6 +264,8 @@ remediation. Still untracked and not created by this pass:
    workflow has never run.
 2. **Verify Vercel routing if that deployment is used.** Local tests prove the
    catch-all entry identity; they do not exercise Vercel's rewrite machinery.
+   Production deploys must also set `COOKIE_SECURE=true` or the API will refuse
+   to boot.
 3. **Optional follow-ups.** See the review notes below; none blocks release.
 
 ## Useful commands
@@ -199,6 +286,9 @@ npm test
 npm run lint
 npm run typecheck
 npm run build
+
+# Build both projects first, then run the whole stack and the browser suites.
+npm run smoke:ci
 ```
 
 ## Known follow-ups / review notes
@@ -215,9 +305,15 @@ npm run build
   zone too.
 - `frontend/asset/` is intentionally kept: it is the labelled source artwork the
   served `public/menu/` copies are stripped from (see `frontend/README.md`).
-- `next build` warns that the `middleware` file convention is deprecated in
-  Next 16 (use `proxy` instead). Cosmetic today; migrate with
-  `npx @next/codemod@canary middleware-to-proxy .` when convenient.
+- The demo-account panel on the login screen is hidden unless
+  `NEXT_PUBLIC_DEMO_CREDENTIALS=true` is set at build time, so a production
+  build fails closed. `smoke:screens` accepts either state, and the backend
+  refuses to start in production if the seeded passwords still work.
+- `.github/workflows/smoke.yml` is manual plus weekly, not per-pull-request:
+  the full stack takes several minutes. The fast gates stay in `ci.yml`.
+- The `backend` e2e and the smoke runner share
+  `~/.cache/mongodb-binaries`; a cold cache downloads mongod first, which is
+  why the smoke script allows ten minutes before giving up on the URI.
 
 ## Environment
 

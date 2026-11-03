@@ -5,8 +5,10 @@ import express, { type Express } from 'express';
 import helmet from 'helmet';
 import pino from 'pino';
 import { pinoHttp } from 'pino-http';
-import { corsOrigins } from './config/env.js';
+import { corsOrigins, trustProxySetting } from './config/env.js';
+import { noStore } from './lib/cache.js';
 import { errorHandler, notFoundHandler } from './lib/errors.middleware.js';
+import { sendHealth } from './lib/health.js';
 import {
   logger,
   requestLogSerializer,
@@ -23,16 +25,19 @@ import { router as apiRouter } from './routes/index.js';
  * or opening a connection, which is why the two are separate files.
  *
  * Middleware order is load-bearing and reads top to bottom:
- *   helmet -> cors -> compression -> request log -> json -> cookies ->
- *   rate limit -> routes -> 404 -> error handler
+ *   helmet -> cors -> compression -> request log -> no-store -> health -> json ->
+ *   cookies -> rate limit -> routes -> 404 -> error handler
+ *
+ * Health is deliberately before the limiter and body parser: a probe must not
+ * need the Mongo-backed counter store or a request body to answer.
  */
 export function createApp(): Express {
   const app = express();
 
   app.disable('x-powered-by');
-  // Behind a load balancer, so `secure` cookies and client IPs are read from
-  // X-Forwarded-* rather than from the proxy's own connection.
-  app.set('trust proxy', 1);
+  // Default false: only trust X-Forwarded-* when the deployment says a proxy
+  // is actually in front. Otherwise a direct client could choose its own IP.
+  app.set('trust proxy', trustProxySetting());
 
   app.use(helmet());
   // Before the body parser so an OPTIONS preflight short-circuits without
@@ -59,6 +64,11 @@ export function createApp(): Express {
       },
     }),
   );
+  // Session state and business data must never be cached by a shared browser.
+  app.use('/api', noStore);
+  // No body and no rate-limit counter: a probe must answer while Mongo and the
+  // limiter's store are down. CORS and logging are already in place above.
+  app.get('/api/health', sendHealth);
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
 

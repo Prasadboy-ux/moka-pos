@@ -17,7 +17,12 @@ import { ALL_MODELS } from '../../src/models/index.js';
 let replSet: MongoMemoryReplSet | undefined;
 
 export async function startTestDatabase(): Promise<string> {
-  replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
+  replSet = await MongoMemoryReplSet.create({
+    replSet: { count: 1 },
+    // Windows Defender and the temp-file scan can make the first mongod start
+    // exceed the library's 10s default even after the binary is cached.
+    instanceOpts: [{ launchTimeout: 120_000 }],
+  });
   const uri = replSet.getUri();
 
   mongoose.set('strictQuery', true);

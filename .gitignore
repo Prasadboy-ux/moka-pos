@@ -5,8 +5,8 @@ dist/
 build/
 coverage/
 
-# Written by backend/scripts/local-mongo.mjs. It points at an ephemeral port of
-# an in-process replica set, so it differs on every machine and every run.
+# Written by backend/scripts/local-mongo.mjs. It points at the in-process
+# replica set's port, which can fall back when the default port is busy.
 backend/.mongo-uri
 
 .env

@@ -1,28 +1,46 @@
 # Testing & verification
 
-187 automated checks across 7 Playwright suites, run against the **production
-build** — not the dev server — and a **live, seeded API**, plus 18 Vitest unit
+194 automated checks across 8 Playwright suites, run against the **production
+build** — not the dev server — and a **live, seeded API**, plus 30 Vitest unit
 tests that need no server. All pass, with no console errors in any suite.
 
 ## Running
 
-The suites drive the real UI, which means the real API. Three processes:
+The suites drive the real UI, which means the real API and database. Four
+processes:
 
 ```bash
-# terminal 1 — API, must be up AND seeded
+# terminal 1 — local MongoDB, leave running
+cd ../backend && npm run mongo
+
+# terminal 2 — API, must be up AND seeded
 cd ../backend && npm run seed && npm run dev
 
-# terminal 2 — frontend
+# terminal 3 — frontend
 npm run build
 npm run start
 
-# terminal 3 — all suites, sequential
+# terminal 4 — all suites, sequential
 npm run smoke
 ```
 
-The suites expect the API at `http://localhost:3001` (hardcoded in five of the
-seven) and the frontend at `http://localhost:3000`. An unseeded database will
+The suites expect the API at `http://localhost:3001` (hardcoded in the suite
+scripts) and the frontend at `http://localhost:3000`. An unseeded database will
 fail several count-based assertions in a way that looks like an app bug.
+
+### One command: `npm run smoke:ci`
+
+`scripts/smoke-ci.mjs` owns the whole stack: it starts MongoDB through
+`backend/scripts/local-mongo.mjs`, seeds it, boots `backend/dist/server.js` and
+the production frontend, waits for both health endpoints, runs every suite, and
+kills whatever it started — including on failure. It refuses to run if ports
+3000 or 3001 are already occupied, so stop your dev servers first.
+
+Both projects must be built before it runs (`npm run build` in each). The
+frontend build must include `API_PROXY_TARGET` (for local use,
+`http://localhost:3001`); the Next rewrite is baked in at build time. The
+`.github/workflows/smoke.yml` workflow runs exactly this command weekly and on
+demand.
 
 Individual suites:
 
@@ -39,7 +57,7 @@ npm run smoke:screens
 Unit tests and static gates run with no server:
 
 ```bash
-npm test             # vitest run, 18 tests
+npm test             # vitest run, 30 tests
 npm run typecheck    # tsc --noEmit, strict + noUncheckedIndexedAccess
 npm run lint         # eslint .
 npm run build
@@ -53,7 +71,7 @@ Playwright browsers are not version-pinned. A fresh clone needs
 Sequential by design: each signs in, changes data, and signs in again, so
 running them concurrently would have them fighting over one session.
 
-### `smoke:screens` — 46 checks
+### `smoke:screens` — 47 checks
 
 The acceptance pass. One question per requested screen: **is this a working
 screen, or a placeholder that merely compiles?**
@@ -147,11 +165,12 @@ Honest gaps, not oversights.
   than the cart store, and the receipt/CSV builders still rely on smoke coverage.
 - **No visual regression.** Screenshots were inspected by hand during
   development; nothing compares them automatically.
-- **No CI for the smoke suites.** GitHub Actions runs the backend suite and the
-  frontend `test`/`typecheck`/`lint`/`build` on every push
-  (`.github/workflows/ci.yml`), but the browser suites need a seeded API plus a
-  running frontend on fixed ports — a three-process local stack, not yet
-  scripted as one.
+- **The smoke suite is not on every pull request.** CI on every push runs the
+  backend suite and the frontend `test`/`typecheck`/`lint`/`build`
+  (`.github/workflows/ci.yml`). The browser suites need a seeded API plus a
+  built frontend on fixed ports; `npm run smoke:ci` scripts that stack, and
+  `.github/workflows/smoke.yml` runs it weekly and on demand to keep the
+  minutes off the critical path.
 - **One browser.** Chromium only.
 - **No load or performance testing.** The API returns a whole date range at once,
   so paging behaviour under real volume is untested by definition.
@@ -188,19 +207,19 @@ what happened twice during development.
 ## Before any release
 
 ```
-unit        18/18
+unit        30/30
 typecheck   0
 lint        0
 build       0
-smoke       187/187
+smoke       194/194
 ```
 
 Backend gates, in `../backend` (CI runs these on every push):
 
 ```
-npm test           15 unit tests, no DB
-npm run test:e2e   224 tests, spins up its own in-memory replica set
+npm test           19 unit tests, no DB
+npm run test:e2e   292 tests, spins up its own in-memory replica set
 ```
 
-The last full local run was 224 e2e + 15 unit = 239 on the backend, 18 unit on
-the frontend, and 187/187 smoke checks.
+The last full local run was 292 e2e + 19 unit = 311 on the backend, 30 unit on
+the frontend, and 194/194 smoke checks.

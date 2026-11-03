@@ -1,7 +1,6 @@
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { env } from '../config/env.js';
-import { databaseState } from '../db/connection.js';
 import { router as authRouter } from '../modules/auth/auth.routes.js';
 import { router as categoriesRouter } from '../modules/categories/categories.routes.js';
 import { router as ingredientsRouter } from '../modules/ingredients/ingredients.routes.js';
@@ -19,16 +18,11 @@ import { router as usersRouter } from '../modules/users/users.routes.js';
  *
  * `GET /api/health` is the exception to the contract: it is an operational probe
  * rather than a product endpoint, so a deployment can be checked without a
- * browser or a session.
+ * browser or a session. It is registered in `app.ts` before the limiter rather
+ * than here so the probe keeps working while the database is down.
  */
-export const router: Router = Router();
 
-router.get('/health', (_req: Request, res: Response): void => {
-  const db = databaseState();
-  res
-    .status(db === 'up' ? 200 : 503)
-    .json({ status: db === 'up' ? 'ok' : 'degraded', db });
-});
+export const router: Router = Router();
 
 /**
  * Store-wide settings the POS needs before it can price a cart.

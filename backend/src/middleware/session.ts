@@ -39,11 +39,16 @@ export const requireSession: RequestHandler = async (
     );
   }
 
-  const userId = await verifySession(token);
+  const { userId, epoch } = await verifySession(token);
 
   const user = await UserModel.findById(userId);
   if (!user) {
     throw ApiError.unauthenticated('Your account no longer exists.');
+  }
+  if ((user.sessionEpoch ?? 0) !== epoch) {
+    throw ApiError.unauthenticated(
+      'Your session is no longer valid. Please sign in again.',
+    );
   }
   if (!user.isActive) {
     throw ApiError.unauthenticated(

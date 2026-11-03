@@ -2,14 +2,14 @@ import { z } from 'zod';
 import {
   displayName,
   objectId,
+  positiveQuantity,
   queryBoolean,
-  quantity,
   rupiah,
 } from '../../lib/schemas.js';
 
 const recipeItem = z.object({
   ingredientId: objectId,
-  qty: quantity,
+  qty: positiveQuantity,
 });
 
 /**
@@ -31,8 +31,16 @@ export const productInput = z
     stockMode: z.enum(['recipe', 'direct'], {
       message: 'Choose recipe or direct stock.',
     }),
-    stock: z.number().min(0, 'Stock cannot be negative.').optional(),
-    minStock: z.number().min(0, 'Minimum stock cannot be negative.').optional(),
+    stock: z
+      .number()
+      .int('Stock must be a whole number of pieces.')
+      .min(0, 'Stock cannot be negative.')
+      .optional(),
+    minStock: z
+      .number()
+      .int('Minimum stock must be a whole number of pieces.')
+      .min(0, 'Minimum stock cannot be negative.')
+      .optional(),
     recipe: z.array(recipeItem).default([]),
     isActive: z.boolean().default(true),
   })

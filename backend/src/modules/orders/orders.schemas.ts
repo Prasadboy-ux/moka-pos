@@ -1,9 +1,14 @@
 import { z } from 'zod';
-import { dayString, objectId, quantity, rupiah } from '../../lib/schemas.js';
+import {
+  dayString,
+  objectId,
+  orderQuantity,
+  rupiah,
+} from '../../lib/schemas.js';
 
 export const orderLineInput = z.object({
   productId: objectId,
-  qty: quantity,
+  qty: orderQuantity,
 });
 
 /**
@@ -15,7 +20,10 @@ export const orderLineInput = z.object({
  * a stale client cannot fail a sale over a field it no longer needs to send.
  */
 export const createOrderInput = z.object({
-  lines: z.array(orderLineInput).min(1, 'Add at least one item to the cart.'),
+  lines: z
+    .array(orderLineInput)
+    .min(1, 'Add at least one item to the cart.')
+    .max(100, 'A cart cannot contain more than 100 lines.'),
   paymentMethod: z.enum(['cash', 'qris', 'debit', 'credit']),
   paidAmount: rupiah,
   customer: z
@@ -29,6 +37,18 @@ export const createOrderInput = z.object({
     .nullable()
     .optional(),
 });
+
+/**
+ * Fields the ledger can be ordered by. The screen's column keys are mapped to
+ * these by the caller; the API only accepts what it can index and guarantee.
+ */
+export const orderSortFields = [
+  'createdAt',
+  'receiptNo',
+  'total',
+  'paymentMethod',
+  'cashierName',
+] as const;
 
 export const orderQuery = z.object({
   cashierId: objectId.optional(),
@@ -52,6 +72,13 @@ export const orderQuery = z.object({
     .max(40, 'Keep the search under 40 characters.')
     .optional(),
   method: z.enum(['cash', 'qris', 'debit', 'credit']).optional(),
+  /**
+   * Ordering is applied to the whole filtered set before the page window, so
+   * the second page is still the second page of the chosen sort rather than a
+   * re-sort of the rows that happened to be on the first.
+   */
+  sort: z.enum(orderSortFields).default('createdAt'),
+  direction: z.enum(['asc', 'desc']).default('desc'),
   /**
    * Server-side page bounds. Without them a growing day book would ship the
    * whole trading history to every screen that peeked at it.

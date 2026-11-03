@@ -30,7 +30,9 @@ export type MovementPage = {
   offset: number;
 };
 
-export async function listMovements(filter: MovementFilter): Promise<MovementPage> {
+export async function listMovements(
+  filter: MovementFilter,
+): Promise<MovementPage> {
   const query: Record<string, unknown> = {};
 
   if (filter.type) query.type = filter.type;
@@ -77,7 +79,7 @@ export async function levelOf(query: LevelQuery) {
   if (!product) throw ApiError.notFound('That product no longer exists.');
   if (product.stockMode !== 'direct') return null;
 
-  return product.stock ?? null;
+  return product.stock ?? 0;
 }
 
 /**
@@ -231,6 +233,17 @@ export async function adjustStock(input: AdjustInput, actor: SessionUser) {
         `${product.name} is made from a recipe, so its stock moves through its ingredients.`,
         { targetId: 'Adjust one of its ingredients instead.' },
       );
+    }
+
+    /**
+     * Direct stock is counted in whole pcs. The schema accepts decimals so the
+     * same field can carry gram or millilitre corrections; only the target
+     * lookup can tell which rule applies.
+     */
+    if (!Number.isInteger(input.qty)) {
+      throw ApiError.validation(`${product.name} is counted in whole pcs.`, {
+        qty: 'Use a whole number of pcs.',
+      });
     }
 
     // `$inc` refuses to operate on a null level; a direct product freshly

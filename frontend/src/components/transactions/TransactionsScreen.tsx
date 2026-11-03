@@ -9,7 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast";
 
-import { DataTable, type Column } from "@/components/data-table";
+import {
+  DataTable,
+  type Column,
+  type SortDirection,
+  type SortState,
+} from "@/components/data-table";
 import { AnimatedNumber } from "@/components/motion/AnimatedNumber";
 import { StaggerGroup, StaggerItem } from "@/components/motion/StaggerGroup";
 import { PageHeader } from "@/components/page-header";
@@ -18,8 +23,13 @@ import { VoidOrderDialog } from "@/components/transactions/VoidOrderDialog";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useQueryState } from "@/hooks/useQueryState";
-import { dayKeyDaysAgo, todayKey } from "@/lib/repositories/read-models";
+import {
+  dayKeyDaysAgo,
+  monthStartMonthsAgo,
+  todayKey,
+} from "@/lib/repositories/read-models";
 import { getRepositories } from "@/lib/repositories";
+import type { OrderSortField } from "@/lib/repositories/types";
 import { formatDate, formatDateTime, formatIDR, formatNumber } from "@/lib/format";
 import { SPRING } from "@/lib/motion";
 import { whatsAppLink } from "@/lib/receipt";
@@ -41,11 +51,13 @@ import {
  * catalogue — the lines carry the price that was charged.
  */
 
+const PAGE_SIZE = 12;
+
 const PRESETS = [
   { key: "today", label: "Today" },
   { key: "7d", label: "Last 7 days" },
   { key: "30d", label: "Last 30 days" },
-  { key: "all", label: "All time" },
+  { key: "12m", label: "Last 12 months" },
 ] as const;
 
 type Preset = (typeof PRESETS)[number]["key"];
@@ -58,10 +70,17 @@ const METHODS: Array<{ value: PaymentMethod | null; label: string }> = [
   { value: "credit", label: PAYMENT_LABEL.credit },
 ];
 
-function rangeFor(preset: Exclude<Preset, "all">): { from: string; to: string } {
+function rangeFor(preset: Preset): { from: string; to: string } {
   switch (preset) {
     case "today":
       return { from: todayKey(), to: todayKey() };
+    case "12m":
+      /**
+       * Twelve whole calendar months ending with the current one. The API
+       * caps report ranges at 366 days because it aggregates every matching
+       * order in Node; twelve calendar months fit, even across a leap day.
+       */
+      return { from: monthStartMonthsAgo(11), to: todayKey() };
     case "30d":
       return { from: dayKeyDaysAgo(29), to: todayKey() };
     case "7d":
@@ -69,15 +88,6 @@ function rangeFor(preset: Exclude<Preset, "all">): { from: string; to: string } 
       return { from: dayKeyDaysAgo(6), to: todayKey() };
   }
 }
-
-/**
- * The explicit window the "All time" preset asks the aggregate over. A report
- * never quietly defaults to a window, so one is named — the earliest date the
- * modifier could plausibly have started trading. The aggregate month-buckets
- * spans this long, so the reply stays a few dozen kilobytes, not thousands of
- * day points.
- */
-const ALL_TIME_FROM = "2000-01-01";
 
 /**
  * One screen, two questions about the same window: the ledger page for the
@@ -88,12 +98,29 @@ const ALL_TIME_FROM = "2000-01-01";
  * is the zone `rangeFor` computes `todayKey()` with — on a cold session the
  * build-time default answers until config lands.
  */
+/**
+ * The ledger's column keys are presentation language; these are the fields the
+ * API accepts. Keeping the mapping here means a column can be renamed without
+ * changing the server contract.
+ */
+const SORT_FIELDS: Record<string, OrderSortField> = {
+  receipt: "receiptNo",
+  when: "createdAt",
+  method: "paymentMethod",
+  cashier: "cashierName",
+  total: "total",
+};
+
 async function loadScreen(filter: {
   preset: Preset;
   method?: PaymentMethod;
   q?: string;
+  sort: OrderSortField;
+  direction: SortDirection;
+  offset: number;
 }): Promise<{
   table: { data: Order[]; total: number };
+  voidedCount: number;
   kpi: {
     revenue: number;
     transactions: number;
@@ -104,18 +131,35 @@ async function loadScreen(filter: {
   const { config, orders, reports } = getRepositories();
   await config.get();
 
-  const range: { from?: string; to?: string } =
-    filter.preset === "all" ? {} : rangeFor(filter.preset);
+  const range = rangeFor(filter.preset);
 
-  const [table, aggregate] = await Promise.all([
-    orders.list({ ...range, method: filter.method, q: filter.q }),
-    reports.sales(range.from ?? ALL_TIME_FROM, range.to ?? todayKey(), {
+  // The badge counts every reversed receipt in the window, not just the ones
+  // that happen to sit on the current page. Ask for one row and read `total`.
+  const [table, aggregate, voided] = await Promise.all([
+    orders.list({
+      ...range,
+      method: filter.method,
+      q: filter.q,
+      sort: filter.sort,
+      direction: filter.direction,
+      limit: PAGE_SIZE,
+      offset: filter.offset,
+    }),
+    reports.sales(range.from, range.to, {
       method: filter.method,
       q: filter.q,
     }),
+    orders.list({
+      ...range,
+      method: filter.method,
+      q: filter.q,
+      status: "voided",
+      limit: 1,
+      offset: 0,
+    }),
   ]);
 
-  return { table, kpi: aggregate.kpi };
+  return { table, voidedCount: voided.total, kpi: aggregate.kpi };
 }
 
 export function TransactionsScreen() {
@@ -133,6 +177,31 @@ export function TransactionsScreen() {
   const term = (query.q ?? "").trim();
 
   /**
+   * Server-side sort state. The default matches the old fixed ordering, so the
+   * first render still answers "newest receipt first" before anyone clicks.
+   */
+  const [sort, setSort] = React.useState<SortState>({
+    key: "when",
+    direction: "desc",
+  });
+  const sortField = SORT_FIELDS[sort.key] ?? "createdAt";
+
+  /**
+   * Paging state belongs to one filtered result set. Keeping the filter key in
+   * the state (rather than resetting it in an effect) means a filter change is
+   * page 0 on the very next render, without a second request for the old page.
+   * Sorting is part of the key for the same reason: a new order is a new first
+   * page, not the tail of the old ordering.
+   */
+  const filterKey = `${preset}|${method ?? ""}|${term}|${sort.key}|${sort.direction}`;
+  const [paging, setPaging] = React.useState({ key: filterKey, page: 0 });
+  const requestedPage = paging.key === filterKey ? paging.page : 0;
+  const setPage = React.useCallback(
+    (next: number) => setPaging({ key: filterKey, page: next }),
+    [filterKey],
+  );
+
+  /**
    * The window is deliberately not written to the URL as two dates the way the
    * reports screen does. A transaction list is a "show me the last sale" tool,
    * and the presets are the only ways it is ever opened here, so the exact
@@ -147,11 +216,29 @@ export function TransactionsScreen() {
         preset,
         method: method ?? undefined,
         q: term || undefined,
+        sort: sortField,
+        direction: sort.direction,
+        offset: requestedPage * PAGE_SIZE,
       }),
-    [preset, method, term],
+    [preset, method, term, sortField, sort.direction, requestedPage],
   );
 
   const table = data?.table.data ?? [];
+  const total = data?.table.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  /**
+   * `requestedPage` is already keyed to the filter, so it is 0 after every
+   * filter change. A void keeps its receipt in the ledger, so the only thing
+   * that could shrink `pageCount` under a cursor is a concurrent data change;
+   * `DataTable` clamps that case for display.
+   */
+  const page = requestedPage;
+  /**
+   * A voided receipt is history, not revenue. The aggregate the tiles read is
+   * paid-only by construction — this badge counts the reversed receipts the
+   * ledger holds, not only the page under the cursor.
+   */
+  const voidedCount = data?.voidedCount ?? 0;
   const kpi = data?.kpi ?? {
     revenue: 0,
     transactions: 0,
@@ -166,19 +253,11 @@ export function TransactionsScreen() {
   // Reversing money is an admin decision; the API refuses a kasir regardless.
   const canVoid = currentUser?.role === "admin";
 
-  /**
-   * A voided receipt is history, not revenue. The aggregate the tiles read is
-   * paid-only by construction — the badge here counts the reversed receipts the
-   * table shows, so the two views keep telling one truth apart.
-   */
-  const voidedCount = table.filter((order) => order.status === "voided").length;
-
   const columns: Column<Order>[] = [
     {
       key: "receipt",
       header: "Receipt",
       sortable: true,
-      sort: (order) => order.receiptNo,
       cell: (order) => (
         <div className="min-w-0">
           <p
@@ -205,7 +284,6 @@ export function TransactionsScreen() {
       key: "when",
       header: "When",
       sortable: true,
-      sort: (order) => new Date(order.createdAt).getTime(),
       cell: (order) => (
         <span className="text-xs whitespace-nowrap text-muted-foreground">
           {formatDateTime(order.createdAt)}
@@ -216,8 +294,6 @@ export function TransactionsScreen() {
       key: "items",
       header: "Items",
       numeric: true,
-      sortable: true,
-      sort: (order) => order.lines.reduce((n, line) => n + line.qty, 0),
       cell: (order) => (
         <span className="text-muted-foreground">
           {formatNumber(order.lines.reduce((n, line) => n + line.qty, 0))}
@@ -228,7 +304,6 @@ export function TransactionsScreen() {
       key: "method",
       header: "Payment",
       sortable: true,
-      sort: (order) => order.paymentMethod,
       cell: (order) => (
         <Badge variant={order.paymentMethod === "cash" ? "outline" : "secondary"}>
           {PAYMENT_LABEL[order.paymentMethod]}
@@ -239,7 +314,6 @@ export function TransactionsScreen() {
       key: "cashier",
       header: "Cashier",
       sortable: true,
-      sort: (order) => order.cashierName,
       cell: (order) => (
         <span className="text-sm text-muted-foreground">{order.cashierName}</span>
       ),
@@ -249,7 +323,6 @@ export function TransactionsScreen() {
       header: "Total",
       numeric: true,
       sortable: true,
-      sort: (order) => order.total,
       cell: (order) => (
         <span
           className={cn(
@@ -329,13 +402,9 @@ export function TransactionsScreen() {
     <div className="space-y-5">
       <PageHeader
         title="Transactions"
-        description={
-          preset === "all"
-            ? `${formatNumber(kpi.transactions)} sales across all time`
-            : `${formatDate(rangeFor(preset).from)} to ${formatDate(
-                rangeFor(preset).to,
-              )} · ${formatNumber(kpi.transactions)} sales`
-        }
+        description={`${formatDate(rangeFor(preset).from)} to ${formatDate(
+          rangeFor(preset).to,
+        )} · ${formatNumber(kpi.transactions)} sales`}
       />
 
       <StaggerGroup className="space-y-5">
@@ -444,7 +513,15 @@ export function TransactionsScreen() {
             rows={table}
             rowKey={(order) => order.id}
             isLoading={isLoading}
-            pageSize={12}
+            pageSize={PAGE_SIZE}
+            page={page}
+            pageCount={pageCount}
+            total={total}
+            onPageChange={setPage}
+            sort={sort}
+            onSortChange={(next) => {
+              if (SORT_FIELDS[next.key]) setSort(next);
+            }}
             emptyTitle="No transactions found"
             emptyDescription="Nothing matches these filters in this period."
           />

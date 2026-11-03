@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke-all.mjs",
+    "smoke:ci": "node scripts/smoke-ci.mjs",
     "smoke:products": "node scripts/smoke-products.mjs",
     "smoke:stock": "node scripts/smoke-stock.mjs",
     "smoke:reports": "node scripts/smoke-reports.mjs",

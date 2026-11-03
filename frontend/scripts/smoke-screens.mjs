@@ -50,6 +50,21 @@ try {
     "login has working credential fields",
     (await page.locator("#username").count()) === 1 && (await page.locator("#password").count()) === 1,
   );
+  // The demo panel is opt-in at build time. Accept either the secure default
+  // (absent) or a demo build (both accounts), but never a half-rendered panel.
+  await page.waitForTimeout(500);
+  const adminDemoCount = await page
+    .getByRole("button", { name: /admin123/ })
+    .count();
+  const kasirDemoCount = await page
+    .getByRole("button", { name: /kasir123/ })
+    .count();
+  check(
+    "login demo panel is hidden or shows both accounts",
+    (adminDemoCount === 0 && kasirDemoCount === 0) ||
+      (adminDemoCount === 1 && kasirDemoCount === 1),
+    `admin=${adminDemoCount} kasir=${kasirDemoCount}`,
+  );
 
   // Wrong password must be refused, or "login works" means nothing.
   await page.locator("#username").fill("admin");
@@ -107,7 +122,7 @@ try {
 
   const transactions = await page.locator("main").innerText();
   check("transactions screen lists sales", /MOKA-\d+/.test(transactions));
-  check("transactions has range presets", (await page.getByRole("button", { name: "All time" }).count()) === 1);
+  check("transactions has range presets", (await page.getByRole("button", { name: "Last 12 months" }).count()) === 1);
   check("transactions filters by payment method", (await page.getByRole("button", { name: "QRIS" }).count()) >= 1);
   check("transactions can be searched", (await page.getByLabel("Search transactions").count()) === 1);
 
@@ -155,7 +170,7 @@ try {
   // Search by the receipt number a customer would read back to a cashier. The
   // counter is pre-incremented in the seed, so the first historical receipt is
   // MOKA-1001 rather than MOKA-1000.
-  await page.goto(`${BASE}/dashboard/transactions?range=all`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/dashboard/transactions?range=12m`, { waitUntil: "networkidle" });
   await page.waitForSelector("table tbody tr");
   await page.locator("#transaction-search").fill("MOKA-1001");
   await page.waitForTimeout(900);
@@ -192,6 +207,7 @@ try {
   const recipeForm = await page.locator('[role="dialog"]').innerText();
   check("recipe editor appears for made-to-order items", /Recipe/.test(recipeForm) && /Add ingredient/.test(recipeForm));
   await page.keyboard.press("Escape");
+  await page.locator('[role="dialog"]').waitFor({ state: "hidden", timeout: 5000 });
   check("products can manage categories", (await page.getByRole("button", { name: "Categories" }).count()) === 1);
 
   // ----------------------------------------------- 5. Management Stock

@@ -5,6 +5,7 @@ import { create } from "zustand";
 import { ApiError, onUnauthenticated } from "@/lib/repositories/http/client";
 import { sessionRepository } from "@/lib/repositories/http/commerce";
 import type { Session, User } from "@/types/auth";
+import { useCartStore } from "./useCartStore";
 
 interface AuthState {
   /**
@@ -64,6 +65,9 @@ export const useAuthStore = create<AuthState>()((set) => ({
    */
   clearSession: () => {
     void sessionRepository.logout().catch(() => undefined);
+    // The cart survives a refresh, but not a sign-out: the next person at the
+    // till must not inherit someone else's half-finished order.
+    useCartStore.getState().clear();
     set({ session: null });
   },
 }));

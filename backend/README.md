@@ -5,20 +5,28 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 
 ## Status
 
-**Complete and live.** 35 contract endpoints plus `/api/health`, 9 Mongoose
-models, and 239 tests (15 unit, 224 end-to-end). The frontend in
+**Complete and live.** 38 contract endpoints plus `/api/health`, 9 Mongoose
+models, and 311 tests (19 unit, 292 end-to-end across 14 files). The frontend in
 [`../frontend`](../frontend) resolves its eight repositories to this API over an
 httpOnly cookie session.
 
 The API is specified in
 [`../frontend/docs/API-CONTRACT.md`](../frontend/docs/API-CONTRACT.md), which
-this was built against. `test/contract.e2e.ts` asserts all 35 routes against that
+this was built against. `test/contract.e2e.ts` asserts all 38 routes against that
 document **transcribed by hand**, so the test verifies the contract rather than
 restating the code.
 
-Production hardening in place: login and API rate limits (env-tunable, disabled
-under `NODE_ENV=test`), pino structured logging, response compression, and
-concurrency tests proving two tills cannot oversell the last unit of stock.
+Production hardening in place: login, per-username login, password-change and
+API rate limits (env-tunable, disabled under `NODE_ENV=test`); server-side
+session revocation on logout and password change via a JWT epoch claim; a
+12-character password floor with a common-password blocklist; `Cache-Control:
+no-store` on every API response; and a startup guard that refuses to boot while
+a seeded demo password still works. `trust proxy` is off by default and
+auto-detects Vercel. `/api/health` answers outside the limiter and the
+serverless connect hook, so a database outage reports `503 degraded` instead of
+a timeout or a 500. Production refuses to boot with `COOKIE_SECURE=false` or a
+placeholder `SESSION_SECRET`; order quantities, cart size, product stock counts,
+shift-scoped idempotency keys and report ranges are all bounded.
 
 See [`docs/README.md`](docs/README.md) for the documentation map and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the code is arranged.
@@ -41,11 +49,21 @@ See [`docs/README.md`](docs/README.md) for the documentation map and
 Requires Node 24+ and a MongoDB cluster with transaction support
 (MongoDB Atlas free tier, or `mongodb-memory-server` as a replica set).
 
+For local development, `npm run mongo` starts a throwaway replica set on a fixed
+port (`27019`, override with `MONGO_PORT`) and keeps `MONGODB_URI` in `.env`
+pointed at it. The script rewrites `.env` on every start, so a busy port or a
+previous run cannot leave the API dialling a dead one. Leave it running and use a
+second terminal for the API.
+
+The database is in memory: restarting it starts empty, so run `npm run seed`
+again to restore the demo catalogue and accounts.
+
 ```bash
 npm install
-cp .env.example .env    # then fill in MONGODB_URI and SESSION_SECRET
-npm run seed            # optional: demo catalogue and 30 days of sales
-npm run dev             # http://localhost:3001
+cp .env.example .env    # production values only; local dev can keep the defaults
+npm run mongo           # terminal 1 — local MongoDB, leave running
+npm run seed            # terminal 2 — demo data (rerun after each database restart)
+npm run dev             # terminal 2 — http://localhost:3001
 ```
 
 Check it is alive:
@@ -67,6 +85,7 @@ first; deleting the file does not remove it from history.
 
 | Script | Purpose |
 |---|---|
+| `npm run mongo` | Local MongoDB replica set, syncs `MONGODB_URI` into `.env` |
 | `npm run dev` | Watch mode via `tsx` |
 | `npm run build` | Compile to `dist/` |
 | `npm start` | Run the compiled build |

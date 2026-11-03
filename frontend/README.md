@@ -34,9 +34,9 @@ the request path.
 | Selling moves stock | Done — server-side Mongo transaction |
 | Interface guidelines | Done — touch targets, reduced motion, print, URL state |
 | Repository seam | Done — flipped from mock to HTTP in one file |
-| Backend API | Done — 35 routes, 9 models, 239 tests |
+| Backend API | Done — 38 routes, 9 models, 311 tests |
 | Shift gating + reconciliation | Done — POS refuses to sell with no open shift; close stores the drawer count |
-| Unit tests (frontend) | Done — Vitest, 20 tests across 2 files |
+| Unit tests (frontend) | Done — Vitest, 30 tests across 4 files |
 
 **Screens:** 8 routes (login + 7 dashboard screens). Cashiers reach 2 of them,
 admins reach all 7.
@@ -62,25 +62,46 @@ admins reach all 7.
 
 ## Getting started
 
-Two processes. The frontend talks to the API over HTTP, so both must be running.
+Three processes: the local database, the API, and the frontend. The API and the
+database must both be running or login shows **"Cannot reach the server."**
 
 ```bash
-# terminal 1 — API on :3001
+# terminal 1 — local MongoDB (leave running; syncs MONGODB_URI into backend/.env)
 cd ../backend
 npm install
-cp .env.example .env      # then set MONGODB_URI and SESSION_SECRET
+cp .env.example .env
+npm run mongo
+
+# terminal 2 — API on :3001
+cd ../backend
 npm run seed              # demo catalogue + 30 days of orders
 npm run dev
 
-# terminal 2 — frontend on :3000
+# terminal 3 — frontend on :3000
 npm install
 cp .env.local.example .env.local
 npm run dev
 ```
 
-`NEXT_PUBLIC_API_URL` is the only frontend environment variable. It is public on
-purpose: it reaches the browser bundle, and because the session is an httpOnly
-cookie, no token or API key belongs there.
+`API_PROXY_TARGET` is the only frontend setting you normally need. The browser
+calls this app's own `/api` path and Next.js rewrites it to that target, so the
+session cookie stays on one origin. Set `NEXT_PUBLIC_API_URL` only when the
+browser must call the API directly; it is public on purpose, and because the
+session is an httpOnly cookie, no token or API key belongs there.
+
+### Sharing the site on your network
+
+With the proxy setup above, no per-device configuration is needed. Start the
+frontend normally and open `http://<your-lan-ip>:3000` from a phone or another
+computer — the page uses its own host for API calls, so `localhost` is never
+baked into the browser bundle. Allow Node.js through the Windows firewall for
+private networks, and keep the API on the same machine as the frontend.
+
+If you set `NEXT_PUBLIC_API_URL` instead, it must be an address every device can
+reach (for example `http://192.168.0.179:3001`), and the backend's
+`CORS_ORIGIN` must include the frontend origin (for example
+`http://192.168.0.179:3000`). A `localhost` value there works only on the machine
+running the API.
 
 | Script | Purpose |
 |---|---|
@@ -92,25 +113,42 @@ cookie, no token or API key belongs there.
 | `npm test` | Vitest unit tests |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run smoke` | All browser smoke suites (needs both servers) |
+| `npm run smoke:ci` | Start Mongo + API + built frontend, run all suites, tear down |
 
 ### Verification
 
-`npm test` runs Vitest over the read models and cart store. It needs no browser,
-server, or database. CI runs it before Build.
+`npm test` runs Vitest over the read models, the cart store, and the checkout
+idempotency helpers. It needs no browser, server, or database. CI runs it before
+Build.
 
-`scripts/` holds seven Playwright suites that drive the real UI against a
+`scripts/` holds eight Playwright suites that drive the real UI against a
 production build **and a live API**. They are why several bugs below were caught,
 so they are worth running after any change to the data layer.
 
 ```bash
 npm run build
-npm run start          # terminal 1 — frontend on :3000
-npm run smoke          # terminal 2 — API must be up and seeded on :3001
+npm run start          # terminal 1 - frontend on :3000
+npm run smoke          # terminal 2 - API must be up and seeded on :3001
 ```
+
+Or let one command own the stack. Build both projects first, stop anything on
+ports 3000/3001, then:
+
+```bash
+$env:API_PROXY_TARGET = "http://localhost:3001"   # PowerShell, at build time
+npm run build
+npm run smoke:ci
+```
+
+`smoke:ci` starts an in-memory MongoDB, seeds it, boots `backend/dist/server.js`
+and `next start`, waits for `/api/health` and `/login`, runs all eight suites,
+and kills every process it started, including on failure. This is the command
+`.github/workflows/smoke.yml` runs weekly and on demand.
 
 | Suite | Covers | Checks |
 |---|---|---|
-| `smoke:screens` | acceptance pass over all seven dashboard screens | 46 |
+| `smoke:auth` | session probe, login rate limit, recovery after refusal | 6 |
+| `smoke:screens` | acceptance pass over all seven dashboard screens | 47 |
 | `smoke:products` | catalogue CRUD, filters, sorting, archive, role gate | 27 |
 | `smoke:reports` | ranges, presets, empty periods, CSV contents, role gate | 25 |
 | `smoke:stock` | adjustments, refusal of over-withdrawal, ledger, a sale moving stock | 18 |
@@ -118,11 +156,11 @@ npm run smoke          # terminal 2 — API must be up and seeded on :3001
 | `smoke:journey` | one sale followed through till, dashboard, ledger, and report, plus the shift gate | 31 |
 | `smoke:a11y` | document metadata, skip link, reduced motion, URL state, print geometry | 22 |
 
-**187 checks total.** They run sequentially and share one session, because each
+**194 checks total.** They run sequentially and share one session, because each
 signs in, changes data, and signs out again — parallel runs would fight over
 the same account.
 
-Note that five of the seven suites sign out over HTTP (`POST /api/auth/logout`),
+Note that five of the eight suites sign out over HTTP (`POST /api/auth/logout`),
 not by clearing browser storage: the session cookie is httpOnly, so the page
 cannot read or delete it.
 
@@ -136,6 +174,16 @@ cannot read or delete it.
 The login screen lists these as click-to-fill buttons. The seed also creates a
 deliberately deactivated `kasir2` account so the "account disabled" refusal can be
 demonstrated.
+
+### Troubleshooting sign-in
+
+| Symptom | Cause and fix |
+|---|---|
+| **"Cannot reach the server"** | The API is not running or not reachable. It exits at startup when MongoDB is down, so start `npm run mongo` (backend, leave it running), then `npm run dev` (backend). `curl http://localhost:3001/api/health` should answer `{"status":"ok","db":"up"}`. |
+| Backend exits with `ECONNREFUSED 127.0.0.1:27019` | MongoDB is not running (or `MONGO_PORT` was overridden). Start `npm run mongo`; it rewrites `MONGODB_URI` in `backend/.env`. The in-memory database starts empty, so run `npm run seed` again after a restart. |
+| **"That username and password do not match an account"** | The database is empty. Run `npm run seed` in `backend/`. |
+| Sign-in succeeds, then the next reload signs out | The cookie is not being stored. On HTTPS set `COOKIE_SECURE=true`; on plain HTTP set it to `false`. If the API is called directly across different sites, use the proxy setup above instead. |
+| A deployed build still calls `localhost` | `NEXT_PUBLIC_*` values and the `API_PROXY_TARGET` rewrite are resolved at build time. Change the environment variable and rebuild/redeploy. |
 
 ## Screens
 
@@ -329,15 +377,15 @@ The frontend owns the contract; the backend implements it. Full detail in
 | Framework | Express 5, ESM, TypeScript strict |
 | Database | MongoDB via Mongoose 9 |
 | Auth | httpOnly `moka_session` cookie, HS256 JWT via `jose`, scrypt password hashing via `node:crypto` |
-| Routes | 35 contract endpoints + `/api/health` |
+| Routes | 38 contract endpoints + `/api/health` |
 | Models | 9 collections with indexes |
-| Tests | 239 — 224 e2e across 10 files (Supertest + in-memory replica set) + 15 unit |
+| Tests | 311 — 292 e2e across 14 files (Supertest + in-memory replica set) + 19 unit |
 | Lint | oxlint (type-aware) + Prettier |
 | Hardening | Login + API rate limits, pino logging, compression, CI |
 
 The endpoint list is derived from `src/lib/repositories/types.ts` and written up
 in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md). `backend/test/contract.e2e.ts`
-asserts all 35 routes against that document **transcribed by hand**, so the test
+asserts all 38 routes against that document **transcribed by hand**, so the test
 checks the contract rather than restating the code.
 
 Dates cross the wire as `yyyy-mm-dd` in `STORE_TIMEZONE` (Asia/Jakarta by
@@ -353,11 +401,11 @@ Ordered by what earns its keep first.
 
 1. **Deployment.** Hosting is settled — Vercel for this app; the API has a Vercel
    catch-all entry (`backend/api/[...path].ts`), with Railway or Render as
-   alternatives, and MongoDB Atlas for the data. The remaining work is the Atlas
-   cluster itself plus the environment variables each platform needs
-   (`NEXT_PUBLIC_API_URL` here; `MONGODB_URI`, `SESSION_SECRET`,
-   `CORS_ORIGIN`, `COOKIE_SECURE` there). CI already runs the backend suite,
-   frontend unit tests, and the frontend build on every push.
+   alternatives, and MongoDB Atlas for the data. Set `API_PROXY_TARGET` here to
+   the API URL, and on the API set `MONGODB_URI`, `SESSION_SECRET`,
+   `CORS_ORIGIN`, `COOKIE_SECURE=true`, and `NODE_ENV=production`. CI already
+   runs the backend suite, frontend unit tests, and the frontend build on every
+   push.
 2. **Real prices and supplier costs.** `costPerUnit` is rupiah per ml/gram now but
    the numbers are invented. Supplier invoices make margin, COGS, and gross profit
    real — and the product form already shows cost, margin, and gross per cup, so
@@ -374,6 +422,44 @@ Ordered by what earns its keep first.
 ---
 
 ## Changelog
+
+### 2026-10-30 - Next 16 proxy, CI smoke, and checkout retry safety
+
+`src/middleware.ts` became `src/proxy.ts` with `export function proxy`, which
+silences the Next 16 deprecation without changing the cookie gate. `next.config.ts`
+pins the Turbopack root to this app, adds baseline response headers (with HSTS
+only in production), and keeps the `/api` rewrite.
+
+Checkout now keeps one `Idempotency-Key` for an unchanged cart
+(`lib/idempotency.ts`), reuses it after a failed request, and clears it after a
+completed sale. The dialog cannot be dismissed while the POST is in flight, so a
+sale that commits on the server always has a mounted receiver for the receipt.
+Unit tests cover the key signature and reuse rules.
+
+`scripts/smoke-ci.mjs` starts and stops the whole stack and runs all 194 checks;
+`.github/workflows/smoke.yml` runs it weekly and on demand. The product
+create/update validation queries now share the writing transaction's session, so
+a category or ingredient deleted mid-request aborts the write. The demo-account
+panel is hidden unless `NEXT_PUBLIC_DEMO_CREDENTIALS=true` is set at build time.
+
+### 2026-10-28 — Login: demo accounts are click-to-fill again
+
+The seeded admin and cashier accounts are listed under the sign-in form as
+click-to-fill buttons, matching the Demo accounts table above. The refactor to
+the repository layer dropped the old panel; it now reads from
+`components/auth/demo-credentials.ts` and fills the role picker, username, and
+password without submitting. `smoke:screens` asserts both buttons are present.
+
+### 2026-10-28 — Transactions: "Last 12 months" replaces "All time"
+
+The backend now rejects sales-report ranges longer than 366 days because the
+aggregate is computed from every matching order in Node. The transactions
+screen's "All time" preset asked from `2000-01-01`, which made that request
+fail. Its widest preset is now **Last 12 months** (`monthStartMonthsAgo(11)`),
+the same window shape as the reports screen; twelve calendar months fit inside
+the cap, including a leap day. The ledger table and the KPI tiles share the
+window, and the header names the resolved dates. `smoke:screens` checks the new
+button and opens `?range=12m`.
 
 ### 2026-10-25 — Premium animation system: Motion everywhere, one token source
 
@@ -550,7 +636,7 @@ when `NEXT_PUBLIC_API_URL` is unset.
 - The three login refusals (invalid, inactive, role-mismatch) stayed distinct
   because the login screen branches on them. The password is verified *before*
   `inactive` is reported, so a deactivated account cannot be probed for.
-- **211 tests** across 10 files. `contract.e2e.ts` asserts all 35 routes against
+- **311 tests** (292 e2e across 14 files + 19 unit). `contract.e2e.ts` asserts all 38 routes against
   the API contract transcribed by hand rather than copied from the code, and
   `models.e2e.ts` asserts the *absence* of indexes and collections from earlier
   drafts — `/api/transactions`, `/api/stock_history`, and `/api/reports/sales`

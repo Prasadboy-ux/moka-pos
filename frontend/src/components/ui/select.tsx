@@ -87,50 +87,57 @@ function SelectContent({
   const open = useOverlayOpen()
 
   return (
-    <AnimatePresence>
-      {open ? (
-        <SelectPrimitive.Portal forceMount>
-          <SelectPrimitive.Content
-            data-slot="select-content"
-            className={cn(
-              "relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md",
-              position === "popper" &&
-                "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
-              className
-            )}
-            position={position}
-            {...props}
-          >
-            <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{
-                opacity: 0,
-                scale: 0.98,
-                transition: { duration: DURATION.fast, ease: EASE_OUT },
-              }}
-              transition={{ duration: DURATION.swap, ease: EASE_OUT }}
-              style={{
-                transformOrigin:
-                  "var(--radix-select-content-transform-origin)",
-              }}
+    <>
+      {open ? null : (
+        <SelectPrimitive.Content position={position} {...props}>
+          <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+        </SelectPrimitive.Content>
+      )}
+      <AnimatePresence>
+        {open ? (
+          <SelectPrimitive.Portal forceMount>
+            <SelectPrimitive.Content
+              data-slot="select-content"
+              className={cn(
+                "relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md",
+                position === "popper" &&
+                  "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
+                className
+              )}
+              position={position}
+              {...props}
             >
-              <SelectScrollUpButton />
-              <SelectPrimitive.Viewport
-                className={cn(
-                  "p-1",
-                  position === "popper" &&
-                    "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
-                )}
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{
+                  opacity: 0,
+                  scale: 0.98,
+                  transition: { duration: DURATION.fast, ease: EASE_OUT },
+                }}
+                transition={{ duration: DURATION.swap, ease: EASE_OUT }}
+                style={{
+                  transformOrigin:
+                    "var(--radix-select-content-transform-origin)",
+                }}
               >
-                {children}
-              </SelectPrimitive.Viewport>
-              <SelectScrollDownButton />
-            </motion.div>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      ) : null}
-    </AnimatePresence>
+                <SelectScrollUpButton />
+                <SelectPrimitive.Viewport
+                  className={cn(
+                    "p-1",
+                    position === "popper" &&
+                      "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
+                  )}
+                >
+                  {children}
+                </SelectPrimitive.Viewport>
+                <SelectScrollDownButton />
+              </motion.div>
+            </SelectPrimitive.Content>
+          </SelectPrimitive.Portal>
+        ) : null}
+      </AnimatePresence>
+    </>
   )
 }
 

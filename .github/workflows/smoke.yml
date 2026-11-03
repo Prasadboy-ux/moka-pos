@@ -1,0 +1,70 @@
+name: Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday 03:00 UTC. Kept off pull requests: the full stack takes
+    # several minutes, and the per-project jobs in ci.yml already cover the
+    # fast checks.
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Full-stack smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+
+      # The e2e job in ci.yml primes this cache; both suites use the same
+      # mongodb-memory-server download.
+      - name: Cache MongoDB binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          # Rewrites are baked in at build time. Without this the browser has
+          # no /api proxy and every smoke suite fails at login.
+          API_PROXY_TARGET: http://localhost:3001
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke suites
+        working-directory: frontend
+        env:
+          API_PROXY_TARGET: http://localhost:3001
+        run: npm run smoke:ci

@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { withTransaction } from '../../db/transaction.js';
 import { ApiError } from '../../lib/errors.js';
 import { escapeRegExp } from '../../lib/schemas.js';
@@ -49,10 +49,13 @@ export async function getProduct(id: string) {
 }
 
 export async function createProduct(input: ProductInput, actor: SessionUser) {
-  await assertCategoryExists(input.categoryId);
-  await assertRecipeIngredientsExist(input);
-
   return withTransaction(async (session) => {
+    // Inside the transaction and on its session: a category or ingredient
+    // deleted between these checks and the insert must abort the write, not
+    // leave a product pointing at a record that is already gone.
+    await assertCategoryExists(input.categoryId, session);
+    await assertRecipeIngredientsExist(input, session);
+
     const [created] = await ProductModel.create([normaliseCreate(input)], {
       session,
     });
@@ -74,16 +77,21 @@ export async function updateProduct(id: string, input: ProductInput) {
     const product = await ProductModel.findById(id).session(session);
     if (!product) throw ApiError.notFound('That product no longer exists.');
 
-    await assertCategoryExists(input.categoryId);
-    await assertRecipeIngredientsExist(input);
+    await assertCategoryExists(input.categoryId, session);
+    await assertRecipeIngredientsExist(input, session);
 
     // Editing a product never sets a count. The opening level was recorded as a
     // ledger movement at creation; later counts belong to `/stock/adjust`, and
     // letting this form overwrite the number would break that audit trail.
+    const wasDirect = product.stockMode === 'direct';
     product.set(normaliseUpdate(input));
     if (input.stockMode !== 'direct') {
       product.set('stock', undefined);
       product.set('minStock', undefined);
+    } else if (!wasDirect) {
+      // A recipe product has no level to preserve. It starts at zero like a
+      // newly created direct product, rather than leaving `stock` undefined.
+      product.set('stock', 0);
     }
     await product.save({ session });
 
@@ -165,10 +173,13 @@ function toRecipe(input: ProductInput) {
   }));
 }
 
-async function assertCategoryExists(categoryId: string): Promise<void> {
+async function assertCategoryExists(
+  categoryId: string,
+  session: ClientSession,
+): Promise<void> {
   const exists = await CategoryModel.exists({
     _id: new Types.ObjectId(categoryId),
-  });
+  }).session(session);
   if (!exists) {
     throw ApiError.validation('That category no longer exists.', {
       categoryId: 'Choose a category that still exists.',
@@ -183,11 +194,14 @@ async function assertCategoryExists(categoryId: string): Promise<void> {
  */
 async function assertRecipeIngredientsExist(
   input: ProductInput,
+  session: ClientSession,
 ): Promise<void> {
   if (input.stockMode !== 'recipe' || input.recipe.length === 0) return;
 
   const ids = input.recipe.map((item) => new Types.ObjectId(item.ingredientId));
-  const found = await IngredientModel.countDocuments({ _id: { $in: ids } });
+  const found = await IngredientModel.countDocuments({
+    _id: { $in: ids },
+  }).session(session);
 
   if (found !== new Set(ids.map(String)).size) {
     throw ApiError.validation(

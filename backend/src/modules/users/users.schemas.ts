@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { strongPassword } from '../../lib/password-policy.js';
 import { displayName } from '../../lib/schemas.js';
 
 /**
@@ -16,27 +17,27 @@ const username = z
     'Use letters, numbers, dots, dashes, or underscores only.',
   );
 
-const password = z
-  .string()
-  .min(6, 'Password must be at least 6 characters.')
-  .max(200)
-  .optional();
-
-export const userInput = z.object({
+const userBase = z.object({
   name: displayName,
   username,
   role: z.enum(['admin', 'kasir']),
-  isActive: z.boolean().default(true),
-  /** Required on create; absent or empty on update means "leave it alone". */
-  password,
+});
+
+/**
+ * Update input. `isActive` is required by the contract: an omitted flag must
+ * not silently reactivate a deactivated account. The frontend sends it on every
+ * save, so this only tightens hand-written API calls.
+ */
+export const userInput = userBase.extend({
+  isActive: z.boolean(),
+  /** Absent or empty means "leave the existing password alone". */
+  password: z.union([strongPassword, z.literal('')]).optional(),
 });
 
 /** Create-time variant, where the password is not optional. */
-export const createUserInput = userInput.extend({
-  password: z
-    .string()
-    .min(6, 'Password must be at least 6 characters.')
-    .max(200),
+export const createUserInput = userBase.extend({
+  isActive: z.boolean().default(true),
+  password: strongPassword,
 });
 
 export const setActiveInput = z.object({ isActive: z.boolean() });

@@ -155,7 +155,9 @@ describe('POST /api/orders', () => {
     expect(await OrderModel.countDocuments()).toBe(0);
     expect(await StockMovementModel.countDocuments()).toBe(0);
 
-    const latte = await ProductModel.findOne({ name: 'Classic Iced Caffe Latte' });
+    const latte = await ProductModel.findOne({
+      name: 'Classic Iced Caffe Latte',
+    });
     expect(latte).toBeTruthy();
   });
 
@@ -313,6 +315,21 @@ describe('POST /api/orders', () => {
       expect(await OrderModel.countDocuments()).toBe(0);
       expect(await StockMovementModel.countDocuments()).toBe(0);
       expect((await ProductModel.findById(waterId))?.stock).toBe(10);
+    });
+
+    it('refuses a fractional sale quantity', async () => {
+      const response = await kasir.agent
+        .post('/api/orders')
+        .send({
+          lines: [{ productId: waterId, qty: 1.5 }],
+          paymentMethod: 'qris',
+          paidAmount: 8250,
+        })
+        .expect(422);
+
+      expect(response.body.fields).toHaveProperty('lines.0.qty');
+      expect(await OrderModel.countDocuments()).toBe(0);
+      expect(await StockMovementModel.countDocuments()).toBe(0);
     });
 
     it('refuses an underpayment and leaves the stock alone', async () => {
@@ -491,7 +508,43 @@ describe('POST /api/orders', () => {
       expect((await ProductModel.findById(waterId))?.stock).toBe(9);
     });
 
-    it('never hands another cashier\'s receipt back through a learned key', async () => {
+    it('replays the winner when a retry loses the last-unit race', async () => {
+      // One bottle left, one key, two simultaneous attempts. The loser can fail
+      // on the unique key *or* on the stock check that saw the winner's sale
+      // first; both must end as the same receipt, not as a phantom refusal.
+      await ProductModel.updateOne({ _id: waterId }, { $set: { stock: 1 } });
+
+      const body = {
+        lines: [{ productId: waterId, qty: 1 }],
+        paymentMethod: 'qris',
+        paidAmount: 5500,
+      };
+
+      const attempts = await Promise.all(
+        Array.from({ length: 2 }, () =>
+          kasir.agent
+            .post('/api/orders')
+            .set('Idempotency-Key', 'last-unit-race')
+            .send(body),
+        ),
+      );
+
+      const statuses = attempts
+        .map((response) => response.status)
+        .sort((a, b) => a - b);
+      expect(statuses).toEqual([200, 201]);
+
+      const winner = attempts.find((response) => response.status === 201)!;
+      const replay = attempts.find((response) => response.status === 200)!;
+
+      expect(replay.headers['idempotent-replay']).toBe('true');
+      expect(replay.body.order.receiptNo).toBe(winner.body.order.receiptNo);
+      expect(replay.body.movements).toEqual([]);
+      expect(await OrderModel.countDocuments()).toBe(1);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(0);
+    });
+
+    it("never hands another cashier's receipt back through a learned key", async () => {
       // The key is the retry token of whoever minted it. An admin who somehow
       // learns a cashier's key must not receive the cashier's receipt.
       const first = await kasir.agent
@@ -533,6 +586,42 @@ describe('POST /api/orders', () => {
       // foreign replay was refused as a candidate sale, not recorded.
       expect(await OrderModel.countDocuments()).toBe(1);
       expect(owned.body.order.id).toBe(first.body.order.id);
+      expect((await ProductModel.findById(waterId))?.stock).toBe(9);
+    });
+
+    it('refuses a key minted on a closed shift', async () => {
+      const body = {
+        lines: [{ productId: waterId, qty: 1 }],
+        paymentMethod: 'qris',
+        paidAmount: 5500,
+      };
+
+      await kasir.agent
+        .post('/api/orders')
+        .set('Idempotency-Key', 'yesterday-till-1')
+        .send(body)
+        .expect(201);
+
+      const current = await kasir.agent.get('/api/shifts/current').expect(200);
+      await kasir.agent
+        .post(`/api/shifts/${current.body.id}/close`)
+        .send({ counted: 0 })
+        .expect(200);
+      await kasir.agent
+        .post('/api/shifts')
+        .send({ openingFloat: 0 })
+        .expect(201);
+
+      await kasir.agent
+        .post('/api/orders')
+        .set('Idempotency-Key', 'yesterday-till-1')
+        .send(body)
+        .expect(409)
+        .expect((res) => {
+          expect(res.body.reason).toBe('idempotency-key-foreign');
+        });
+
+      expect(await OrderModel.countDocuments()).toBe(1);
       expect((await ProductModel.findById(waterId))?.stock).toBe(9);
     });
   });
@@ -633,7 +722,9 @@ describe('POST /api/orders', () => {
       let accepted = 0;
 
       for (let attempt = 0; attempt < 3; attempt += 1) {
-        const current = await kasir.agent.get('/api/shifts/current').expect(200);
+        const current = await kasir.agent
+          .get('/api/shifts/current')
+          .expect(200);
         const shift =
           current.body ??
           (
@@ -998,14 +1089,23 @@ describe('POST /api/orders/:id/void', () => {
 
   it('requires a session', async () => {
     const sale = await sellLine(latteId, 1);
-    await request(app).post(`/api/orders/${sale.id}/void`).send({ reason: 'No one here' }).expect(401);
+    await request(app)
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'No one here' })
+      .expect(401);
   });
 
   it('requires a usable reason', async () => {
     const sale = await sellLine(latteId, 1);
 
-    await admin.agent.post(`/api/orders/${sale.id}/void`).send({ reason: '' }).expect(422);
-    await admin.agent.post(`/api/orders/${sale.id}/void`).send({ reason: 'x' }).expect(422);
+    await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: '' })
+      .expect(422);
+    await admin.agent
+      .post(`/api/orders/${sale.id}/void`)
+      .send({ reason: 'x' })
+      .expect(422);
 
     const order = await OrderModel.findById(sale.id);
     expect(order?.status).toBe('paid');
@@ -1022,6 +1122,7 @@ describe('POST /api/orders/:id/void', () => {
     const { order, movements, warnings } = response.body;
 
     expect(order.status).toBe('voided');
+    expect(order.voidedBy).toBeTruthy();
     expect(order.voidedByName).toBe('Budi Santoso');
     expect(order.voidReason).toBe('Barista rang up the wrong order');
     expect(order.voidedAt).toBeTruthy();
@@ -1037,7 +1138,10 @@ describe('POST /api/orders/:id/void', () => {
       expect(movement.type).toBe('void');
       expect(movement.qty).toBeGreaterThan(0);
       expect(movement.note).toBe(
-        `Voided ${sale.receiptNo} — Barista rang up the wrong order`.slice(0, 240),
+        `Voided ${sale.receiptNo} — Barista rang up the wrong order`.slice(
+          0,
+          240,
+        ),
       );
     }
 
@@ -1082,7 +1186,10 @@ describe('POST /api/orders/:id/void', () => {
     const water = await ProductModel.findById(waterId);
     expect(water?.stock).toBe(10);
     expect(
-      await StockMovementModel.countDocuments({ type: 'void', productId: waterId }),
+      await StockMovementModel.countDocuments({
+        type: 'void',
+        productId: waterId,
+      }),
     ).toBe(1);
   });
 
@@ -1119,7 +1226,13 @@ describe('POST /api/orders/:id/void', () => {
 
     await ProductModel.updateOne(
       { _id: waterId },
-      { $set: { stockMode: 'recipe', recipe: [{ ingredientId: milkId, qty: 10 }] }, $unset: { stock: '' } },
+      {
+        $set: {
+          stockMode: 'recipe',
+          recipe: [{ ingredientId: milkId, qty: 10 }],
+        },
+        $unset: { stock: '' },
+      },
     );
 
     const response = await admin.agent
@@ -1229,10 +1342,9 @@ describe('pagination on GET /api/orders', () => {
     expect(page.body.offset).toBe(0);
     expect(page.body.data).toHaveLength(2);
     // Newest first: the reply window is the top of the sorted ledger.
-    expect(page.body.data.map((o: { receiptNo: string }) => o.receiptNo)).toEqual([
-      'MOKA-7140',
-      'MOKA-7130',
-    ]);
+    expect(
+      page.body.data.map((o: { receiptNo: string }) => o.receiptNo),
+    ).toEqual(['MOKA-7140', 'MOKA-7130']);
   });
 
   it('walks to the end of the ledger', async () => {
@@ -1283,9 +1395,7 @@ describe('pagination on GET /api/orders', () => {
       createdAt: new Date('2026-10-16T04:00:00Z'),
     });
 
-    const byReceipt = await kasir.agent
-      .get('/api/orders?q=7099')
-      .expect(200);
+    const byReceipt = await kasir.agent.get('/api/orders?q=7099').expect(200);
     expect(byReceipt.body.total).toBe(1);
     expect(byReceipt.body.data[0].receiptNo).toBe('MOKA-7099');
 

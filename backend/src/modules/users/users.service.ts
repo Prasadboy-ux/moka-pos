@@ -31,12 +31,6 @@ export async function listUsers() {
   return users.map(toSessionUser);
 }
 
-export async function getUser(id: string) {
-  const user = await UserModel.findById(id);
-  if (!user) throw ApiError.notFound('That account no longer exists.');
-  return toSessionUser(user);
-}
-
 export async function createUser(input: CreateUserInput): Promise<SessionUser> {
   await assertUsernameFree(input.username);
 
@@ -91,11 +85,18 @@ export async function updateUser(
       await assertNotLastAdmin(id, session);
     }
 
+    const wasActive = user.isActive;
+    const passwordChanged = passwordHash !== null;
+    const activeChanged = wasActive !== input.isActive;
+
     user.name = input.name;
     user.username = input.username.trim();
     user.role = input.role;
     user.isActive = input.isActive;
     if (passwordHash) user.passwordHash = passwordHash;
+    if (passwordChanged || activeChanged) {
+      user.sessionEpoch = (user.sessionEpoch ?? 0) + 1;
+    }
 
     try {
       await user.save({ session });
@@ -123,6 +124,9 @@ export async function setUserActive(
       await assertNotLastAdmin(id, session);
     }
 
+    if (user.isActive !== isActive) {
+      user.sessionEpoch = (user.sessionEpoch ?? 0) + 1;
+    }
     user.isActive = isActive;
     await user.save({ session });
     return toSessionUser(user);

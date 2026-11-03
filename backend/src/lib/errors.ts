@@ -12,10 +12,12 @@ export const CONFLICT_REASONS = [
   'category-in-use',
   'already-open-shift',
   'already-closed-shift',
+  'shift-closed',
   'no-open-shift',
   'username-taken',
   'order-already-voided',
   'idempotency-key-foreign',
+  'duplicate',
 ] as const;
 
 export type ConflictReason = (typeof CONFLICT_REASONS)[number];
@@ -98,9 +100,9 @@ export class ApiError extends Error {
   }
 
   /**
-   * `reason` is omitted only by the generic duplicate-key fallback in the error
-   * middleware, which fires before the service layer can tell which unique index
-   * was hit. Services always pass one.
+   * The generic duplicate-key fallback answers `duplicate` because it fires
+   * before the service layer can tell which unique index was hit. Services
+   * usually pass a more specific reason.
    */
   static conflict(
     reason: ConflictReason | undefined,

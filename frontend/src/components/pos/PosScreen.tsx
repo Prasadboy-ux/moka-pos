@@ -17,6 +17,11 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useFlyToCart } from "@/hooks/useFlyToCart";
 import { useQueryState } from "@/hooks/useQueryState";
 import { formatDateTime, formatIDR } from "@/lib/format";
+import {
+  checkoutSignature,
+  reuseCheckoutKey,
+  type CheckoutKey,
+} from "@/lib/idempotency";
 import { DURATION, EASE_OUT } from "@/lib/motion";
 import { getRepositories } from "@/lib/repositories";
 import {
@@ -111,6 +116,15 @@ export function PosScreen() {
   const [closeShiftOpen, setCloseShiftOpen] = useState(false);
 
   const lines = useCartStore((state) => state.lines);
+  const cartSignature = useMemo(() => checkoutSignature(lines), [lines]);
+
+  /**
+   * Held here rather than inside CheckoutDialog: closing and reopening the
+   * dialog for the same cart must reuse the key, otherwise a retry after a lost
+   * response becomes a second order. Cleared once the sale is committed, so
+   * starting an identical cart later mints a fresh key.
+   */
+  const [checkoutKey, setCheckoutKey] = useState<CheckoutKey | null>(null);
   const taxRate = useCartStore((state) => state.taxRate);
   const setTaxRate = useCartStore((state) => state.setTaxRate);
   const add = useCartStore((state) => state.add);
@@ -118,6 +132,15 @@ export function PosScreen() {
   const remove = useCartStore((state) => state.remove);
   const clear = useCartStore((state) => state.clear);
   const qtyOf = useCartStore((state) => state.qtyOf);
+
+  /**
+   * Restore a cart left behind by a refresh. Hydration is manual because the
+   * server has no `sessionStorage`; waiting until after mount keeps the first
+   * client render identical to the server's empty cart.
+   */
+  useEffect(() => {
+    void useCartStore.persist.rehydrate();
+  }, []);
 
   /**
    * The rate shown in the cart comes from the API, not a frontend constant.
@@ -175,8 +198,14 @@ export function PosScreen() {
     setQty(productId, qty, product ? cartLimit(lines, product, stockContext) : null);
   }
 
+  function openCheckout() {
+    setCheckoutKey((current) => reuseCheckoutKey(current, cartSignature));
+    setCheckoutOpen(true);
+  }
+
   function handleCompleted(order: Order) {
     clear();
+    setCheckoutKey(null);
     setCheckoutOpen(false);
     setReceipt(order);
 
@@ -331,7 +360,7 @@ export function PosScreen() {
             onSetQty={handleSetQty}
             onRemove={remove}
             onClear={clear}
-            onCheckout={() => setCheckoutOpen(true)}
+            onCheckout={openCheckout}
           />
         </div>
       </div>
@@ -344,6 +373,7 @@ export function PosScreen() {
         taxRate={taxRate}
         cashierId={user?.id ?? ""}
         cashierName={user?.name ?? ""}
+        idempotencyKey={checkoutKey?.key ?? ""}
         onCompleted={handleCompleted}
         onShiftRequired={() => {
           // The shift was closed underneath this sale (another till, an admin).

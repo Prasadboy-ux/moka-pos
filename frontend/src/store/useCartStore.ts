@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
 import {
   calculateTax,
   remainingFor,
@@ -100,11 +101,13 @@ function computeTotals(lines: CartLine[], taxRate: number): CartTotals {
   };
 }
 
-export const useCartStore = create<CartState>()((set, get) => ({
-  lines: [],
-  taxRate: TAX_RATE_DEFAULT,
+export const useCartStore = create<CartState>()(
+  persist(
+    (set, get) => ({
+      lines: [],
+      taxRate: TAX_RATE_DEFAULT,
 
-  add: (product, qty, limit) =>
+      add: (product, qty, limit) =>
     set((state) => {
       const existing = state.lines.find((l) => l.productId === product.id);
       const wanted = (existing?.qty ?? 0) + qty;
@@ -165,7 +168,26 @@ export const useCartStore = create<CartState>()((set, get) => ({
   qtyOf: (productId) =>
     get().lines.find((l) => l.productId === productId)?.qty ?? 0,
 
-  totals: () => computeTotals(get().lines, get().taxRate),
-}));
+      totals: () => computeTotals(get().lines, get().taxRate),
+    }),
+    {
+      name: "moka-pos-cart",
+      /**
+       * Tab-scoped on purpose: a refresh or crash recovery keeps the cart, but
+       * yesterday's half-started order cannot reappear on a new day. The
+       * checkout key lives outside this store, so rehydrating the lines never
+       * resurrects a key from a previous attempt.
+       */
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({ lines: state.lines, taxRate: state.taxRate }),
+      /**
+       * The server renders the store without `sessionStorage`. Hydration is
+       * started by the POS screen after mount, so the first client render
+       * matches the server's empty cart and only then adopts saved lines.
+       */
+      skipHydration: true,
+    },
+  ),
+);
 
 export { computeTotals };

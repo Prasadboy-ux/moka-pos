@@ -570,6 +570,20 @@ export type SeedSummary = {
 
 export async function runSeed(): Promise<SeedSummary> {
   const config = env();
+
+  /**
+   * Every collection is wiped below. That is the point of a demo seed, but it
+   * must never be one mistyped environment away from a live shop's ledger.
+   */
+  if (
+    config.NODE_ENV === 'production' &&
+    process.env.SEED_ALLOW_PRODUCTION !== 'true'
+  ) {
+    throw new Error(
+      'Refusing to seed a production database: runSeed deletes every collection. Set SEED_ALLOW_PRODUCTION=true only when that is intended.',
+    );
+  }
+
   await connectDatabase(config.MONGODB_URI);
 
   // Wipe in an order that does not matter — there are no foreign-key

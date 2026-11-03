@@ -20,7 +20,7 @@ import {
 
 const app: Express = createApp();
 
-const PASSWORD = 'kasir123';
+const PASSWORD = 'kasir-pass-2026';
 
 /**
  * scrypt is deliberately slow — that is what makes it worth using — but hashing
@@ -286,6 +286,25 @@ describe('POST /api/auth/logout', () => {
       `${SESSION_COOKIE}=`,
     );
   });
+
+  it('revokes the token server-side, not just in the browser', async () => {
+    const agent = request.agent(app);
+    const login = await agent
+      .post('/api/auth/login')
+      .send({ username: 'kasir', password: PASSWORD })
+      .expect(200);
+
+    const cookie = login.headers['set-cookie']?.[0]?.split(';')[0] ?? '';
+    expect(cookie).toContain(`${SESSION_COOKIE}=`);
+
+    await agent.post('/api/auth/logout').expect(204);
+
+    // Replay the captured cookie: clearing it locally is not enough.
+    await request(app)
+      .get('/api/auth/me')
+      .set('Cookie', cookie)
+      .expect(401);
+  });
 });
 
 describe('POST /api/auth/change-password', () => {
@@ -370,7 +389,7 @@ describe('POST /api/auth/change-password', () => {
       .expect(204);
   });
 
-  it('keeps an existing session valid after the change', async () => {
+  it('invalidates the session after the change', async () => {
     const agent = await kasirAgent();
 
     await agent
@@ -378,7 +397,20 @@ describe('POST /api/auth/change-password', () => {
       .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026' })
       .expect(204);
 
-    await agent.get('/api/auth/me').expect(200);
+    await agent.get('/api/auth/me').expect(401);
+  });
+
+  it('revokes sessions on other devices as well', async () => {
+    const first = await kasirAgent();
+    const second = await kasirAgent();
+
+    await first
+      .post('/api/auth/change-password')
+      .send({ currentPassword: PASSWORD, newPassword: 'brand-new-2026' })
+      .expect(204);
+
+    await first.get('/api/auth/me').expect(401);
+    await second.get('/api/auth/me').expect(401);
   });
 
   it('stops working once the account is deactivated', async () => {
