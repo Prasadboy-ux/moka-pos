@@ -56,7 +56,10 @@ replacement for the product docs in `frontend/docs/` or the backend docs in
   and cleared after a completed sale.
 - `middleware.ts` was renamed to `proxy.ts` (`export function proxy`) for the
   Next 16 convention, and `next.config.ts` sets a baseline set of response
-  headers.
+  headers plus a CSP. The policy keeps `connect-src 'self'` and allows no
+  third-party script/style/frame origins; the smoke suites now drive their setup
+  calls through the same-origin `/api` rewrite, so they exercise that policy
+  instead of bypassing it with a direct `localhost:3001` fetch.
 
 ### Verified after the third pass and audit fixes (2026-10-28) — backend
 

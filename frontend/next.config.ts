@@ -8,7 +8,33 @@ import type { NextConfig } from "next";
  * HSTS is added only for a production build: sending it from local HTTP would
  * pin a developer's browser to a scheme the dev server does not serve.
  */
+const isDev = process.env.NODE_ENV === "development";
+const proxyTarget = process.env.API_PROXY_TARGET?.replace(/\/$/, "");
+
+/**
+ * Scripts and styles need `'unsafe-inline'` because Next inlines its hydration
+ * bootstrap and the app is statically rendered — a nonce would force every page
+ * dynamic. The directives that matter for this app still hold: no third-party
+ * script/style/frame origins, no plugins, no base-tag rewrite, and forms only
+ * post to this origin. `wa.me` is a link target, not a fetched resource.
+ */
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "manifest-src 'self'",
+  "worker-src 'self' blob:",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `connect-src 'self'${isDev ? " ws: wss:" : ""}`,
+].join("; ");
+
 const securityHeaders = [
+  { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
@@ -59,14 +85,12 @@ const nextConfig: NextConfig = {
    * a `localhost` URL baked into the bundle at build time.
    */
   async rewrites() {
-    const target = process.env.API_PROXY_TARGET?.replace(/\/$/, "");
-
-    if (!target) return [];
+    if (!proxyTarget) return [];
 
     return [
       {
         source: "/api/:path*",
-        destination: `${target}/api/:path*`,
+        destination: `${proxyTarget}/api/:path*`,
       },
     ];
   },

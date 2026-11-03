@@ -11,7 +11,10 @@ import { fillLoginForm } from "./auth.mjs";
  */
 
 const BASE = "http://localhost:3000";
-const API = "http://localhost:3001";
+// Same-origin: the Next rewrite forwards `/api/*` to the backend. A direct
+// `http://localhost:3001` fetch would be cross-origin and is blocked by the
+// page's `connect-src 'self'` policy.
+const API = "";
 const results = [];
 
 /**
