@@ -93,6 +93,22 @@ export const userRepository: UserRepository = {
 
     return { ok: true as const, user: toPublicUser(match) };
   },
+
+  async verifyMfa(_mfaToken: string, _code: string) {
+    await simulateLatency(400);
+    const user = readDb().users[0]!;
+    return { ok: true as const, user: toPublicUser(user) };
+  },
+
+  async confirmMfaSetup(_setupToken: string, _code: string) {
+    await simulateLatency(400);
+    const user = readDb().users[0]!;
+    return {
+      ok: true as const,
+      user: toPublicUser(user),
+      backupCodes: ['1234-5678', '9876-5432'],
+    };
+  },
 };
 
 /**

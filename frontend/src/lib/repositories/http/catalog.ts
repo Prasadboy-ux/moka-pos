@@ -1,4 +1,4 @@
-import type { User } from "@/types/auth";
+import type { Role, User } from "@/types/auth";
 import type { Category, Ingredient, Product } from "@/types/pos";
 import { adoptStoreTimezone } from "@/lib/repositories/report-math";
 import type {
@@ -116,26 +116,85 @@ export const userRepository: UserRepository = {
    * before it sets a session cookie. Without it, the browser could hold a valid
    * session for the wrong role while the form still showed an error.
    */
-  async authenticate(username: string, password: string, role?) {
+  async authenticate(username: string, password: string, role?: Role, rememberMe?: boolean) {
     try {
-      const { user } = await request<{ user: User }>(() =>
-        http.post("/auth/login", { username, password, role }),
+      const response = await request<
+        | { user: User }
+        | { mfaRequired: true; mfaToken: string; username: string }
+        | {
+            mfaSetupRequired: true;
+            setupToken: string;
+            secret: string;
+            qrUri: string;
+            username: string;
+          }
+      >(() =>
+        http.post('/auth/login', { username, password, role, rememberMe }),
       );
-      return { ok: true as const, user };
+
+      if ('mfaRequired' in response) {
+        return {
+          ok: true as const,
+          mfaRequired: true as const,
+          mfaToken: response.mfaToken,
+          username: response.username,
+        };
+      }
+
+      if ('mfaSetupRequired' in response) {
+        return {
+          ok: true as const,
+          mfaSetupRequired: true as const,
+          setupToken: response.setupToken,
+          secret: response.secret,
+          qrUri: response.qrUri,
+          username: response.username,
+        };
+      }
+
+      return { ok: true as const, user: response.user };
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
 
       if (error.status === 401) {
         return {
           ok: false as const,
-          reason: error.reason === "inactive" ? "inactive" : "invalid",
+          reason: error.reason === 'inactive' ? ('inactive' as const) : ('invalid' as const),
         };
       }
 
-      if (error.status === 403 && error.reason === "role-mismatch") {
-        return { ok: false as const, reason: "role-mismatch" as const };
+      if (error.status === 403 && error.reason === 'role-mismatch') {
+        return { ok: false as const, reason: 'role-mismatch' as const };
       }
 
+      throw error;
+    }
+  },
+
+  async verifyMfa(mfaToken: string, code: string) {
+    try {
+      const { user } = await request<{ user: User }>(() =>
+        http.post('/auth/mfa/verify', { mfaToken, code }),
+      );
+      return { ok: true as const, user };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false as const, reason: error.message };
+      }
+      throw error;
+    }
+  },
+
+  async confirmMfaSetup(setupToken: string, code: string) {
+    try {
+      const response = await request<{ user: User; backupCodes: string[] }>(() =>
+        http.post('/auth/mfa/setup-confirm', { setupToken, code }),
+      );
+      return { ok: true as const, user: response.user, backupCodes: response.backupCodes };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false as const, reason: error.message };
+      }
       throw error;
     }
   },

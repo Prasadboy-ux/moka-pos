@@ -53,6 +53,9 @@ if (process.env.NODE_ENV === "production") {
 }
 
 const nextConfig: NextConfig = {
+  experimental: {
+    turbopackPluginRuntimeStrategy: 'forceWorkerThreads',
+  },
   /**
    * The repository root also has a package.json (the local tooling for the
    * motion skill), so Next otherwise infers the wrong workspace root and warns

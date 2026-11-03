@@ -6,6 +6,9 @@ import { toApiJson, USERNAME_COLLATION } from './shared.js';
  * results unless explicitly asked for — the only caller that needs it is the
  * login handler, and the one caller that must never get it is any response.
  *
+ * MFA secrets and backup code hashes are also `select: false` so they are never
+ * leaked into app code or serialized into JSON.
+ *
  * There is no delete. Orders reference the cashier by id, so an account leaves
  * by being deactivated.
  */
@@ -38,6 +41,16 @@ const userSchema = new Schema(
      * same millisecond must still invalidate the sessions from the first.
      */
     sessionEpoch: { type: Number, default: 0, required: true },
+
+    /**
+     * Multi-Factor Authentication (TOTP) configuration.
+     * `mfaSecret` is encrypted at rest via AES-256-GCM.
+     * `mfaBackupCodes` stores salted SHA-256 hashes of single-use recovery codes.
+     */
+    mfaEnabled: { type: Boolean, default: false, required: true },
+    mfaSecret: { type: String, select: false },
+    mfaBackupCodes: { type: [String], select: false },
+
     createdAt: { type: Date, default: Date.now, required: true },
   },
   { toJSON: toApiJson, collection: 'users' },
@@ -65,10 +78,8 @@ export type Role = 'admin' | 'kasir';
 /**
  * What the API is willing to say about a user.
  *
- * The contract's `User` shape has no password field at all, so this type cannot
- * accidentally grow one. `passwordHash` is `select: false`, meaning it is not
- * even loaded onto the document for a normal query — this is the second lock on
- * the same door.
+ * The contract's `User` shape has no password or secret fields at all, so this type cannot
+ * accidentally grow one. `passwordHash` and `mfaSecret` are `select: false`.
  */
 export type SessionUser = {
   id: string;
@@ -76,6 +87,7 @@ export type SessionUser = {
   username: string;
   role: Role;
   isActive: boolean;
+  mfaEnabled?: boolean;
 };
 
 export function toSessionUser(user: {
@@ -84,6 +96,7 @@ export function toSessionUser(user: {
   username: string;
   role: Role;
   isActive: boolean;
+  mfaEnabled?: boolean;
 }): SessionUser {
   return {
     id: String(user._id),
@@ -91,6 +104,7 @@ export function toSessionUser(user: {
     username: user.username,
     role: user.role,
     isActive: user.isActive,
+    mfaEnabled: Boolean(user.mfaEnabled),
   };
 }
 
@@ -102,6 +116,9 @@ export type User = {
   role: Role;
   isActive: boolean;
   sessionEpoch: number;
+  mfaEnabled: boolean;
+  mfaSecret?: string;
+  mfaBackupCodes?: string[];
   createdAt: Date;
 };
 

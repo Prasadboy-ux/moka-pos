@@ -6,14 +6,11 @@ export interface User {
   username: string;
   role: Role;
   isActive: boolean;
+  mfaEnabled?: boolean;
 }
 
 /**
  * A user as the data layer stores them, with the credential still attached.
- *
- * Nothing outside the auth repository should ever hold one: `authenticate` and
- * `toPublicUser` are the only boundary between the two shapes, which keeps a
- * password from leaking into a component or a persisted session.
  */
 export interface StoredUser extends User {
   password: string;
@@ -36,10 +33,16 @@ export const ROLE_HOME: Record<Role, string> = {
 };
 
 /** Why a sign-in was refused, so the form can say something specific. */
-export type LoginFailureReason = "invalid" | "inactive" | "role-mismatch";
+export type LoginFailureReason =
+  | "invalid"
+  | "inactive"
+  | "role-mismatch"
+  | "invalid_mfa";
 
 export const LOGIN_ERROR_MESSAGE: Record<LoginFailureReason, string> = {
   invalid: "Incorrect username or password.",
   "role-mismatch": "This account is not registered for the selected role.",
   inactive: "This account has been deactivated. Contact an administrator.",
+  invalid_mfa:
+    "Invalid verification code. Please check your authenticator or backup code.",
 };

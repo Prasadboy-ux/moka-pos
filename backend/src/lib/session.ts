@@ -4,23 +4,21 @@ import { env } from '../config/env.js';
 import { ApiError } from './errors.js';
 
 /**
- * Session cookies.
+ * Session cookies & token management.
  *
- * The contract recommends a cookie over a bearer token, and the reason is
- * concrete: a token in `localStorage` is readable by any script on the page, so
- * one XSS becomes a permanent account takeover. An httpOnly cookie is invisible
- * to JavaScript and goes away when the cookie jar does.
+ * Uses httpOnly, SameSite=lax cookie holding a signed Jose JWT (HS256).
+ * Supports standard shift sessions (default 12 hours) and extended Remember Me
+ * sessions (30 days).
  *
- * The token carries only the user id. Role and active status are re-read from
- * the database on every request, so deactivating an account takes effect
- * immediately instead of whenever the token happens to expire.
+ * Intermediate MFA challenge tokens (5 min TTL) and setup tokens (10 min TTL)
+ * ensure two-step authentication flows remain stateless and cryptographically verified.
  */
 
 export const SESSION_COOKIE = 'moka_session';
 
-/** Pinned so a token minted for another service can never be replayed here. */
 const SESSION_ISSUER = 'moka-pos';
 const SESSION_AUDIENCE = 'moka-pos-web';
+const REMEMBER_ME_DAYS = 30;
 
 let cachedKey: Uint8Array | undefined;
 
@@ -30,23 +28,24 @@ function signingKey(): Uint8Array {
 }
 
 /**
- * The epoch is the account's `sessionEpoch` at issue time. `requireSession`
- * compares it with the database value, which is what makes a password change or
- * sign-out revoke tokens that are otherwise still cryptographically valid.
+ * Signs a full session JWT.
+ * When `rememberMe` is true, session duration is extended to 30 days.
  */
 export async function signSession(
   userId: string,
   sessionEpoch: number,
+  rememberMe = false,
 ): Promise<string> {
   const { SESSION_TTL_HOURS } = env();
+  const expiration = rememberMe ? `${REMEMBER_ME_DAYS * 24}h` : `${SESSION_TTL_HOURS}h`;
 
-  return new SignJWT({ epoch: sessionEpoch })
+  return new SignJWT({ epoch: sessionEpoch, rememberMe })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(SESSION_ISSUER)
     .setAudience(SESSION_AUDIENCE)
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_TTL_HOURS}h`)
+    .setExpirationTime(expiration)
     .sign(signingKey());
 }
 
@@ -56,17 +55,7 @@ export type VerifiedSession = {
 };
 
 /**
- * Returns the user id and epoch, or throws a 401.
- *
- * `algorithms` is pinned rather than taken from the token header: without it an
- * attacker could present `alg: none` or swap in an asymmetric algorithm and
- * have the signature step quietly skipped.
- *
- * Every jose failure — bad signature, wrong shape, expired, tampered — is
- * converted to the same 401. They are one situation from the caller's point of
- * view, and letting a jose error escape would surface as a 500, which both
- * misreports the cause and tells an attacker they produced a structurally valid
- * token rather than an invalid one.
+ * Returns the user id and epoch from a session cookie, or throws 401.
  */
 export async function verifySession(token: string): Promise<VerifiedSession> {
   let subject: unknown;
@@ -100,26 +89,129 @@ export async function verifySession(token: string): Promise<VerifiedSession> {
 }
 
 /**
- * `sameSite: 'lax'` rather than `'none'`.
- *
- * `none` requires `secure`, which in turn requires HTTPS, so `none` makes local
- * development over plain `http://localhost` fail in a way that looks like login
- * simply not working. `lax` is sufficient here because the frontend and this API
- * are always *same-site* — different ports on localhost, or `app.` and `api.`
- * under one domain — and only differ in origin, which is CORS's problem rather
- * than SameSite's.
- *
- * If the two are ever deployed on genuinely different sites, this becomes
- * `'none'` plus HTTPS plus a credentialed CORS allow-list.
+ * Signs a short-lived (5 min) challenge token when credentials are valid
+ * but the account requires MFA verification before receiving the session cookie.
  */
-export function sessionCookieOptions(): CookieOptions {
+export async function signMfaChallengeToken(
+  userId: string,
+  sessionEpoch: number,
+  rememberMe = false,
+): Promise<string> {
+  return new SignJWT({
+    epoch: sessionEpoch,
+    purpose: 'mfa_challenge',
+    rememberMe,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(userId)
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime('5m')
+    .sign(signingKey());
+}
+
+export async function verifyMfaChallengeToken(
+  token: string,
+): Promise<{ userId: string; epoch: number; rememberMe: boolean }> {
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), {
+      algorithms: ['HS256'],
+      issuer: SESSION_ISSUER,
+      audience: SESSION_AUDIENCE,
+    });
+
+    if (
+      payload.purpose !== 'mfa_challenge' ||
+      typeof payload.sub !== 'string' ||
+      typeof payload.epoch !== 'number'
+    ) {
+      throw new Error('Invalid token purpose');
+    }
+
+    return {
+      userId: payload.sub,
+      epoch: payload.epoch,
+      rememberMe: Boolean(payload.rememberMe),
+    };
+  } catch {
+    throw ApiError.unauthenticated(
+      'MFA challenge has expired or is invalid. Please sign in again.',
+    );
+  }
+}
+
+/**
+ * Signs a short-lived (10 min) setup token for newly mandatory MFA setup.
+ */
+export async function signMfaSetupToken(
+  userId: string,
+  sessionEpoch: number,
+  secret: string,
+  rememberMe = false,
+): Promise<string> {
+  return new SignJWT({
+    epoch: sessionEpoch,
+    secret,
+    purpose: 'mfa_setup',
+    rememberMe,
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(userId)
+    .setIssuer(SESSION_ISSUER)
+    .setAudience(SESSION_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime('10m')
+    .sign(signingKey());
+}
+
+export async function verifyMfaSetupToken(
+  token: string,
+): Promise<{ userId: string; epoch: number; secret: string; rememberMe: boolean }> {
+  try {
+    const { payload } = await jwtVerify(token, signingKey(), {
+      algorithms: ['HS256'],
+      issuer: SESSION_ISSUER,
+      audience: SESSION_AUDIENCE,
+    });
+
+    if (
+      payload.purpose !== 'mfa_setup' ||
+      typeof payload.sub !== 'string' ||
+      typeof payload.epoch !== 'number' ||
+      typeof payload.secret !== 'string'
+    ) {
+      throw new Error('Invalid setup token');
+    }
+
+    return {
+      userId: payload.sub,
+      epoch: payload.epoch,
+      secret: payload.secret,
+      rememberMe: Boolean(payload.rememberMe),
+    };
+  } catch {
+    throw ApiError.unauthenticated(
+      'MFA setup session expired. Please sign in again to continue setup.',
+    );
+  }
+}
+
+/**
+ * Generates cookie options matching the session duration (30 days if rememberMe, else SESSION_TTL_HOURS).
+ */
+export function sessionCookieOptions(rememberMe = false): CookieOptions {
   const { COOKIE_SECURE, SESSION_TTL_HOURS } = env();
+
+  const maxAge = rememberMe
+    ? REMEMBER_ME_DAYS * 24 * 60 * 60 * 1000
+    : SESSION_TTL_HOURS * 60 * 60 * 1000;
 
   return {
     httpOnly: true,
     secure: COOKIE_SECURE,
     sameSite: 'lax',
     path: '/',
-    maxAge: SESSION_TTL_HOURS * 60 * 60 * 1000,
+    maxAge,
   };
 }

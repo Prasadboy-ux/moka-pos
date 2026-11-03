@@ -2,29 +2,41 @@ import { z } from 'zod';
 import { strongPassword } from '../../lib/password-policy.js';
 
 /**
- * The contract's three failure reasons map onto `LoginFailureReason` in the
- * frontend's auth types, and the login screen already renders a distinct message
- * for each. They must stay distinct here.
+ * The contract's failure reasons map onto `LoginFailureReason` in the
+ * frontend's auth types.
  */
 export const loginSchema = z.object({
   username: z.string().trim().min(1, 'Enter your username.').max(40),
   password: z.string().min(1, 'Enter your password.').max(200),
-  /**
-   * Optional. The login form sends the role the user picked from a dropdown, so
-   * a mismatch has its own message rather than being silently ignored.
-   */
   role: z.enum(['admin', 'kasir']).optional(),
+  rememberMe: z.boolean().optional(),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
 
+export const mfaVerifySchema = z.object({
+  mfaToken: z.string().min(1, 'MFA challenge token is required.'),
+  code: z
+    .string()
+    .trim()
+    .min(6, 'Verification code is required.')
+    .max(20),
+});
+
+export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
+
+export const mfaSetupConfirmSchema = z.object({
+  setupToken: z.string().min(1, 'MFA setup token is required.'),
+  code: z
+    .string()
+    .trim()
+    .length(6, '6-digit authenticator code is required.'),
+});
+
+export type MfaSetupConfirmInput = z.infer<typeof mfaSetupConfirmSchema>;
+
 /**
  * A user changing their own password.
- *
- * `currentPassword` is mandatory and verified first: an unlocked shared desk is
- * the main practical threat here, so the endpoint must not trust possession of
- * the session cookie alone. The strength floor matches the users module —
- * different floors in different places means the weak one is the real one.
  */
 export const changePasswordSchema = z.object({
   currentPassword: z

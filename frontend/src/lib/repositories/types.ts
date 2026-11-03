@@ -204,9 +204,30 @@ export interface UserRepository {
     username: string,
     password: string,
     role?: Role,
+    rememberMe?: boolean,
   ): Promise<
     | { ok: true; user: User }
-    | { ok: false; reason: "invalid" | "inactive" | "role-mismatch" }
+    | { ok: true; mfaRequired: true; mfaToken: string; username: string }
+    | {
+        ok: true;
+        mfaSetupRequired: true;
+        setupToken: string;
+        secret: string;
+        qrUri: string;
+        username: string;
+      }
+    | { ok: false; reason: 'invalid' | 'inactive' | 'role-mismatch' | 'invalid_mfa' }
+  >;
+  verifyMfa(
+    mfaToken: string,
+    code: string,
+  ): Promise<{ ok: true; user: User } | { ok: false; reason: string }>;
+  confirmMfaSetup(
+    setupToken: string,
+    code: string,
+  ): Promise<
+    | { ok: true; user: User; backupCodes: string[] }
+    | { ok: false; reason: string }
   >;
 }
 

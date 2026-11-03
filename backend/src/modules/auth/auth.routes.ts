@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   loginLimiter,
   loginUsernameLimiter,
+  mfaLimiter,
   passwordLimiter,
 } from '../../lib/rate-limit.js';
 import { validate } from '../../lib/validate.js';
@@ -14,13 +15,19 @@ import { requireSession, sessionUser } from '../../middleware/session.js';
 import {
   changePasswordSchema,
   loginSchema,
+  mfaSetupConfirmSchema,
+  mfaVerifySchema,
   type ChangePasswordInput,
   type LoginInput,
+  type MfaSetupConfirmInput,
+  type MfaVerifyInput,
 } from './auth.schemas.js';
 import {
   authenticate,
   changePassword,
+  confirmMfaSetup,
   revokeSessionsForToken,
+  verifyMfaLogin,
 } from './auth.service.js';
 
 export const router: Router = Router();
@@ -32,13 +39,26 @@ router.post(
   loginUsernameLimiter(),
   login,
 );
+
+router.post(
+  '/auth/mfa/verify',
+  mfaLimiter(),
+  validate({ body: mfaVerifySchema }),
+  mfaVerifyRoute,
+);
+
+router.post(
+  '/auth/mfa/setup-confirm',
+  mfaLimiter(),
+  validate({ body: mfaSetupConfirmSchema }),
+  mfaSetupConfirmRoute,
+);
+
 router.post('/auth/logout', logout);
 router.get('/auth/me', requireSession, me);
 
 /**
- * Any signed-in role may change their own password, and every account should be
- * able to: handing this to admins only would mean "cashiers cannot fix the
- * password their manager just reset in front of them".
+ * Any signed-in role may change their own password.
  */
 router.post(
   '/auth/change-password',
@@ -50,21 +70,59 @@ router.post(
 
 async function login(req: Request, res: Response): Promise<void> {
   const input = req.validated?.body as LoginInput;
+  const result = await authenticate(input);
 
-  const { user, sessionEpoch } = await authenticate(input);
-  const token = await signSession(user.id, sessionEpoch);
+  if (result.status === 'mfa_required') {
+    res.status(200).json({
+      mfaRequired: true,
+      mfaToken: result.mfaToken,
+      username: result.username,
+    });
+    return;
+  }
 
-  res.cookie(SESSION_COOKIE, token, sessionCookieOptions());
+  if (result.status === 'mfa_setup_required') {
+    res.status(200).json({
+      mfaSetupRequired: true,
+      setupToken: result.setupToken,
+      secret: result.secret,
+      qrUri: result.qrUri,
+      username: result.username,
+    });
+    return;
+  }
+
+  const token = await signSession(
+    result.user.id,
+    result.sessionEpoch,
+    result.rememberMe,
+  );
+
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions(result.rememberMe));
+  res.status(200).json({ user: result.user });
+}
+
+async function mfaVerifyRoute(req: Request, res: Response): Promise<void> {
+  const input = req.validated?.body as MfaVerifyInput;
+  const { user, sessionEpoch, rememberMe } = await verifyMfaLogin(input);
+
+  const token = await signSession(user.id, sessionEpoch, rememberMe);
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions(rememberMe));
   res.status(200).json({ user });
+}
+
+async function mfaSetupConfirmRoute(req: Request, res: Response): Promise<void> {
+  const input = req.validated?.body as MfaSetupConfirmInput;
+  const { user, sessionEpoch, backupCodes, rememberMe } =
+    await confirmMfaSetup(input);
+
+  const token = await signSession(user.id, sessionEpoch, rememberMe);
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions(rememberMe));
+  res.status(200).json({ user, backupCodes });
 }
 
 /**
  * Clears the cookie and revokes the token server-side.
- *
- * A stateless JWT cannot be deleted, so the account's epoch is bumped. That
- * signs out every device for the account, not just this one — the price of
- * having no session table. Revocation is best-effort: a database failure must
- * not leave the browser holding a cookie it asked to be rid of.
  */
 async function logout(req: Request, res: Response): Promise<void> {
   const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
@@ -76,17 +134,14 @@ async function logout(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * Replaces reading the session out of `localStorage`. Called once on app load;
- * every route guard waits on it, which is why the mock had a `hydrated` flag.
+ * Replaces reading the session out of `localStorage`.
  */
 function me(req: Request, res: Response): void {
   res.status(200).json({ user: sessionUser(req) });
 }
 
 /**
- * 204: the password has changed, and there is nothing to hand back. The
- * service has bumped the account's session epoch, so this cookie is already
- * dead; clearing it here saves the browser one guaranteed 401.
+ * 204: the password has changed, and there is nothing to hand back.
  */
 async function changePasswordRoute(req: Request, res: Response): Promise<void> {
   await changePassword(

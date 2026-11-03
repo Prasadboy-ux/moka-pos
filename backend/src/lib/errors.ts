@@ -23,13 +23,13 @@ export const CONFLICT_REASONS = [
 export type ConflictReason = (typeof CONFLICT_REASONS)[number];
 
 /**
- * The three refusals `POST /api/auth/login` distinguishes. The login screen
- * maps each to its own message, so they cannot be flattened into one 401.
+ * The refusals `POST /api/auth/login` and MFA challenge distinguish.
  */
 export const AUTH_FAILURE_REASONS = [
   'invalid',
   'inactive',
   'role-mismatch',
+  'invalid_mfa',
 ] as const;
 
 export type AuthFailureReason = (typeof AUTH_FAILURE_REASONS)[number];
@@ -117,5 +117,11 @@ export class ApiError extends Error {
 
   static insufficientStock(message: string): ApiError {
     return new ApiError(409, { error: 'insufficient-stock', message });
+  }
+
+  static internal(
+    message = 'An unexpected internal error occurred. Please try again.',
+  ): ApiError {
+    return new ApiError(500, { error: 'internal', message });
   }
 }
