@@ -230,54 +230,49 @@ export function AdminOverview() {
         </motion.div>
       </motion.section>
 
-      <motion.div variants={stagger} className="grid gap-5 lg:grid-cols-3">
-        <motion.div variants={fadeUp} className="lg:col-span-2">
-          <SectionCard
-            title="Last 7 days"
-            description="Revenue per day"
-            className="h-full"
-          >
-            <TrendBars summary={summary} />
-          </SectionCard>
-        </motion.div>
+      <motion.div
+        variants={stagger}
+        className="grid items-start gap-5 lg:grid-cols-3"
+      >
+        <div className="space-y-5 lg:col-span-2">
+          <motion.div variants={fadeUp}>
+            <SectionCard title="Last 7 days" description="Revenue per day">
+              <TrendBars summary={summary} />
+            </SectionCard>
+          </motion.div>
 
-        <motion.div variants={fadeUp}>
-          <SectionCard
-            title="Payment mix"
-            description="Today by method"
-            className="h-full"
-          >
-            <PaymentMix summary={summary} />
-          </SectionCard>
-        </motion.div>
-      </motion.div>
+          <motion.div variants={fadeUp}>
+            <SectionCard
+              title="Recent transactions"
+              description="Latest sales across all cashiers"
+              action={<SeeAllLink href="/dashboard/reports">Reports</SeeAllLink>}
+            >
+              <RecentOrdersTable orders={summary.recentOrders} />
+            </SectionCard>
+          </motion.div>
+        </div>
 
-      <motion.div variants={stagger} className="grid gap-5 lg:grid-cols-3">
-        <motion.div variants={fadeUp} className="lg:col-span-2">
-          <SectionCard
-            title="Recent transactions"
-            description="Latest sales across all cashiers"
-            className="h-full"
-            action={<SeeAllLink href="/dashboard/reports">Reports</SeeAllLink>}
-          >
-            <RecentOrdersTable orders={summary.recentOrders} />
-          </SectionCard>
-        </motion.div>
+        <div className="space-y-5">
+          <motion.div variants={fadeUp}>
+            <SectionCard title="Payment mix" description="Today by method">
+              <PaymentMix summary={summary} />
+            </SectionCard>
+          </motion.div>
 
-        <motion.div variants={fadeUp}>
-          <SectionCard
-            title="Low stock"
-            description="At or below minimum"
-            className="h-full"
-            action={
-              summary.lowStock.length > 0 ? (
-                <Badge variant="destructive">{summary.lowStock.length}</Badge>
-              ) : undefined
-            }
-          >
-            <LowStockList items={summary.lowStock} />
-          </SectionCard>
-        </motion.div>
+          <motion.div variants={fadeUp}>
+            <SectionCard
+              title="Low stock"
+              description="At or below minimum"
+              action={
+                summary.lowStock.length > 0 ? (
+                  <Badge variant="destructive">{summary.lowStock.length}</Badge>
+                ) : undefined
+              }
+            >
+              <LowStockList items={summary.lowStock} />
+            </SectionCard>
+          </motion.div>
+        </div>
       </motion.div>
     </motion.div>
   );

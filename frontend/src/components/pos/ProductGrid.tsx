@@ -188,7 +188,7 @@ function ProductTile({
       }}
       whileTap={available ? { scale: 0.97, transition: SPRING } : undefined}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-[color,background-color,border-color,box-shadow,transform] duration-200",
+        "group relative flex flex-col overflow-hidden rounded-xl border bg-card text-left transition-[color,background-color,border-color,box-shadow,translate] duration-200",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         available
           ? "border-border hover:-translate-y-0.5 hover:border-primary hover:shadow-md motion-reduce:hover:translate-y-0"

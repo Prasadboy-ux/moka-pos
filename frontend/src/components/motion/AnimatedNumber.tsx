@@ -36,7 +36,7 @@ export function AnimatedNumber({
 }: AnimatedNumberProps) {
   const reduce = useReducedMotion();
   const raw = useMotionValue(animateOnMount ? 0 : value);
-  const display = useTransform(raw, (current) => format(Math.round(current)));
+  const display = useTransform(() => format(Math.round(raw.get())));
 
   useEffect(() => {
     if (reduce) {

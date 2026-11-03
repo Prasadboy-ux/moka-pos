@@ -47,7 +47,10 @@ export function SidebarContent({
 
       <Separator />
 
-      <nav aria-label="Primary" className="flex-1 space-y-1 p-3">
+      <nav
+        aria-label="Primary"
+        className="flex-1 space-y-1 overflow-y-auto overscroll-contain p-3"
+      >
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = isNavItemActive(item, pathname);

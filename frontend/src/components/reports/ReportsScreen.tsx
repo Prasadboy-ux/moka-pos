@@ -392,7 +392,7 @@ export function ReportsScreen() {
             </StaggerItem>
 
             <StaggerItem>
-              <div className="grid gap-5 lg:grid-cols-3">
+              <div className="grid items-start gap-5 lg:grid-cols-3">
             <SectionCard
               title={report.trendBucket === "month" ? "Revenue per month" : "Revenue per day"}
               description={
@@ -424,7 +424,7 @@ export function ReportsScreen() {
             </StaggerItem>
 
             <StaggerItem>
-              <div className="grid gap-5 lg:grid-cols-2">
+              <div className="grid items-start gap-5 lg:grid-cols-2">
             <SectionCard title="Top products" description="Best sellers by revenue">
               <div className="p-5">
                 <DataTable

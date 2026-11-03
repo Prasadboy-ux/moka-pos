@@ -79,7 +79,7 @@ export function CartPanel({
             </p>
           </motion.div>
         ) : (
-          <ul className="[&>li:last-child>div]:border-0">
+          <ul className="relative [&>li:last-child>div]:border-0">
             <AnimatePresence initial={false} mode="popLayout">
               {lines.map((line) => {
                 const limit = limits.get(line.productId) ?? null;
