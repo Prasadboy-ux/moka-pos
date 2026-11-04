@@ -116,7 +116,9 @@ describe('serverless entry (api/index.ts)', () => {
   });
 
   it('answers an unknown route with the not-found envelope', async () => {
-    const response = await request(server).get('/api/no-such-route').expect(404);
+    const response = await request(server)
+      .get('/api/no-such-route')
+      .expect(404);
 
     expect(response.body).toEqual({
       error: 'not-found',

@@ -54,8 +54,14 @@ account, not a choice: signing in as Cashier with admin credentials is refused.
 - Signing out returns to `/login`.
 - A reload does not sign the user out.
 - A signed-in user never sees the login screen flash on the way in.
+- An MFA-enabled account is challenged for a TOTP code and receives no session
+  until it verifies; a wrong or reused backup code is refused.
+- When admin MFA is enforced, an unenrolled admin must scan the QR/enter the
+  secret, confirm a TOTP code, and save the one-time backup codes before landing.
+- Remember Me keeps the session for 30 days; the default shift session is 12h.
 
-*Verified by `smoke:screens` (login) and `smoke:users` (deactivation, sign-in).*
+*Verified by `smoke:screens` (login), `smoke:users` (deactivation, sign-in), and
+`backend/test/auth-mfa.e2e.ts` (challenge, setup, backup-code replay).*
 
 ### 3.2 Dashboard (Overview)
 
@@ -190,14 +196,14 @@ The frontend is done when:
 - `typecheck`, `lint`, and `build` are clean.
 - The browser suites pass with no console errors.
 
-All six hold today. `npm test` adds 18 unit tests, `npm run smoke` passes 187
-checks across 7 suites, and the backend adds 239 tests of its own.
+All six hold today. `npm test` adds 30 unit tests, `npm run smoke` passes 194
+checks across 8 suites, and the backend adds 342 tests of its own.
 
 ## 7. Decisions taken before the backend
 
 | # | Decision | Outcome |
 |---|---|---|
-| 1 | **Session strategy** — httpOnly cookie or in-memory token? | **httpOnly cookie** (`moka_session`, HS256 JWT). Survives XSS and needs no interceptor. |
+| 1 | **Session strategy** — httpOnly cookie or in-memory token? | **httpOnly cookie** (`moka_session`, HS256 JWT). Survives XSS and needs no interceptor. TOTP MFA is enforced for admins in production. |
 | 2 | **Does shift gating ship in v1?** | **Yes.** The POS refuses to sell without an open shift, and closing a shift stores the cash reconciliation (sales, expected drawer, variance). It shipped later than planned — Milestone 6 — after the rest of the till was proven. |
 | 3 | **Do roles stay fixed at two?** | **Yes.** The code assumes `admin \| kasir` throughout. A third role means widening `Role` and re-checking `lib/nav.ts` and the server's role middleware. |
 | 4 | **Where do product images live?** | **Undecided.** Products pick from the 20 bundled illustrations; real uploads need a storage decision. |

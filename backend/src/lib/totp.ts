@@ -185,7 +185,10 @@ function verifyBackupCode(code: string, storedHash: string): boolean {
   const salt = Buffer.from(saltHex, 'hex');
   const expected = Buffer.from(expectedHex, 'hex');
 
-  const calculated = createHash('sha256').update(salt).update(normalized).digest();
+  const calculated = createHash('sha256')
+    .update(salt)
+    .update(normalized)
+    .digest();
   return (
     calculated.length === expected.length &&
     timingSafeEqual(calculated, expected)

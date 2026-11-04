@@ -27,7 +27,11 @@ export const reportQuery = z.object({
 
 export type ReportQuery = z.infer<typeof reportQuery>;
 
-export type TrendPoint = { date: string; revenue: number; transactions: number };
+export type TrendPoint = {
+  date: string;
+  revenue: number;
+  transactions: number;
+};
 
 export type SalesReportKpi = {
   revenue: number;

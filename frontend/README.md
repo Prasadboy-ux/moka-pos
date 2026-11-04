@@ -34,7 +34,7 @@ the request path.
 | Selling moves stock | Done — server-side Mongo transaction |
 | Interface guidelines | Done — touch targets, reduced motion, print, URL state |
 | Repository seam | Done — flipped from mock to HTTP in one file |
-| Backend API | Done — 41 routes, 9 models, 331 tests |
+| Backend API | Done — 41 routes, 9 models, 342 tests |
 | Shift gating + reconciliation | Done — POS refuses to sell with no open shift; close stores the drawer count |
 | Unit tests (frontend) | Done — Vitest, 30 tests across 4 files |
 
@@ -380,7 +380,7 @@ The frontend owns the contract; the backend implements it. Full detail in
 | Auth | httpOnly `moka_session` cookie, HS256 JWT via `jose`, Argon2id password hashing with scrypt verification and migration |
 | Routes | 41 contract endpoints + `/api/health` |
 | Models | 9 collections with indexes |
-| Tests | 331 — 297 e2e across 15 files (Supertest + in-memory replica set) + 34 unit |
+| Tests | 342 — 301 e2e across 15 files (Supertest + in-memory replica set) + 41 unit |
 | Lint | oxlint (type-aware) + Prettier |
 | Hardening | Login + API rate limits, pino logging, compression, CI |
 
@@ -637,7 +637,7 @@ when `NEXT_PUBLIC_API_URL` is unset.
 - The three login refusals (invalid, inactive, role-mismatch) stayed distinct
   because the login screen branches on them. The password is verified *before*
   `inactive` is reported, so a deactivated account cannot be probed for.
-- **331 tests** (297 e2e across 15 files + 34 unit). `contract.e2e.ts` asserts all 41 routes against
+- **342 tests** (301 e2e across 15 files + 41 unit). `contract.e2e.ts` asserts all 41 routes against
   the API contract transcribed by hand rather than copied from the code, and
   `models.e2e.ts` asserts the *absence* of indexes and collections from earlier
   drafts — `/api/transactions`, `/api/stock_history`, and `/api/reports/sales`

@@ -128,7 +128,10 @@ async function mfaVerifyRoute(req: Request, res: Response): Promise<void> {
   res.status(200).json({ user });
 }
 
-async function mfaSetupConfirmRoute(req: Request, res: Response): Promise<void> {
+async function mfaSetupConfirmRoute(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const input = req.validated?.body as MfaSetupConfirmInput;
   const { user, sessionEpoch, backupCodes, rememberMe } =
     await confirmMfaSetup(input);

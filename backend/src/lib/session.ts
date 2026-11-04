@@ -20,6 +20,10 @@ const SESSION_ISSUER = 'moka-pos';
 const SESSION_AUDIENCE = 'moka-pos-web';
 const REMEMBER_ME_DAYS = 30;
 
+const PURPOSE_SESSION = 'session';
+const PURPOSE_MFA_CHALLENGE = 'mfa_challenge';
+const PURPOSE_MFA_SETUP = 'mfa_setup';
+
 let cachedKey: Uint8Array | undefined;
 
 function signingKey(): Uint8Array {
@@ -37,9 +41,15 @@ export async function signSession(
   rememberMe = false,
 ): Promise<string> {
   const { SESSION_TTL_HOURS } = env();
-  const expiration = rememberMe ? `${REMEMBER_ME_DAYS * 24}h` : `${SESSION_TTL_HOURS}h`;
+  const expiration = rememberMe
+    ? `${REMEMBER_ME_DAYS * 24}h`
+    : `${SESSION_TTL_HOURS}h`;
 
-  return new SignJWT({ epoch: sessionEpoch, rememberMe })
+  return new SignJWT({
+    epoch: sessionEpoch,
+    purpose: PURPOSE_SESSION,
+    rememberMe,
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(SESSION_ISSUER)
@@ -60,6 +70,7 @@ export type VerifiedSession = {
 export async function verifySession(token: string): Promise<VerifiedSession> {
   let subject: unknown;
   let epoch: unknown;
+  let purpose: unknown;
   try {
     const { payload } = await jwtVerify(token, signingKey(), {
       algorithms: ['HS256'],
@@ -68,6 +79,7 @@ export async function verifySession(token: string): Promise<VerifiedSession> {
     });
     subject = payload.sub;
     epoch = payload.epoch;
+    purpose = payload.purpose;
   } catch {
     throw ApiError.unauthenticated(
       'Your session is no longer valid. Please sign in again.',
@@ -75,6 +87,7 @@ export async function verifySession(token: string): Promise<VerifiedSession> {
   }
 
   if (
+    purpose !== PURPOSE_SESSION ||
     typeof subject !== 'string' ||
     subject.length === 0 ||
     typeof epoch !== 'number' ||
@@ -99,7 +112,7 @@ export async function signMfaChallengeToken(
 ): Promise<string> {
   return new SignJWT({
     epoch: sessionEpoch,
-    purpose: 'mfa_challenge',
+    purpose: PURPOSE_MFA_CHALLENGE,
     rememberMe,
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -122,7 +135,7 @@ export async function verifyMfaChallengeToken(
     });
 
     if (
-      payload.purpose !== 'mfa_challenge' ||
+      payload.purpose !== PURPOSE_MFA_CHALLENGE ||
       typeof payload.sub !== 'string' ||
       typeof payload.epoch !== 'number'
     ) {
@@ -153,7 +166,7 @@ export async function signMfaSetupToken(
   return new SignJWT({
     epoch: sessionEpoch,
     secret,
-    purpose: 'mfa_setup',
+    purpose: PURPOSE_MFA_SETUP,
     rememberMe,
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -167,7 +180,12 @@ export async function signMfaSetupToken(
 
 export async function verifyMfaSetupToken(
   token: string,
-): Promise<{ userId: string; epoch: number; secret: string; rememberMe: boolean }> {
+): Promise<{
+  userId: string;
+  epoch: number;
+  secret: string;
+  rememberMe: boolean;
+}> {
   try {
     const { payload } = await jwtVerify(token, signingKey(), {
       algorithms: ['HS256'],
@@ -176,7 +194,7 @@ export async function verifyMfaSetupToken(
     });
 
     if (
-      payload.purpose !== 'mfa_setup' ||
+      payload.purpose !== PURPOSE_MFA_SETUP ||
       typeof payload.sub !== 'string' ||
       typeof payload.epoch !== 'number' ||
       typeof payload.secret !== 'string'

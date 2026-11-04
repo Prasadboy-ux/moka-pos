@@ -27,13 +27,7 @@ let cachedKey: Buffer | undefined;
 
 function getEncryptionKey(): Buffer {
   cachedKey ??= Buffer.from(
-    hkdfSync(
-      'sha256',
-      env().SESSION_SECRET,
-      '',
-      HKDF_INFO,
-      KEY_LENGTH,
-    ),
+    hkdfSync('sha256', env().SESSION_SECRET, '', HKDF_INFO, KEY_LENGTH),
   );
   return cachedKey;
 }

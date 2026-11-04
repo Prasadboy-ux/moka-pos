@@ -45,6 +45,23 @@ describe('Backend Security & MFA Module Suite', () => {
     expect(verifiedSetup.rememberMe).toBe(false);
   });
 
+  it('never accepts intermediate MFA tokens as full sessions', async () => {
+    const challenge = await signMfaChallengeToken('user-1', 0);
+    const setup = await signMfaSetupToken('user-1', 0, generateTotpSecret());
+    const session = await signSession('user-1', 0);
+
+    await expect(verifySession(challenge)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(verifySession(setup)).rejects.toMatchObject({ status: 401 });
+    await expect(verifyMfaChallengeToken(session)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(verifyMfaSetupToken(session)).rejects.toMatchObject({
+      status: 401,
+    });
+  });
+
   it('verifies TOTP generation and verification cycle with clock drift tolerance', () => {
     const secret = generateTotpSecret();
     const currentCode = computeTotpCode(secret);

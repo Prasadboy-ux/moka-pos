@@ -60,6 +60,5 @@ export const strongPassword = z
   )
   .max(200)
   .refine((value) => !COMMON_PASSWORDS.has(value.toLowerCase()), {
-    message:
-      'That password is too common. Choose something less predictable.',
+    message: 'That password is too common. Choose something less predictable.',
   });

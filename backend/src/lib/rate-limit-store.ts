@@ -1,8 +1,5 @@
 import { Schema, model } from 'mongoose';
-import type {
-  ClientRateLimitInfo,
-  Store,
-} from 'express-rate-limit';
+import type { ClientRateLimitInfo, Store } from 'express-rate-limit';
 
 /**
  * The shared hit-counter collection behind both rate limiters.

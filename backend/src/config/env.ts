@@ -189,6 +189,16 @@ export function resetEnv(): void {
   cached = undefined;
 }
 
+/**
+ * Admin MFA is required at sign-in unless explicitly disabled. It defaults on
+ * outside tests so demo accounts and the smoke fixtures stay usable; production
+ * cannot turn it off at all (enforced by the schema above).
+ */
+export function adminMfaEnforced(): boolean {
+  const settings = env();
+  return settings.MFA_ENFORCE_ADMIN ?? settings.NODE_ENV !== 'test';
+}
+
 export function corsOrigins(): string[] {
   return env()
     .CORS_ORIGIN.split(',')

@@ -85,11 +85,11 @@ The backend mirrors them in Mongoose schemas.
 | `http/catalog.ts` | `category`, `ingredient`, `product`, `user` repositories |
 | `http/commerce.ts` | `stock`, `order`, `shift`, and `session` repositories |
 
-Four decisions in this layer are not obvious from the code alone:
+Five decisions in this layer are not obvious from the code alone:
 
 - **The session is an httpOnly cookie**, so axios sends it with
   `withCredentials: true` and there is no interceptor and no `Authorization`
-  header anywhere.
+  header anywhere. Remember Me extends the same cookie to 30 days.
 - **The client is lazy and same-origin by default.** The axios instance is
   created behind a `Proxy` on first property access. With no
   `NEXT_PUBLIC_API_URL`, requests go to this app's own `/api` path and the
@@ -102,6 +102,11 @@ Four decisions in this layer are not obvious from the code alone:
 - **Identity is stripped from request bodies.** `actor` and `cashier` exist on the
   interfaces so the mock has a session to read; the HTTP layer deletes both before
   sending, because the server takes the actor from the cookie.
+- **MFA is a two-step exchange, not a session.** Login can return `mfaRequired`
+  or `mfaSetupRequired`; the challenge/setup token is kept only in component
+  state and sent to the MFA endpoint. The login screen renders `qrUri` with
+  `qrcode.react`, shows backup codes exactly once after enrolment, and the real
+  `moka_session` cookie is set only after verification.
 
 ```
 Category    { id, name, sortOrder }
@@ -115,7 +120,7 @@ StockMovement { id, type, ingredientId|null, productId|null, label, qty, unit, n
                 createdAt, byUserId, byUserName }
 Shift       { id, userId, userName, openedAt, openingFloat, closedAt, closingCounted,
               status, cashSales?, expectedCash?, variance? }
-User        { id, name, username, role, isActive }
+User        { id, name, username, role, isActive, mfaEnabled }
 StoredUser  extends User with `password` — never leaves the auth repository
 ```
 

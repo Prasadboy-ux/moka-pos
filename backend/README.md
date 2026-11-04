@@ -6,7 +6,7 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 ## Status
 
 **Complete and live.** 41 contract endpoints plus `/api/health`, 9 Mongoose
-models, and 331 tests (34 unit, 297 end-to-end across 15 files). The frontend in
+models, and 342 tests (41 unit, 301 end-to-end across 15 files). The frontend in
 [`../frontend`](../frontend) resolves its eight repositories to this API over an
 httpOnly cookie session.
 
@@ -37,12 +37,12 @@ See [`docs/README.md`](docs/README.md) for the documentation map and
 
 | Layer | Choice |
 |---|---|
-| Runtime | Node.js 24, TypeScript strict, ESM |
+| Runtime | Node.js 24.7+, TypeScript strict, ESM |
 | HTTP | Express 5 (async handlers, no wrapper needed) |
 | Database | MongoDB, Mongoose |
 | Validation | Zod — the same library the frontend uses, so rules stay mirrored |
 | Sessions | httpOnly cookie, JWT via `jose` |
-| Passwords | `node:crypto` scrypt — no native build step |
+| Passwords | Argon2id via `node:crypto`, with scrypt verification and migration |
 | Tests | Vitest + Supertest |
 | Lint / format | oxlint, Prettier |
 

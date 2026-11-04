@@ -132,12 +132,16 @@ is best-effort and never blocks clearing the cookie.
 Role checks happen on the route. Hiding a nav link is presentation, not
 authorisation.
 
-Four details that are easy to get wrong and are pinned in `lib/session.ts`:
+Five details that are easy to get wrong and are pinned in `lib/session.ts`:
 
 - **The algorithm is pinned to HS256** rather than read from the token header.
   Without that, a token claiming `alg: none` would skip signature verification.
 - **The issuer and audience are pinned** so a token minted for another service
   cannot be replayed here.
+- **The token purpose is pinned.** MFA challenge and setup tokens are signed with
+  the same key but carry `purpose: "mfa_challenge"` or `"mfa_setup"`;
+  `verifySession` requires `"session"`, so an intermediate token can never be
+  pasted into `moka_session` to skip the second factor.
 - **Every jose failure becomes a 401**, never a 500. A malformed cookie is a
   routine client state, and letting the error escape also tells an attacker
   whether their forged token was structurally valid.
@@ -151,6 +155,15 @@ Login keeps the contract's three refusals distinct, and verifies the password
 *before* reporting that an account is deactivated — otherwise the endpoint
 becomes an oracle for which usernames exist. A missing user also pays the hash
 cost, so a wrong username and a wrong password take the same time to reject.
+
+MFA adds two stateless intermediate steps. An account with MFA enabled receives
+a 5-minute challenge token instead of a cookie; a successful TOTP or unused
+backup code mints the real session. An admin without MFA receives a 10-minute
+setup token, a secret and an `otpauth://` URI; confirming the first TOTP code
+stores the secret with AES-256-GCM, hashes eight backup codes, enables MFA and
+bumps `sessionEpoch`. Admin enforcement is `MFA_ENFORCE_ADMIN` — on by default
+outside `NODE_ENV=test`, and impossible to disable in production; the smoke
+runner sets it to `false` so its seeded demo admins stay usable.
 
 ## Environment
 
@@ -168,6 +181,9 @@ See `.env.example`. Notable defaults, all in `config/env.ts`:
   `RATE_LIMIT_PASSWORD_MAX`, `RATE_LIMIT_API_MAX` — per-IP login, per-username
   failed login, per-user+IP password change, and whole-API limits. Disabled only
   under `NODE_ENV=test`.
+- `MFA_ENFORCE_ADMIN` — require TOTP enrolment for admins. Defaults to `true`
+  outside `NODE_ENV=test`; production cannot disable it. The smoke runner sets
+  it to `false` for its seeded demo admins.
 - `STORE_TIMEZONE` `Asia/Jakarta` — report day boundaries resolve here, not in
   the server's zone, or a day of sales shifts across midnight UTC.
 - `TAX_RATE_DEFAULT` 0.1 — Indonesian VAT.

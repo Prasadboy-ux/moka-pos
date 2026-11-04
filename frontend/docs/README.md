@@ -41,7 +41,7 @@ the document `contract.e2e.ts` asserts.
 | | |
 |---|---|
 | Screens | 7 dashboard screens + login, all working |
-| Automated checks | 194 smoke checks, 30 frontend unit tests, 307 backend tests |
+| Automated checks | 194 smoke checks, 30 frontend unit tests, 342 backend tests |
 | Static gates | `typecheck`, `lint`, `build` all exit 0 |
 | Backend | **built** — 41 routes, 9 models, contract verified |
 | Open | real prices and costs, deployment |

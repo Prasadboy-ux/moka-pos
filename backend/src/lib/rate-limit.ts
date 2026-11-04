@@ -65,8 +65,7 @@ export function loginUsernameLimiter(): RateLimitRequestHandler {
     store: mongoRateLimitStore('login-user:', windowMs),
     keyGenerator: (req: Request) => {
       const raw = (req.body as { username?: unknown } | undefined)?.username;
-      const username =
-        typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+      const username = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
       return username
         ? `user:${username}`
         : `ip:${ipKeyGenerator(req.ip ?? 'unknown')}`;
@@ -98,8 +97,7 @@ export function mfaLimiter(): RateLimitRequestHandler {
     store: mongoRateLimitStore('mfa:', windowMs),
     keyGenerator: (req: Request) => {
       const body = req.body as
-        | { mfaToken?: unknown; setupToken?: unknown }
-        | undefined;
+        { mfaToken?: unknown; setupToken?: unknown } | undefined;
       const token = (
         typeof body?.mfaToken === 'string'
           ? body.mfaToken

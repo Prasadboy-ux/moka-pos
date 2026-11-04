@@ -6,7 +6,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.7"
   },
   "scripts": {
     "mongo": "node scripts/local-mongo.mjs",

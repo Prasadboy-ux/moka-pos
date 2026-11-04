@@ -20,7 +20,10 @@ export const movementFilter = z.object({
     .number({ error: 'offset must be a number.' })
     .int('offset must be a whole number.')
     .min(0, 'offset cannot be negative.')
-    .max(10_000, 'Use an ingredient or type filter instead of paging this deep.')
+    .max(
+      10_000,
+      'Use an ingredient or type filter instead of paging this deep.',
+    )
     .optional(),
 });
 

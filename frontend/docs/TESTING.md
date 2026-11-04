@@ -217,9 +217,9 @@ smoke       194/194
 Backend gates, in `../backend` (CI runs these on every push):
 
 ```
-npm test           34 unit tests, no DB
-npm run test:e2e   297 tests, spins up its own in-memory replica set
+npm test           41 unit tests, no DB
+npm run test:e2e   301 tests, spins up its own in-memory replica set
 ```
 
-The last full local run was 297 e2e + 34 unit = 331 on the backend, 30 unit on
+The last full local run was 301 e2e + 41 unit = 342 on the backend, 30 unit on
 the frontend, and 194/194 smoke checks.

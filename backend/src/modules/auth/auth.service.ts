@@ -1,4 +1,4 @@
-import { env } from '../../config/env.js';
+import { adminMfaEnforced } from '../../config/env.js';
 import { ApiError } from '../../lib/errors.js';
 import { decryptSecret, encryptSecret } from '../../lib/encryption.js';
 import {
@@ -127,10 +127,7 @@ export async function authenticate(input: LoginInput): Promise<AuthResult> {
   // MFA Policy: mandatory for admins outside tests. An explicit
   // MFA_ENFORCE_ADMIN overrides the test default, so the smoke stack can seed
   // and sign in demo admins while the dedicated MFA suite exercises enrolment.
-  const { MFA_ENFORCE_ADMIN, NODE_ENV } = env();
-  const enforceAdminMfa =
-    user.role === 'admin' &&
-    (MFA_ENFORCE_ADMIN ?? NODE_ENV !== 'test');
+  const enforceAdminMfa = user.role === 'admin' && adminMfaEnforced();
 
   if (enforceAdminMfa) {
     const secret = generateTotpSecret();

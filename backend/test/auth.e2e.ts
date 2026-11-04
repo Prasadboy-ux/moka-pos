@@ -153,7 +153,7 @@ describe('POST /api/auth/login', () => {
 
       expect(response.body.error).toBe('forbidden');
       expect(response.body.reason).toBe('role-mismatch');
-      expect(response.body.message).toMatch(/kasir/i);
+      expect(response.body.message).toMatch(/cashier/i);
       expect(response.headers['set-cookie']).toBeUndefined();
     });
 

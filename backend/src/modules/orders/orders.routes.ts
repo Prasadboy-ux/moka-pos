@@ -1,7 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { idParam } from '../../lib/schemas.js';
 import { parsed, routeId, validate } from '../../lib/validate.js';
-import { requireRole, requireSession, sessionUser } from '../../middleware/session.js';
+import {
+  requireRole,
+  requireSession,
+  sessionUser,
+} from '../../middleware/session.js';
 import {
   createOrderInput,
   orderQuery,
@@ -77,7 +81,11 @@ async function voidRoute(req: Request, res: Response): Promise<void> {
   // learn that. A warning is not an error — the reversal itself succeeded.
   res
     .status(200)
-    .json({ order: result.order, movements: result.movements, warnings: result.warnings });
+    .json({
+      order: result.order,
+      movements: result.movements,
+      warnings: result.warnings,
+    });
 }
 
 async function create(req: Request, res: Response): Promise<void> {

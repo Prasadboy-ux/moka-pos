@@ -16,21 +16,14 @@ export type LoginInput = z.infer<typeof loginSchema>;
 
 export const mfaVerifySchema = z.object({
   mfaToken: z.string().min(1, 'MFA challenge token is required.'),
-  code: z
-    .string()
-    .trim()
-    .min(6, 'Verification code is required.')
-    .max(20),
+  code: z.string().trim().min(6, 'Verification code is required.').max(20),
 });
 
 export type MfaVerifyInput = z.infer<typeof mfaVerifySchema>;
 
 export const mfaSetupConfirmSchema = z.object({
   setupToken: z.string().min(1, 'MFA setup token is required.'),
-  code: z
-    .string()
-    .trim()
-    .length(6, '6-digit authenticator code is required.'),
+  code: z.string().trim().length(6, '6-digit authenticator code is required.'),
 });
 
 export type MfaSetupConfirmInput = z.infer<typeof mfaSetupConfirmSchema>;
@@ -61,10 +54,7 @@ export type MfaBackupCodesRegenerateInput = z.infer<
  * A user changing their own password.
  */
 export const changePasswordSchema = z.object({
-  currentPassword: z
-    .string()
-    .min(1, 'Enter your current password.')
-    .max(200),
+  currentPassword: z.string().min(1, 'Enter your current password.').max(200),
   newPassword: strongPassword,
 });
 

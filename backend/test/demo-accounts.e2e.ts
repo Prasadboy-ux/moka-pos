@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from 'vitest';
 import { resetEnv } from '../src/config/env.js';
 import { assertNoDemoAccounts } from '../src/lib/demo-accounts.js';
 import { hashPassword } from '../src/lib/password.js';
