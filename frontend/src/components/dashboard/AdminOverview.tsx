@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import {
   Banknote,
+  Clock,
   CreditCard,
   Package,
   QrCode,
@@ -27,6 +28,7 @@ import { PageHeader } from "@/components/page-header";
 import { useAsync } from "@/hooks/useAsync";
 import { getAdminDashboard, type DashboardSummary } from "@/lib/repositories/read-models";
 import {
+  formatDateTime,
   formatIDR,
   formatNumber,
   formatWeekdayDay,
@@ -253,6 +255,43 @@ export function AdminOverview() {
         </div>
 
         <div className="space-y-5">
+          <motion.div variants={fadeUp}>
+            <SectionCard
+              title="Open shifts"
+              description="Drawers selling right now"
+              action={<SeeAllLink href="/dashboard/shifts">History</SeeAllLink>}
+            >
+              {summary.openShifts.length === 0 ? (
+                <EmptyState
+                  icon={Clock}
+                  title="No open shifts"
+                  description="Open one from the Point of Sale before taking payments."
+                />
+              ) : (
+                <ul className="divide-y">
+                  {summary.openShifts.map((shift) => (
+                    <li
+                      key={shift.id}
+                      className="flex items-center justify-between gap-3 px-5 py-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {shift.userName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Since {formatDateTime(shift.openedAt)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
+                        {formatIDR(shift.openingFloat)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </SectionCard>
+          </motion.div>
+
           <motion.div variants={fadeUp}>
             <SectionCard title="Payment mix" description="Today by method">
               <PaymentMix summary={summary} />

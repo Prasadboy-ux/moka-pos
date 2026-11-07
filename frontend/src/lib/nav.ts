@@ -1,11 +1,13 @@
 import {
+  BarChart3,
   Boxes,
+  Clock,
   LayoutDashboard,
   Package,
   Receipt,
+  ShieldCheck,
   ShoppingCart,
   Users,
-  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/types/auth";
@@ -18,6 +20,12 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   roles: Role[];
+  /**
+   * Featured directly in the phone tab bar. The rest stay one tap away behind
+   * "More"; without this the bar just took the first four items in sidebar
+   * order, which put the menu editor on the till and buried Reports.
+   */
+  mobile?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -28,6 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard",
     icon: LayoutDashboard,
     roles: ["admin"],
+    mobile: true,
   },
   {
     label: "Point of Sale",
@@ -36,6 +45,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/pos",
     icon: ShoppingCart,
     roles: ["kasir", "admin"],
+    mobile: true,
   },
   {
     /*
@@ -50,6 +60,7 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/transactions",
     icon: Receipt,
     roles: ["kasir", "admin"],
+    mobile: true,
   },
   {
     label: "Products",
@@ -74,6 +85,15 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/dashboard/reports",
     icon: BarChart3,
     roles: ["admin"],
+    mobile: true,
+  },
+  {
+    label: "Shifts",
+    shortLabel: "Shifts",
+    description: "Drawer reconciliation and cash variance",
+    href: "/dashboard/shifts",
+    icon: Clock,
+    roles: ["admin"],
   },
   {
     label: "Users",
@@ -81,6 +101,14 @@ export const NAV_ITEMS: NavItem[] = [
     description: "Cashier and admin accounts",
     href: "/dashboard/users",
     icon: Users,
+    roles: ["admin"],
+  },
+  {
+    label: "Security",
+    shortLabel: "Security",
+    description: "Two-factor authentication and recovery codes",
+    href: "/dashboard/security",
+    icon: ShieldCheck,
     roles: ["admin"],
   },
 ];

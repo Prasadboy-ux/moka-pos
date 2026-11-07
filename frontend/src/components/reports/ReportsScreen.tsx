@@ -308,7 +308,7 @@ export function ReportsScreen() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-report>
       <PageHeader
         title="Reports"
         description={
@@ -471,7 +471,7 @@ function RangePicker({
   onChange: (field: "from" | "to", value: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4">
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-card p-4 print:hidden">
       <div className="space-y-2">
         <Label htmlFor="report-from">From</Label>
         <Input

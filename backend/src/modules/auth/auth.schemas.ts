@@ -36,6 +36,28 @@ export const mfaSetupConfirmSchema = z.object({
 export type MfaSetupConfirmInput = z.infer<typeof mfaSetupConfirmSchema>;
 
 /**
+ * Regenerating the signed-in user's own recovery codes.
+ *
+ * Both factors are required: the password proves it is the person at the
+ * keyboard, and the current TOTP code proves the authenticator is still in
+ * their hands. A stolen session alone must not be able to mint new codes.
+ */
+export const mfaBackupCodesRegenerateSchema = z.object({
+  currentPassword: z
+    .string()
+    .min(1, 'Enter your current password.')
+    .max(200),
+  code: z
+    .string()
+    .trim()
+    .length(6, '6-digit authenticator code is required.'),
+});
+
+export type MfaBackupCodesRegenerateInput = z.infer<
+  typeof mfaBackupCodesRegenerateSchema
+>;
+
+/**
  * A user changing their own password.
  */
 export const changePasswordSchema = z.object({

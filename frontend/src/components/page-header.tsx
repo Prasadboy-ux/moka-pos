@@ -44,17 +44,15 @@ export function PageHeader({
         <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
       </div>
 
-      {actionLabel && onAction ? (
-        <div className="flex shrink-0 items-center gap-2">
-          {secondary}
+      <div className="flex shrink-0 items-center gap-2 print:hidden">
+        {secondary}
+        {actionLabel && onAction ? (
           <Button onClick={onAction} disabled={actionDisabled}>
             <Icon className="size-4" aria-hidden />
             {actionLabel}
           </Button>
-        </div>
-      ) : (
-        secondary
-      )}
+        ) : null}
+      </div>
     </motion.div>
   )
 }

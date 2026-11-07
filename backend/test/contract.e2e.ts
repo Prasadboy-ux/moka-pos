@@ -28,9 +28,11 @@ const app: Express = createApp();
 let admin: Awaited<ReturnType<typeof agentFor>>;
 let kasir: Awaited<ReturnType<typeof agentFor>>;
 
-/** Exactly the 38 product endpoints the contract lists. */
+/** Exactly the 41 product endpoints the contract lists. */
 const CONTRACT_ROUTES = [
   'POST /api/auth/login',
+  'POST /api/auth/mfa/verify',
+  'POST /api/auth/mfa/setup-confirm',
   'POST /api/auth/logout',
   'GET /api/auth/me',
   'POST /api/auth/change-password',
@@ -72,6 +74,7 @@ const CONTRACT_ROUTES = [
   'POST /api/users',
   'PUT /api/users/:id',
   'PATCH /api/users/:id/active',
+  'POST /api/users/:id/mfa/reset',
 
   'GET /api/shifts/current',
   'GET /api/shifts',
@@ -110,9 +113,9 @@ beforeEach(async () => {
 });
 
 describe('the endpoint surface', () => {
-  it('names all 38 contract endpoints, and no duplicates', () => {
-    expect(CONTRACT_ROUTES).toHaveLength(38);
-    expect(new Set(CONTRACT_ROUTES).size).toBe(38);
+  it('names all 41 contract endpoints, and no duplicates', () => {
+    expect(CONTRACT_ROUTES).toHaveLength(41);
+    expect(new Set(CONTRACT_ROUTES).size).toBe(41);
   });
 
   /**
@@ -201,10 +204,13 @@ describe('authentication covers the whole surface', () => {
     // Login cannot require a session, and logout deliberately does not: it
     // clears the cookie, which is harmless when there is none, and demanding a
     // session would leave a stale cookie in place exactly when the client most
-    // wants it gone.
+    // wants it gone. The two MFA completions carry short-lived challenge tokens
+    // instead of a session; a malformed body is their 422, not a 401.
     const guarded = CONTRACT_ROUTES.filter(
       (entry) =>
         entry !== 'POST /api/auth/login' &&
+        entry !== 'POST /api/auth/mfa/verify' &&
+        entry !== 'POST /api/auth/mfa/setup-confirm' &&
         entry !== 'POST /api/auth/logout' &&
         entry !== 'GET /api/config',
     );
@@ -388,7 +394,7 @@ describe('hashes every password before it is stored', () => {
     for (const user of users) {
       expect(user.passwordHash).not.toBe('admin123');
       expect(user.passwordHash).not.toBe('kasir123');
-      expect(user.passwordHash.startsWith('scrypt$')).toBe(true);
+      expect(user.passwordHash).toMatch(/^(scrypt|argon2id)\$/);
       expect(
         (await verifyPassword('admin123', user.passwordHash)) ||
           (await verifyPassword('kasir123', user.passwordHash)),

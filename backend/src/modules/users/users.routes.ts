@@ -12,6 +12,7 @@ import {
 import {
   createUser,
   listUsers,
+  resetUserMfa,
   setUserActive,
   updateUser,
 } from './users.service.js';
@@ -37,6 +38,13 @@ router.post(
   requireRole('admin'),
   validate({ body: createUserInput }),
   create,
+);
+router.post(
+  '/users/:id/mfa/reset',
+  requireSession,
+  requireRole('admin'),
+  validate({ params: idParam }),
+  resetMfa,
 );
 router.get('/users', requireSession, requireRole('admin'), list);
 router.put(
@@ -64,4 +72,8 @@ async function update(req: Request, res: Response): Promise<void> {
 async function setActive(req: Request, res: Response): Promise<void> {
   const { isActive } = parsed<{ isActive: boolean }>(req).body;
   res.status(200).json(await setUserActive(routeId(req), isActive));
+}
+
+async function resetMfa(req: Request, res: Response): Promise<void> {
+  res.status(200).json(await resetUserMfa(routeId(req)));
 }

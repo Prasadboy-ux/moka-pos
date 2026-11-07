@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Header } from "@/components/layout/Header";
 import { MobileSidebar } from "@/components/layout/MobileSidebar";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageTransition } from "@/components/motion/PageTransition";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,11 +88,13 @@ export default function DashboardLayout({
          */}
         <main
           id="main"
-          className="flex-1 overflow-x-hidden p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
+          className="flex-1 overflow-x-hidden p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
         >
           <PageTransition>{children}</PageTransition>
         </main>
       </div>
+
+      <MobileTabBar onMore={() => setMobileNavOpen(true)} />
 
       <MobileSidebar
         open={mobileNavOpen}

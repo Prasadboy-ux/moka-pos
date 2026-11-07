@@ -5,7 +5,6 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { KeyRound, LogOut, Menu, ShieldCheck, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,15 +64,10 @@ export function Header({ onOpenNav }: { onOpenNav?: () => void }) {
           >
             <p
               translate="no"
-              className="truncate text-sm font-semibold tracking-tight text-muted-foreground sm:text-base"
+              className="truncate text-[11px] font-semibold tracking-[0.14em] text-muted-foreground uppercase"
             >
               {current?.label ?? "Moka Cafe"}
             </p>
-            {current?.description ? (
-              <p className="hidden truncate text-xs text-muted-foreground sm:block">
-                {current.description}
-              </p>
-            ) : null}
           </motion.div>
         </AnimatePresence>
         </div>
@@ -111,14 +105,6 @@ export function Header({ onOpenNav }: { onOpenNav?: () => void }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Separator orientation="vertical" className="hidden h-8 sm:block" />
-
-        <Button variant="ghost" onClick={handleLogout}>
-          <LogOut className="size-4" aria-hidden />
-          <span className="hidden sm:inline">Sign out</span>
-          <span className="sr-only sm:hidden">Sign out</span>
-        </Button>
       </div>
 
       <ChangePasswordDialog

@@ -41,7 +41,7 @@ export type LoginFailureReason =
 
 export const LOGIN_ERROR_MESSAGE: Record<LoginFailureReason, string> = {
   invalid: "Incorrect username or password.",
-  "role-mismatch": "This account is not registered for the selected role.",
+  "role-mismatch": "This account belongs to a different role. Try signing in again.",
   inactive: "This account has been deactivated. Contact an administrator.",
   invalid_mfa:
     "Invalid verification code. Please check your authenticator or backup code.",

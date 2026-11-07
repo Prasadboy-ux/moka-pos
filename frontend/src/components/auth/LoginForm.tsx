@@ -7,12 +7,16 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { AnimatePresence, motion } from "motion/react";
+import { toDataURL } from "qrcode";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowLeft,
+  Check,
   ChevronDown,
   ChevronUp,
   Copy,
+  ExternalLink,
   Eye,
   EyeOff,
   KeyRound,
@@ -21,6 +25,7 @@ import {
   QrCode,
   ShieldAlert,
   ShieldCheck,
+  Smartphone,
 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { BackupCodesPanel } from "@/components/auth/BackupCodesPanel";
 import { RolePicker } from "@/components/auth/RolePicker";
 import { DEMO_CREDENTIALS } from "@/components/auth/demo-credentials";
 import { ForgotPasswordDialog } from "@/components/auth/ForgotPasswordDialog";
@@ -46,6 +52,7 @@ import {
 const SHOW_DEMO_CREDENTIALS =
   process.env.NEXT_PUBLIC_DEMO_CREDENTIALS === "true";
 const REMEMBERED_USERNAME_KEY = "moka-pos.remembered-username";
+const REMEMBERED_ROLE_KEY = "moka-pos.remembered-role";
 
 const loginSchema = z.object({
   role: z.enum(["kasir", "admin"]),
@@ -57,6 +64,47 @@ const loginSchema = z.object({
 type LoginValues = z.infer<typeof loginSchema>;
 
 type Step = "credentials" | "mfa_challenge" | "mfa_setup" | "backup_codes" | "success";
+
+/**
+ * Renders the otpauth URI as a QR locally. The secret never leaves the page.
+ */
+function SetupQrCode({ value }: { value: string }) {
+  const [src, setSrc] = useState("");
+
+  useEffect(() => {
+    if (!value) return;
+
+    let cancelled = false;
+    void toDataURL(value, {
+      width: 192,
+      margin: 1,
+      errorCorrectionLevel: "M",
+    })
+      .then((url) => {
+        if (!cancelled) setSrc(url);
+      })
+      .catch(() => {
+        if (!cancelled) setSrc("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+
+  if (!src) return null;
+
+  return (
+    <Image
+      src={src}
+      alt="QR code for adding Moka Cafe to your authenticator app"
+      width={192}
+      height={192}
+      unoptimized
+      className="size-48 rounded-lg border bg-white p-2"
+    />
+  );
+}
 
 export function LoginForm() {
   const router = useRouter();
@@ -76,15 +124,19 @@ export function LoginForm() {
   const [mfaCode, setMfaCode] = useState<string>("");
   const [isBackupCodeMode, setIsBackupCodeMode] = useState<boolean>(false);
   const [mfaSubmitting, setMfaSubmitting] = useState<boolean>(false);
+  const [backupCodesRemaining, setBackupCodesRemaining] =
+    useState<number | null>(null);
 
   // MFA Setup State (Mandatory Admin)
   const [setupToken, setSetupToken] = useState<string>("");
+  const [setupUsername, setSetupUsername] = useState<string>("");
   const [setupSecret, setSetupSecret] = useState<string>("");
   const [setupQrUri, setSetupQrUri] = useState<string>("");
   const [setupConfirmCode, setSetupConfirmCode] = useState<string>("");
   const [secretCopied, setSecretCopied] = useState(false);
+  const [uriCopied, setUriCopied] = useState(false);
+  const [showRawUri, setShowRawUri] = useState(false);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [backupCodesCopied, setBackupCodesCopied] = useState(false);
 
   // Success Navigation Target
   const [pendingUser, setPendingUser] = useState<User | null>(null);
@@ -116,6 +168,13 @@ export function LoginForm() {
         setValue("username", saved, { shouldValidate: true });
         setValue("rememberMe", true);
       }
+
+      // Preselect the role this device used last, so a returning admin does
+      // not have to notice the picker defaults to Cashier.
+      const savedRole = localStorage.getItem(REMEMBERED_ROLE_KEY);
+      if (savedRole === "admin" || savedRole === "kasir") {
+        setValue("role", savedRole, { shouldValidate: true });
+      }
     } catch {
       // Ignore storage access errors
     }
@@ -129,6 +188,22 @@ export function LoginForm() {
     }
   }, [hydrated, session, router, step]);
 
+  /**
+   * Closing the tab on the recovery-code screen would destroy the only copy of
+   * those codes. Warn the browser before it lets that happen.
+   */
+  useEffect(() => {
+    if (step !== "backup_codes") return;
+
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [step]);
+
   function fillDemoCredentials(
     demoRole: Role,
     username: string,
@@ -141,6 +216,12 @@ export function LoginForm() {
   }
 
   function handleSuccess(user: User) {
+    try {
+      localStorage.setItem(REMEMBERED_ROLE_KEY, user.role);
+    } catch {
+      // Storage access blocked or restricted; the role hint is optional.
+    }
+
     setPendingUser(user);
     setSession(user);
     setStep("success");
@@ -166,12 +247,27 @@ export function LoginForm() {
     }
 
     try {
-      const result = await getRepositories().users.authenticate(
+      let result = await getRepositories().users.authenticate(
         values.username,
         values.password,
         values.role,
         values.rememberMe,
       );
+
+      /**
+       * The picker is a hint, not a gate. If the account belongs to the other
+       * role, sign in as the account actually is instead of dead-ending the
+       * admin on a form they have no reason to understand. Credentials and
+       * password were already checked by the first attempt.
+       */
+      if (!result.ok && result.reason === "role-mismatch") {
+        result = await getRepositories().users.authenticate(
+          values.username,
+          values.password,
+          undefined,
+          values.rememberMe,
+        );
+      }
 
       if (!result.ok) {
         setFormError(LOGIN_ERROR_MESSAGE[result.reason]);
@@ -180,12 +276,14 @@ export function LoginForm() {
 
       if ("mfaRequired" in result && result.mfaRequired) {
         setMfaToken(result.mfaToken);
+        setBackupCodesRemaining(result.backupCodesRemaining);
         setStep("mfa_challenge");
         return;
       }
 
       if ("mfaSetupRequired" in result && result.mfaSetupRequired) {
         setSetupToken(result.setupToken);
+        setSetupUsername(result.username);
         setSetupSecret(result.secret);
         setSetupQrUri(result.qrUri);
         setStep("mfa_setup");
@@ -268,16 +366,23 @@ export function LoginForm() {
     }
   }
 
-  function copyBackupCodes() {
-    void navigator.clipboard.writeText(backupCodes.join("\n"));
-    setBackupCodesCopied(true);
-    setTimeout(() => setBackupCodesCopied(false), 2000);
-  }
-
   function copySecret() {
+    if (!setupSecret) return;
     void navigator.clipboard.writeText(setupSecret);
     setSecretCopied(true);
     setTimeout(() => setSecretCopied(false), 2000);
+  }
+
+  function copyUri() {
+    if (!setupQrUri) return;
+    void navigator.clipboard.writeText(setupQrUri);
+    setUriCopied(true);
+    setTimeout(() => setUriCopied(false), 2000);
+  }
+
+  function handleOpenAuthenticator() {
+    if (!setupQrUri) return;
+    window.location.href = setupQrUri;
   }
 
   return (
@@ -293,7 +398,7 @@ export function LoginForm() {
           variants={fadeUp}
           className="flex flex-col items-center justify-center space-y-4 py-12 text-center"
         >
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-success/10 text-success">
             <SuccessCheck className="size-10" />
           </div>
           <div className="space-y-1">
@@ -311,7 +416,7 @@ export function LoginForm() {
       {step === "backup_codes" ? (
         <motion.div variants={fadeUp} className="space-y-6">
           <div className="space-y-2 text-center lg:text-left">
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-success/10 px-2.5 py-1 text-xs font-semibold text-success">
               <ShieldCheck className="size-4" />
               <span>Two-Factor Authentication Active</span>
             </div>
@@ -319,56 +424,22 @@ export function LoginForm() {
               Save Your Recovery Backup Codes
             </h1>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              These 8 codes can be used to sign in if you lose access to your
-              authenticator app. Each code is strictly <strong>single-use</strong>.
+              These {backupCodes.length} codes can be used to sign in if you lose
+              access to your authenticator app. Each code is strictly{" "}
+              <strong>single-use</strong>.
             </p>
           </div>
 
-          <div className="rounded-xl border bg-muted/30 p-4">
-            <div className="grid grid-cols-2 gap-2 font-mono text-xs">
-              {backupCodes.map((code) => (
-                <div
-                  key={code}
-                  className="rounded-lg border bg-background px-3 py-1.5 text-center font-semibold text-foreground tracking-wider"
-                >
-                  {code}
-                </div>
-              ))}
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={copyBackupCodes}
-              className="mt-4 w-full"
-            >
-              {backupCodesCopied ? (
-                <>
-                  <ShieldCheck className="mr-1.5 size-3.5 text-emerald-600" />
-                  Copied All Codes
-                </>
-              ) : (
-                <>
-                  <Copy className="mr-1.5 size-3.5" />
-                  Copy All Backup Codes
-                </>
-              )}
-            </Button>
-          </div>
-
-          <Button
-            type="button"
-            className="w-full"
-            size="lg"
-            onClick={() => {
+          <BackupCodesPanel
+            codes={backupCodes}
+            username={pendingUser?.username}
+            doneLabel="I have saved my codes • Continue to Dashboard"
+            onDone={() => {
               if (pendingUser) {
                 router.replace(ROLE_HOME[pendingUser.role]);
               }
             }}
-          >
-            I have saved my codes • Continue to Dashboard
-          </Button>
+          />
         </motion.div>
       ) : null}
 
@@ -376,7 +447,7 @@ export function LoginForm() {
       {step === "mfa_setup" ? (
         <motion.div variants={fadeUp} className="space-y-6">
           <div className="space-y-2 text-center lg:text-left">
-            <div className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+            <div className="inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning">
               <ShieldAlert className="size-4" />
               <span>Administrator Security Policy</span>
             </div>
@@ -408,35 +479,130 @@ export function LoginForm() {
             ) : null}
           </AnimatePresence>
 
+          {/* ---------------- CONNECT AUTHENTICATOR APP ---------------- */}
           <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Authenticator Secret Key
-              </Label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 rounded-lg border bg-background px-3 py-2 font-mono text-xs font-bold tracking-widest text-foreground select-all">
-                  {setupSecret}
-                </code>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={copySecret}
-                >
-                  {secretCopied ? "Copied" : "Copy"}
-                </Button>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Smartphone className="size-3.5 text-primary" />
+                  Step 1: Connect Authenticator
+                </Label>
+                <div className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-warning" />
+                  <span className="text-[11px] font-medium text-warning">Awaiting verification</span>
+                </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Enter this key manually into Google Authenticator, 1Password, or Authy.
-              </p>
+
+              {setupQrUri ? (
+                <div className="flex flex-col items-center gap-4 rounded-lg border bg-background p-4 sm:flex-row sm:items-start">
+                  <SetupQrCode value={setupQrUri} />
+                  <div className="space-y-2 text-center sm:text-left">
+                    <p className="text-sm font-semibold">Scan with your authenticator</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      Open Google Authenticator, 1Password, Bitwarden, or Apple
+                      Passwords and scan this code.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2 sm:justify-start">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={copyUri}
+                      >
+                        {uriCopied ? (
+                          <>
+                            <Check className="mr-1.5 size-3.5 text-success" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="mr-1.5 size-3.5" />
+                            Copy setup link
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleOpenAuthenticator}
+                      >
+                        <ExternalLink className="mr-1.5 size-3.5" />
+                        Open on this device
+                      </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-normal">
+                      The open button works on phones. On a desktop, scan the QR
+                      or copy the setup link.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Manual Secret Key Fallback */}
+              <div className="space-y-2 pt-3 border-t border-border/60">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                    <QrCode className="size-3.5" />
+                    Or enter Secret Key manually:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowRawUri(!showRawUri)}
+                    className="text-[11px] text-primary hover:underline font-medium"
+                  >
+                    {showRawUri ? "Hide direct URI" : "View direct URI"}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-lg border bg-background px-3 py-2 font-mono text-xs font-bold tracking-widest text-foreground select-all overflow-x-auto">
+                    {setupSecret}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-9"
+                    onClick={copySecret}
+                  >
+                    {secretCopied ? (
+                      <>
+                        <Check className="size-3 text-success mr-1" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="size-3 mr-1" />
+                        Copy Key
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {showRawUri && setupQrUri ? (
+                  <div className="mt-2 rounded-lg border bg-background/80 p-2.5 font-mono text-[10px] break-all text-muted-foreground select-all leading-relaxed">
+                    <div className="text-[10px] font-semibold text-foreground mb-1 uppercase tracking-wider">
+                      Direct TOTP URI:
+                    </div>
+                    {setupQrUri}
+                  </div>
+                ) : null}
+
+                <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                  <span>Account: <strong className="text-foreground">{setupUsername || "this account"}</strong></span>
+                  <span>Interval: <strong className="text-foreground">30s</strong></span>
+                  <span>Algorithm: <strong className="text-foreground">SHA1</strong></span>
+                </div>
+              </div>
             </div>
           </div>
 
           <form onSubmit={handleSetupConfirm} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="setup-confirm-code">
-                Enter the 6-digit code shown in your app
+              <Label htmlFor="setup-confirm-code" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <KeyRound className="size-3.5 text-primary" />
+                Step 2: Enter Verification Code
               </Label>
               <Input
                 id="setup-confirm-code"
@@ -447,9 +613,12 @@ export function LoginForm() {
                 maxLength={6}
                 value={setupConfirmCode}
                 onChange={(e) => setSetupConfirmCode(e.target.value.replace(/\D/g, ""))}
-                className="text-center font-mono text-lg font-bold tracking-widest"
+                className="text-center font-mono text-xl font-bold tracking-widest h-12"
                 autoFocus
               />
+              <p className="text-[11px] text-muted-foreground text-center">
+                Enter the 6-digit code currently shown in your Authenticator app
+              </p>
             </div>
 
             <Button
@@ -501,10 +670,24 @@ export function LoginForm() {
             </h1>
             <p className="text-xs text-muted-foreground leading-relaxed">
               {isBackupCodeMode
-                ? "Enter one of your 8-character single-use recovery codes (e.g. a1b2-c3d4)."
+                ? "Enter one of your 12-character single-use recovery codes (e.g. a1b2c3-d4e5f6)."
                 : "Open your authenticator app and enter the 6-digit passcode."}
             </p>
           </div>
+
+          {backupCodesRemaining !== null && backupCodesRemaining <= 2 ? (
+            <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
+              <AlertTriangle
+                className="mt-0.5 size-4 shrink-0 text-warning"
+                aria-hidden
+              />
+              <p className="text-xs leading-relaxed text-warning">
+                {backupCodesRemaining === 0
+                  ? "You have no backup codes left. After signing in, regenerate a fresh set from Security."
+                  : `Only ${backupCodesRemaining} backup code${backupCodesRemaining === 1 ? "" : "s"} left. After signing in, regenerate a fresh set from Security.`}
+              </p>
+            </div>
+          ) : null}
 
           <AnimatePresence initial={false}>
             {formError ? (
@@ -534,8 +717,8 @@ export function LoginForm() {
                 id="mfa-code"
                 type="text"
                 autoComplete="one-time-code"
-                placeholder={isBackupCodeMode ? "xxxx-xxxx" : "000000"}
-                maxLength={isBackupCodeMode ? 12 : 6}
+                placeholder={isBackupCodeMode ? "xxxxxx-xxxxxx" : "000000"}
+                maxLength={isBackupCodeMode ? 13 : 6}
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
                 className="text-center font-mono text-lg font-bold tracking-widest"
@@ -587,6 +770,16 @@ export function LoginForm() {
               >
                 Back to credentials
               </button>
+
+              <p className="mx-auto max-w-xs pt-1 text-[11px] leading-relaxed text-muted-foreground">
+                No device and no backup codes? Another admin can reset your
+                two-factor authentication from <strong>Users</strong>. If you
+                are the only admin, the server operator can run{" "}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono">
+                  npm run mfa:reset
+                </code>
+                .
+              </p>
             </div>
           </form>
         </motion.div>
@@ -729,7 +922,7 @@ export function LoginForm() {
               </div>
 
               {capsLockOn ? (
-                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium pt-0.5">
+                <div className="flex items-center gap-1.5 text-xs text-warning font-medium pt-0.5">
                   <AlertCircle className="size-3.5" />
                   <span>Caps Lock is ON</span>
                 </div>
@@ -758,7 +951,7 @@ export function LoginForm() {
                 htmlFor="rememberMe"
                 className="text-xs font-normal text-muted-foreground cursor-pointer select-none"
               >
-                Remember my username on this device (extends session to 30 days)
+                Remember my username on this device
               </Label>
             </motion.div>
 

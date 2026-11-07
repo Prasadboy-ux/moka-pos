@@ -58,7 +58,7 @@ export function ForgotPasswordDialog({
               </h4>
               <p className="text-xs leading-relaxed text-muted-foreground">
                 Your shift supervisor or store manager can reset your password
-                immediately from the <strong>Users & Staff</strong> panel in the
+                immediately from the <strong>Users</strong> panel in the
                 Admin Dashboard.
               </p>
             </div>
@@ -74,9 +74,17 @@ export function ForgotPasswordDialog({
                 For Administrators
               </h4>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                If you have MFA configured, use your 8-character single-use
-                recovery backup codes at sign-in. If locked out, contact the
-                cafe operations IT lead:
+                If you have MFA configured, use one of your single-use recovery
+                codes at sign-in. Lost the device <em>and</em> the codes?
+                Another admin can reset your two-factor from{" "}
+                <strong>Users</strong>. If you are the only admin, the server
+                operator can clear it from the backend:
+              </p>
+              <code className="mt-2 block rounded bg-muted px-2 py-1 font-mono text-[11px] text-foreground">
+                npm run mfa:reset -- &lt;username&gt;
+              </code>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                Still stuck? Contact the cafe operations IT lead:
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <code className="rounded bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
@@ -91,7 +99,7 @@ export function ForgotPasswordDialog({
                 >
                   {copied ? (
                     <>
-                      <Check className="mr-1 size-3 text-emerald-600" />
+                      <Check className="mr-1 size-3 text-success" />
                       Copied
                     </>
                   ) : (

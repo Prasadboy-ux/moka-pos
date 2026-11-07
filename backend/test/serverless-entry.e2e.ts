@@ -64,6 +64,7 @@ describe('serverless entry (api/index.ts)', () => {
       username: 'admin',
       role: 'admin',
       isActive: true,
+      mfaEnabled: false,
     });
 
     const cookie = response.headers['set-cookie']?.[0] ?? '';

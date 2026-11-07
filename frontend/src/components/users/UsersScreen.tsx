@@ -1,7 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { MoreHorizontal, Pencil, Power, UserPlus, Users } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  MoreHorizontal,
+  Pencil,
+  Power,
+  ShieldCheck,
+  ShieldOff,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,9 +68,11 @@ function initials(name: string): string {
 }
 
 export function UsersScreen() {
+  const router = useRouter();
   const { data, error, isLoading, reload } = useAsync(loadUsers);
   const { toast } = useToast();
   const currentUser = useAuthStore((state) => state.session?.user ?? null);
+  const clearSession = useAuthStore((state) => state.clearSession);
 
   const [search, setSearch] = React.useState("");
   const [roleFilter, setRoleFilter] = React.useState<RoleFilter>("all");
@@ -70,6 +81,7 @@ export function UsersScreen() {
   const [editing, setEditing] = React.useState<User | null>(null);
   const [formOpen, setFormOpen] = React.useState(false);
   const [toggling, setToggling] = React.useState<User | null>(null);
+  const [resettingMfa, setResettingMfa] = React.useState<User | null>(null);
 
   const debouncedSearch = useDebouncedValue(search);
 
@@ -109,6 +121,35 @@ export function UsersScreen() {
       toast({
         title: "Could not change the account",
         description: cause instanceof Error ? cause.message : "Please try again.",
+        variant: "destructive",
+      });
+      throw cause;
+    }
+  }
+
+  async function resetMfa(user: User) {
+    try {
+      await getRepositories().users.resetMfa(user.id);
+      toast({
+        title: "Two-factor reset",
+        description: `${user.name} must set up a new authenticator on next sign-in.`,
+        variant: "success",
+      });
+
+      if (user.id === currentUser?.id) {
+        // The API bumped this account's session epoch, so the current cookie
+        // is already dead. Leave the screen instead of showing stale data.
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+
+      reload();
+    } catch (cause) {
+      toast({
+        title: "Could not reset two-factor",
+        description:
+          cause instanceof Error ? cause.message : "Please try again.",
         variant: "destructive",
       });
       throw cause;
@@ -162,6 +203,19 @@ export function UsersScreen() {
         ),
     },
     {
+      key: "mfa",
+      header: "2FA",
+      cell: (user) =>
+        user.mfaEnabled ? (
+          <Badge variant="outline">
+            <ShieldCheck className="size-3" aria-hidden />
+            On
+          </Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">Off</span>
+        ),
+    },
+    {
       key: "status",
       header: "Status",
       sortable: true,
@@ -194,6 +248,12 @@ export function UsersScreen() {
               <Pencil className="size-4" aria-hidden />
               Edit
             </DropdownMenuItem>
+            {user.mfaEnabled ? (
+              <DropdownMenuItem onSelect={() => setResettingMfa(user)}>
+                <ShieldOff className="size-4" aria-hidden />
+                Reset two-factor
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant={user.isActive ? "destructive" : "default"}
@@ -317,6 +377,21 @@ export function UsersScreen() {
         onConfirm={async () => {
           if (!toggling) return;
           await setActive(toggling, !toggling.isActive);
+        }}
+      />
+
+      <ConfirmDialog
+        open={resettingMfa !== null}
+        onOpenChange={(open) => {
+          if (!open) setResettingMfa(null);
+        }}
+        title={`Reset two-factor for ${resettingMfa?.name}?`}
+        description="Their authenticator and recovery codes stop working, and every active session is signed out. They must set up a new authenticator on next sign-in. The password is unchanged."
+        confirmLabel="Reset two-factor"
+        destructive
+        onConfirm={async () => {
+          if (!resettingMfa) return;
+          await resetMfa(resettingMfa);
         }}
       />
     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { Banknote, RotateCcw } from "lucide-react";
+import { Banknote, Coffee, RotateCcw } from "lucide-react";
 import { FlyToCart } from "@/components/motion/FlyToCart";
 import { ProductGrid } from "@/components/pos/ProductGrid";
 import { CartPanel } from "@/components/pos/CartPanel";
@@ -22,7 +22,7 @@ import {
   reuseCheckoutKey,
   type CheckoutKey,
 } from "@/lib/idempotency";
-import { DURATION, EASE_OUT } from "@/lib/motion";
+import { DURATION, EASE_OUT, fadeUp, stagger } from "@/lib/motion";
 import { getRepositories } from "@/lib/repositories";
 import {
   cartLimit,
@@ -203,6 +203,14 @@ export function PosScreen() {
     setCheckoutOpen(true);
   }
 
+  /** The mobile dock has no room for the cart itself, so it jumps to it. */
+  function scrollToCart() {
+    cartDropRef.current?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }
+
   function handleCompleted(order: Order) {
     clear();
     setCheckoutKey(null);
@@ -228,13 +236,13 @@ export function PosScreen() {
                 <Skeleton key={i} className="h-9 w-20 rounded-full" />
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 2xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
               {Array.from({ length: 8 }, (_, i) => (
-                <Skeleton key={i} className="aspect-square w-full rounded-xl" />
+                <Skeleton key={i} className="aspect-square w-full rounded-2xl" />
               ))}
             </div>
           </div>
-          <Skeleton className="h-96 w-full rounded-xl" />
+          <Skeleton className="h-96 w-full rounded-2xl" />
         </div>
         <span className="sr-only">Loading menu</span>
       </div>
@@ -305,63 +313,181 @@ export function PosScreen() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5 pb-24 lg:pb-0">
       {/* The till has no PageHeader; this is the document's h1. */}
       <h1 className="sr-only">Point of Sale</h1>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3">
-        <div className="flex items-center gap-2.5 text-sm">
-          <span
-            className="size-2 rounded-full bg-success"
-            aria-hidden
-          />
-          <span>Shift open since {formatDateTime(shift.openedAt)}</span>
-          <span className="text-muted-foreground">
-            · Float {formatIDR(shift.openingFloat)}
-          </span>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => setCloseShiftOpen(true)}
-        >
-          Close shift
-        </Button>
+
+      {/**
+       * A soft brand wash behind the working surfaces. Purely decorative — it
+       * gives the white cards something to sit on without tinting the content
+       * itself, and it never intercepts a tap.
+       */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 -top-12 -z-10 h-80 overflow-hidden"
+      >
+        <motion.span
+          animate={
+            reduceMotion ? undefined : { x: [0, 24, 0], y: [0, -14, 0] }
+          }
+          transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -left-20 top-0 size-72 rounded-full bg-brand-cyan/10 blur-3xl"
+        />
+        <motion.span
+          animate={
+            reduceMotion ? undefined : { x: [0, -20, 0], y: [0, 12, 0] }
+          }
+          transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute left-1/3 top-4 size-64 rounded-full bg-brand-blue/10 blur-3xl"
+        />
+        <motion.span
+          animate={
+            reduceMotion ? undefined : { x: [0, 16, 0], y: [0, 10, 0] }
+          }
+          transition={{ duration: 23, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute -right-16 -top-6 size-72 rounded-full bg-primary/10 blur-3xl"
+        />
       </div>
 
       {/**
-       * Two columns from `lg` (1024px), not `xl`: iPad landscape is 1024–1279
-       * CSS px, and at a till the cart must stay beside the grid there — a
-       * single column forces the cashier to scroll past the whole menu to
-       * reach Charge.
+       * Staggered entrance: strip first, then the menu column and the cart.
+       * Each child uses the shared `fadeUp`, so the screen reads as one motion
+       * language rather than three independently tuned reveals.
        */}
-      <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
-        <ProductGrid
-          products={products}
-          categories={categories}
-          limits={limits}
-          activeCategory={category}
-          onCategoryChange={(value) => setQuery({ cat: value })}
-          search={search}
-          onSearchChange={setSearch}
-          onAdd={handleAdd}
-          qtyOf={qtyOf}
-        />
-
-        <div
-          ref={cartDropRef}
-          className="h-fit rounded-xl border bg-card lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)]"
+      <motion.div
+        variants={stagger}
+        initial="hidden"
+        animate="show"
+        className="space-y-5"
+      >
+        <motion.div
+          variants={fadeUp}
+          className="relative flex flex-wrap items-center justify-between gap-3 overflow-hidden rounded-2xl border bg-card/80 px-4 py-3 shadow-sm backdrop-blur-md"
         >
-          <CartPanel
-            lines={lines}
-            limits={limits}
-            totals={totals}
-            taxRate={taxRate}
-            onSetQty={handleSetQty}
-            onRemove={remove}
-            onClear={clear}
-            onCheckout={openCheckout}
+          {/* Hairline of brand light along the top edge of the strip. */}
+          <span
+            aria-hidden
+            className="absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent via-brand-cyan/70 to-transparent"
           />
+
+          <div className="flex items-center gap-3 text-sm">
+            <span className="relative flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Coffee className="size-4" aria-hidden />
+            </span>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="flex items-center gap-2 font-medium">
+                <span className="relative flex size-2.5 items-center justify-center">
+                  {/* Live pulse: the shift is open and selling right now. */}
+                  <motion.span
+                    aria-hidden
+                    animate={
+                      reduceMotion
+                        ? undefined
+                        : { scale: [1, 2.2], opacity: [0.45, 0] }
+                    }
+                    transition={{
+                      duration: 1.8,
+                      repeat: Infinity,
+                      ease: "easeOut",
+                    }}
+                    className="absolute size-2.5 rounded-full bg-success"
+                  />
+                  <span className="relative size-2 rounded-full bg-success" />
+                </span>
+                Shift open since {formatDateTime(shift.openedAt)}
+              </span>
+              <span className="text-xs text-muted-foreground sm:text-sm">
+                Float {formatIDR(shift.openingFloat)}
+              </span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="transition-colors hover:border-primary/40 hover:bg-primary/5"
+            onClick={() => setCloseShiftOpen(true)}
+          >
+            Close shift
+          </Button>
+        </motion.div>
+
+        {/**
+         * Two columns from `lg` (1024px), not `xl`: iPad landscape is 1024–1279
+         * CSS px, and at a till the cart must stay beside the grid there — a
+         * single column forces the cashier to scroll past the whole menu to
+         * reach Charge.
+         */}
+        <div className="grid gap-5 lg:grid-cols-[1fr_380px] lg:items-start">
+          <motion.div variants={fadeUp} className="min-w-0">
+            <ProductGrid
+              products={products}
+              categories={categories}
+              limits={limits}
+              activeCategory={category}
+              onCategoryChange={(value) => setQuery({ cat: value })}
+              search={search}
+              onSearchChange={setSearch}
+              onAdd={handleAdd}
+              qtyOf={qtyOf}
+            />
+          </motion.div>
+
+          <motion.div
+            variants={fadeUp}
+            ref={cartDropRef}
+            className="h-fit overflow-hidden rounded-2xl border bg-card shadow-sm lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)]"
+          >
+            <CartPanel
+              lines={lines}
+              limits={limits}
+              totals={totals}
+              taxRate={taxRate}
+              products={stockContext.products}
+              onSetQty={handleSetQty}
+              onRemove={remove}
+              onClear={clear}
+              onCheckout={openCheckout}
+            />
+          </motion.div>
+        </div>
+      </motion.div>
+
+      {/**
+       * Phone-only order dock. Below `lg` the cart sits under the whole menu,
+       * so without this a cashier cannot see the running total or reach Charge
+       * without scrolling past every product. Sits above the app's mobile tab
+       * bar; at `md` the tab bar is gone, so it drops to the bottom edge.
+       */}
+      <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t bg-background/95 px-4 py-2.5 backdrop-blur-md md:bottom-0 md:pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:hidden">
+        <div className="mx-auto flex max-w-3xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium text-muted-foreground">
+              {totals.itemCount} {totals.itemCount === 1 ? "item" : "items"} in
+              order
+            </p>
+            <p
+              className="truncate text-lg font-bold tabular-nums"
+              title={formatIDR(totals.total)}
+            >
+              {formatIDR(totals.total)}
+            </p>
+          </div>
+
+          {lines.length > 0 ? (
+            <Button type="button" variant="outline" onClick={scrollToCart}>
+              View order
+            </Button>
+          ) : null}
+
+          <Button
+            type="button"
+            onClick={openCheckout}
+            disabled={lines.length === 0}
+          >
+            Charge
+          </Button>
         </div>
       </div>
 

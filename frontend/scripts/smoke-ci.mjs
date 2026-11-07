@@ -170,7 +170,16 @@ function startBackend() {
     throw new Error("backend/dist/server.js is missing. Run `npm run build` in backend first.");
   }
 
-  start(process.execPath, ["dist/server.js"], { cwd: BACKEND });
+  // Smoke fixtures sign in with seeded admin accounts. Without this override
+  // the API forces them through first-time MFA enrolment and every suite stops
+  // at the login screen. The dedicated MFA suite turns enforcement back on.
+  start(process.execPath, ["dist/server.js"], {
+    cwd: BACKEND,
+    env: {
+      ...process.env,
+      MFA_ENFORCE_ADMIN: process.env.MFA_ENFORCE_ADMIN ?? "false",
+    },
+  });
   log("api starting");
 }
 

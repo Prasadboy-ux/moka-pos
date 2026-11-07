@@ -97,6 +97,14 @@ const baseSchema = z.object({
    * there it is ignored, because the limiters are always on outside tests.
    */
   RATE_LIMIT_TEST_ENABLED: z.stringbool().default(false),
+
+  /**
+   * Require admin accounts without MFA to enrol at sign-in. Defaults on outside
+   * tests. The smoke stack sets it to false because its fixtures sign in with
+   * seeded demo admins; the dedicated MFA end-to-end suite sets it to true.
+   * Production cannot disable it.
+   */
+  MFA_ENFORCE_ADMIN: z.stringbool().optional(),
 });
 
 /** The shipped example secret, plus the obvious hand-written stand-ins. */
@@ -127,6 +135,17 @@ const schema = baseSchema.superRefine((settings, ctx) => {
       path: ['CORS_ORIGIN'],
       message:
         "CORS_ORIGIN must list explicit origins in production; '*' would let any site call the API with the user's cookie.",
+    });
+  }
+
+  if (
+    settings.NODE_ENV === 'production' &&
+    settings.MFA_ENFORCE_ADMIN === false
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['MFA_ENFORCE_ADMIN'],
+      message: 'MFA_ENFORCE_ADMIN cannot be disabled in production.',
     });
   }
 

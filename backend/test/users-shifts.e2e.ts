@@ -116,7 +116,7 @@ describe('POST /api/users', () => {
 
     const stored = await findByUsername('kasir2').select('+passwordHash');
     expect(stored?.passwordHash).not.toBe('kasir-pass-2026');
-    expect(stored?.passwordHash.startsWith('scrypt$')).toBe(true);
+    expect(stored?.passwordHash).toMatch(/^(scrypt|argon2id)\$/);
   });
 
   it('refuses a username that differs only in case', async () => {

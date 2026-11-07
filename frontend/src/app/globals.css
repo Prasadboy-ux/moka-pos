@@ -40,7 +40,7 @@
   --secondary-foreground: #0f4c81;
 
   --muted: #f1f5f9;
-  --muted-foreground: #64748b;
+  --muted-foreground: #52606d;
 
   --accent: #1b75bc;
   --accent-foreground: #ffffff;
@@ -59,7 +59,9 @@
   --warning-foreground: #ffffff;
 
   --border: #e2e8f0;
-  --input: #cbd5e1;
+  /* 4.9:1 on white: a form field's boundary is a non-text control and needs
+     3:1, which the old slate-300 (#cbd5e1, ≈1.6:1) did not clear. */
+  --input: #64748b;
   /* Same value as --primary: a 3px full-opacity ring is visible; the old
      bright cyan at 50% opacity was invisible against white. */
   --ring: #007a87;
@@ -331,7 +333,9 @@
   }
 
   [data-receipt],
-  [data-receipt] * {
+  [data-receipt] *,
+  [data-report],
+  [data-report] * {
     visibility: visible;
   }
 
@@ -385,5 +389,19 @@
     color: #000000;
     /* The screen version is scaled down to fit a dialog; print at real size. */
     font-size: 10pt;
+  }
+
+  /**
+   * A report is an ordinary page, not a dialog. Anchor it to the sheet's origin
+   * so the hidden app chrome (which still occupies layout while hidden) cannot
+   * push it off the page.
+   */
+  [data-report] {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
   }
 }

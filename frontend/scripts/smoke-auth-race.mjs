@@ -47,7 +47,7 @@ try {
 
   await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
 
-  const checking = page.getByRole("button", { name: /Checking session/i });
+  const checking = page.getByRole("button", { name: /Checking station session/i });
   await checking.waitFor({ timeout: 15000 });
   check("login waits for the session probe", await checking.isDisabled());
 

@@ -29,6 +29,7 @@ const repositories = vi.hoisted(() => ({
   ingredients: { list: vi.fn() },
   orders: { recent: vi.fn() },
   reports: { sales: vi.fn() },
+  shifts: { list: vi.fn() },
 }));
 
 vi.mock("@/lib/repositories", () => ({
@@ -295,6 +296,7 @@ describe("dashboard range", () => {
     repositories.products.list.mockResolvedValue([water]);
     repositories.ingredients.list.mockResolvedValue([beans]);
     repositories.orders.recent.mockResolvedValue([]);
+    repositories.shifts.list.mockResolvedValue([]);
     repositories.config.get.mockResolvedValue({
       taxRate: 0.1,
       storeTimezone: "Asia/Jakarta",
@@ -373,5 +375,7 @@ describe("dashboard range", () => {
     expect(dashboard.trend).toHaveLength(7);
     expect(dashboard.paymentBreakdown).toHaveLength(1);
     expect(dashboard.lowStock.map((item) => item.id)).toEqual(["beans"]);
+    expect(repositories.shifts.list).toHaveBeenCalled();
+    expect(dashboard.openShifts).toEqual([]);
   });
 });

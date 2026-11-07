@@ -218,6 +218,7 @@ animation keeps the last content and each open starts fresh — see
 /dashboard/inventory     StockScreen                      (admin)
 /dashboard/reports       ReportsScreen                    (admin)
 /dashboard/users         UsersScreen                      (admin)
+/dashboard/security      SecurityScreen                   (admin)
 ```
 
 Cashiers reach two screens, not one. Transactions is theirs because reprinting a
@@ -324,7 +325,7 @@ architecture, and its outcome is the evidence that the seam held.
 
 | Step | Change | Result |
 |---|---|---|
-| 1 | Write the API against `docs/API-CONTRACT.md`. | Done — 38 routes in `../backend` |
+| 1 | Write the API against `docs/API-CONTRACT.md`. | Done — 41 routes in `../backend` |
 | 2 | Add an `http/` implementation of the eight repositories. | Done — 342 lines across 3 files |
 | 3 | Point `getRepositories()` at it — **one file changes**. | Done — 27 lines in `index.ts` |
 | 4 | Replace the `localStorage` session with an httpOnly cookie, and add a server-side route guard. | Done — `moka_session` + `requireRole` |

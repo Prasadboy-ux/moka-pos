@@ -79,7 +79,7 @@ describe('accounts', () => {
     const admin = await findByUsername('admin').select('+passwordHash');
 
     expect(admin?.passwordHash).not.toBe('admin123');
-    expect(admin?.passwordHash.startsWith('scrypt$')).toBe(true);
+    expect(admin?.passwordHash).toMatch(/^(scrypt|argon2id)\$/);
     expect(await verifyPassword('admin123', admin!.passwordHash)).toBe(true);
     expect(await verifyPassword('wrong', admin!.passwordHash)).toBe(false);
   });

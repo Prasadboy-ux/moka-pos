@@ -34,7 +34,7 @@ the request path.
 | Selling moves stock | Done — server-side Mongo transaction |
 | Interface guidelines | Done — touch targets, reduced motion, print, URL state |
 | Repository seam | Done — flipped from mock to HTTP in one file |
-| Backend API | Done — 38 routes, 9 models, 311 tests |
+| Backend API | Done — 41 routes, 9 models, 331 tests |
 | Shift gating + reconciliation | Done — POS refuses to sell with no open shift; close stores the drawer count |
 | Unit tests (frontend) | Done — Vitest, 30 tests across 4 files |
 
@@ -197,6 +197,7 @@ demonstrated.
 | `/dashboard/inventory` | Inventory | admin | Ingredient levels and reorder points, counted packaged stock, full movement ledger |
 | `/dashboard/reports` | Reports | admin | Date range with presets, period-over-period comparison, revenue per day, payment mix, category revenue, top products, per-cashier takings, CSV export |
 | `/dashboard/users` | Users | admin | Create, edit, role assignment, activate/deactivate |
+| `/dashboard/security` | Security | admin | Two-factor status, remaining recovery codes, regenerate codes, change password |
 
 ## Project structure
 
@@ -376,16 +377,16 @@ The frontend owns the contract; the backend implements it. Full detail in
 |---|---|
 | Framework | Express 5, ESM, TypeScript strict |
 | Database | MongoDB via Mongoose 9 |
-| Auth | httpOnly `moka_session` cookie, HS256 JWT via `jose`, scrypt password hashing via `node:crypto` |
-| Routes | 38 contract endpoints + `/api/health` |
+| Auth | httpOnly `moka_session` cookie, HS256 JWT via `jose`, Argon2id password hashing with scrypt verification and migration |
+| Routes | 41 contract endpoints + `/api/health` |
 | Models | 9 collections with indexes |
-| Tests | 311 — 292 e2e across 14 files (Supertest + in-memory replica set) + 19 unit |
+| Tests | 331 — 297 e2e across 15 files (Supertest + in-memory replica set) + 34 unit |
 | Lint | oxlint (type-aware) + Prettier |
 | Hardening | Login + API rate limits, pino logging, compression, CI |
 
 The endpoint list is derived from `src/lib/repositories/types.ts` and written up
 in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md). `backend/test/contract.e2e.ts`
-asserts all 38 routes against that document **transcribed by hand**, so the test
+asserts all 41 routes against that document **transcribed by hand**, so the test
 checks the contract rather than restating the code.
 
 Dates cross the wire as `yyyy-mm-dd` in `STORE_TIMEZONE` (Asia/Jakarta by
@@ -636,7 +637,7 @@ when `NEXT_PUBLIC_API_URL` is unset.
 - The three login refusals (invalid, inactive, role-mismatch) stayed distinct
   because the login screen branches on them. The password is verified *before*
   `inactive` is reported, so a deactivated account cannot be probed for.
-- **311 tests** (292 e2e across 14 files + 19 unit). `contract.e2e.ts` asserts all 38 routes against
+- **331 tests** (297 e2e across 15 files + 34 unit). `contract.e2e.ts` asserts all 41 routes against
   the API contract transcribed by hand rather than copied from the code, and
   `models.e2e.ts` asserts the *absence* of indexes and collections from earlier
   drafts — `/api/transactions`, `/api/stock_history`, and `/api/reports/sales`
@@ -1122,15 +1123,20 @@ production build confirmed:
 
 ### Known gaps and deliberate omissions
 
-- **Shift open / close is not built.** `shiftRepository` records shifts, and the
-  reports read orders rather than shifts, but the POS does not require an open
-  shift before selling. That gate is the next thing to add.
-- **No cash reconciliation.** Shift close records a counted float, but nothing
-  compares it against the cash sales inside the shift yet.
-- **No frontend unit tests.** Only end-to-end smoke suites exist.
-- **The stock oversell concurrency case is untested.** The server guards it with
-  conditional `$inc` decrements, but no automated check exercises two tills
-  racing for the last unit.
+- **MFA recovery is admin-mediated.** An admin can reset another account's
+  authenticator from User management, and an operator can run
+  `npm run mfa:reset -- <username>` in `backend/` when the only admin is locked
+  out. There is no self-service "disable 2FA" screen.
+- **Recovery codes are shown once, by design.** The setup screen now offers
+  copy, download, and print, and blocks Continue until the admin acknowledges
+  they saved the codes; the tab-close warning is a last resort. A signed-in
+  admin can also see how many codes remain and regenerate the set from
+  **Security** (`/dashboard/security`) by confirming their password and a live
+  authenticator code. If every code is lost, resetting MFA is still the only
+  way back.
+- **Frontend unit tests cover pure functions, not components.** The four Vitest
+  files exercise read models and the cart store; screens still rely on the
+  browser smoke suites.
 - **Menu prices and ingredient costs are placeholders.** `PLACEHOLDER_PRICES` in
   `src/lib/repositories/mock/seed.ts` and the same constant in
   `backend/src/seed.ts` mark them; the costs beside them need real supplier

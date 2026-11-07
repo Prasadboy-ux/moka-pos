@@ -77,6 +77,16 @@ export const userRepository: UserRepository = {
     });
   },
 
+  async resetMfa(id) {
+    await simulateLatency(120);
+    return mutate((db) => {
+      const user = db.users.find((u) => u.id === id);
+      if (!user) throw new Error("User not found.");
+      user.mfaEnabled = false;
+      return toPublicUser(clone(user));
+    });
+  },
+
   async authenticate(username, password, role) {
     await simulateLatency(600);
 
@@ -106,7 +116,35 @@ export const userRepository: UserRepository = {
     return {
       ok: true as const,
       user: toPublicUser(user),
-      backupCodes: ['1234-5678', '9876-5432'],
+      backupCodes: ['123456-789abc', '987654-321cba'],
+    };
+  },
+
+  async mfaStatus() {
+    await simulateLatency(120);
+    const user = readDb().users.find((u) => u.role === "admin") ?? readDb().users[0]!;
+    return {
+      mfaEnabled: Boolean(user.mfaEnabled),
+      backupCodesRemaining: user.mfaEnabled ? 8 : 0,
+    };
+  },
+
+  async regenerateBackupCodes(_currentPassword: string, _code: string) {
+    await simulateLatency(400);
+    // The mock has no real TOTP; any six-digit code is accepted so the UI
+    // flow can be exercised without a server.
+    return {
+      ok: true as const,
+      backupCodes: [
+        "8f2a1c-9d44be",
+        "70a3d1-c69e52",
+        "2a77bf-10c039",
+        "6d845e-18a2fb",
+        "9b6403-ce70d5",
+        "fa2911-b27e6c",
+        "03ce9f-4a1d80",
+        "c6e52b-8d47f1",
+      ],
     };
   },
 };

@@ -5,19 +5,21 @@ shops. Serves the Next.js frontend in [`../frontend`](../frontend).
 
 ## Status
 
-**Complete and live.** 38 contract endpoints plus `/api/health`, 9 Mongoose
-models, and 311 tests (19 unit, 292 end-to-end across 14 files). The frontend in
+**Complete and live.** 41 contract endpoints plus `/api/health`, 9 Mongoose
+models, and 331 tests (34 unit, 297 end-to-end across 15 files). The frontend in
 [`../frontend`](../frontend) resolves its eight repositories to this API over an
 httpOnly cookie session.
 
 The API is specified in
 [`../frontend/docs/API-CONTRACT.md`](../frontend/docs/API-CONTRACT.md), which
-this was built against. `test/contract.e2e.ts` asserts all 38 routes against that
+this was built against. `test/contract.e2e.ts` asserts all 41 routes against that
 document **transcribed by hand**, so the test verifies the contract rather than
 restating the code.
 
-Production hardening in place: login, per-username login, password-change and
-API rate limits (env-tunable, disabled under `NODE_ENV=test`); server-side
+Production hardening in place: mandatory admin TOTP enrolment with single-use
+recovery codes (atomic one-time consumption), admin MFA reset, login,
+per-username login, password-change and API rate limits (env-tunable, disabled
+under `NODE_ENV=test`); server-side
 session revocation on logout and password change via a JWT epoch claim; a
 12-character password floor with a common-password blocklist; `Cache-Control:
 no-store` on every API response; and a startup guard that refuses to boot while
@@ -96,6 +98,26 @@ first; deleting the file does not remove it from history.
 | `npm run test:e2e` | End-to-end tests |
 | `npm run test:cov` | Coverage |
 | `npm run seed` | Reset to demo data |
+| `npm run mfa:reset -- <username>` | Emergency: clear an account's MFA and revoke its sessions |
+
+### When the only admin loses their authenticator and recovery codes
+
+The reset goes straight to MongoDB, so it works without a running API:
+
+```bash
+cd backend
+npm run mfa:reset -- admin --dry-run   # preview: which account, how many codes
+npm run mfa:reset -- admin             # perform the reset
+```
+
+That clears `mfaSecret` and every stored recovery-code hash, then bumps the
+session epoch so any existing cookie stops working. The password is untouched.
+The next sign-in enrols a fresh authenticator and issues eight new codes. The
+script prints a redacted `MONGODB_URI` first, so an operator can check they are
+pointing at the right database before anything is written.
+
+The same action is available in the UI when a *second* admin is available:
+**Users → ⋯ → Reset two-factor**.
 
 ## Documentation
 

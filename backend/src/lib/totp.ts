@@ -147,13 +147,17 @@ export function generateTotpUri(
 }
 
 /**
- * Generates formatted single-use backup codes (e.g. "a1b2-c3d4").
+ * Generates formatted single-use backup codes (e.g. "a1b2c3-d4e5f6").
+ *
+ * Six random bytes give 48 bits per code. The hashes are stored offline, so a
+ * shorter code would be cheap to brute-force if the database ever leaked; 48
+ * bits keeps that infeasible while staying short enough to type.
  */
 export function generateBackupCodes(count = BACKUP_CODE_COUNT): string[] {
   const codes: string[] = [];
   for (let i = 0; i < count; i++) {
-    const hex = randomBytes(4).toString('hex');
-    codes.push(`${hex.slice(0, 4)}-${hex.slice(4, 8)}`);
+    const hex = randomBytes(6).toString('hex');
+    codes.push(`${hex.slice(0, 6)}-${hex.slice(6, 12)}`);
   }
   return codes;
 }
@@ -195,7 +199,7 @@ function verifyBackupCode(code: string, storedHash: string): boolean {
 export function verifyAndConsumeBackupCode(
   code: string,
   storedHashes: readonly string[],
-): { valid: boolean; remainingHashes: string[] } {
+): { valid: boolean; remainingHashes: string[]; matchedHash?: string } {
   const index = storedHashes.findIndex((hash) => verifyBackupCode(code, hash));
 
   if (index === -1) {
@@ -204,7 +208,7 @@ export function verifyAndConsumeBackupCode(
 
   // Remove the matched code to make it single-use
   const remaining = [...storedHashes];
-  remaining.splice(index, 1);
+  const matchedHash = remaining.splice(index, 1)[0]!;
 
-  return { valid: true, remainingHashes: remaining };
+  return { valid: true, remainingHashes: remaining, matchedHash };
 }

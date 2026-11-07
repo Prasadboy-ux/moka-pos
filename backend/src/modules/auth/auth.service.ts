@@ -1,3 +1,4 @@
+import { env } from '../../config/env.js';
 import { ApiError } from '../../lib/errors.js';
 import { decryptSecret, encryptSecret } from '../../lib/encryption.js';
 import {
@@ -29,6 +30,7 @@ import {
 import type {
   ChangePasswordInput,
   LoginInput,
+  MfaBackupCodesRegenerateInput,
   MfaSetupConfirmInput,
   MfaVerifyInput,
 } from './auth.schemas.js';
@@ -44,6 +46,8 @@ export type AuthResult =
       status: 'mfa_required';
       mfaToken: string;
       username: string;
+      /** How many single-use recovery codes remain. Drives the low-codes warning. */
+      backupCodesRemaining: number;
       rememberMe?: boolean;
     }
   | {
@@ -61,7 +65,7 @@ export type AuthResult =
  */
 export async function authenticate(input: LoginInput): Promise<AuthResult> {
   const user = await findByUsername(input.username).select(
-    '+passwordHash +mfaSecret',
+    '+passwordHash +mfaSecret +mfaBackupCodes',
   );
 
   if (!user) {
@@ -87,7 +91,7 @@ export async function authenticate(input: LoginInput): Promise<AuthResult> {
 
   if (input.role !== undefined && input.role !== user.role) {
     throw ApiError.forbidden(
-      `You are signed in as a ${user.role}. Please pick ${user.role} and try again.`,
+      `This account belongs to the ${user.role === 'admin' ? 'Admin' : 'Cashier'} role. Select that role and try again.`,
       'role-mismatch',
     );
   }
@@ -115,13 +119,18 @@ export async function authenticate(input: LoginInput): Promise<AuthResult> {
       status: 'mfa_required',
       mfaToken,
       username: user.username,
+      backupCodesRemaining: (user.mfaBackupCodes ?? []).length,
       rememberMe,
     };
   }
 
-  // MFA Policy: Mandatory for Admin accounts outside unit/e2e test bypass
+  // MFA Policy: mandatory for admins outside tests. An explicit
+  // MFA_ENFORCE_ADMIN overrides the test default, so the smoke stack can seed
+  // and sign in demo admins while the dedicated MFA suite exercises enrolment.
+  const { MFA_ENFORCE_ADMIN, NODE_ENV } = env();
   const enforceAdminMfa =
-    user.role === 'admin' && process.env.NODE_ENV !== 'test';
+    user.role === 'admin' &&
+    (MFA_ENFORCE_ADMIN ?? NODE_ENV !== 'test');
 
   if (enforceAdminMfa) {
     const secret = generateTotpSecret();
@@ -201,15 +210,28 @@ export async function verifyMfaLogin(
     user.mfaBackupCodes ?? [],
   );
 
-  if (backupResult.valid) {
-    user.mfaBackupCodes = backupResult.remainingHashes;
-    await user.save();
+  if (backupResult.valid && backupResult.matchedHash) {
+    // Consume the code atomically. Reading the list and then saving the trimmed
+    // copy lets two concurrent requests use the same recovery code; a
+    // conditional $pull lets exactly one request remove the matching hash.
+    const consumed = await UserModel.updateOne(
+      {
+        _id: user._id,
+        isActive: true,
+        mfaEnabled: true,
+        sessionEpoch: epoch,
+        mfaBackupCodes: backupResult.matchedHash,
+      },
+      { $pull: { mfaBackupCodes: backupResult.matchedHash } },
+    );
 
-    return {
-      user: toSessionUser(user),
-      sessionEpoch: user.sessionEpoch ?? 0,
-      rememberMe,
-    };
+    if (consumed.modifiedCount === 1) {
+      return {
+        user: toSessionUser(user),
+        sessionEpoch: user.sessionEpoch ?? 0,
+        rememberMe,
+      };
+    }
   }
 
   throw ApiError.unauthenticated(
@@ -264,6 +286,89 @@ export async function confirmMfaSetup(
     backupCodes: plainBackupCodes,
     rememberMe,
   };
+}
+
+/**
+ * Reports whether MFA is on and how many single-use recovery codes are left.
+ * Only the count crosses the wire — the hashes never leave the database.
+ */
+export async function getMfaStatus(userId: string): Promise<{
+  mfaEnabled: boolean;
+  backupCodesRemaining: number;
+}> {
+  const user = await UserModel.findById(userId).select('+mfaBackupCodes');
+
+  if (!user || !user.isActive) {
+    throw ApiError.unauthenticated(
+      'Your session is no longer valid. Please sign in again.',
+    );
+  }
+
+  return {
+    mfaEnabled: Boolean(user.mfaEnabled),
+    backupCodesRemaining: user.mfaEnabled
+      ? (user.mfaBackupCodes ?? []).length
+      : 0,
+  };
+}
+
+/**
+ * Issues a fresh set of recovery codes, invalidating every previous code.
+ *
+ * Requires the current password and a live TOTP code: regenerating is the one
+ * action that can restore sign-in access, so a hijacked session on its own must
+ * not be enough to perform it. The session is intentionally left alive — the
+ * user is already signed in and rotating codes does not change the authenticator
+ * secret.
+ */
+export async function regenerateBackupCodes(
+  userId: string,
+  input: MfaBackupCodesRegenerateInput,
+): Promise<{ backupCodes: string[] }> {
+  const user = await UserModel.findById(userId).select(
+    '+passwordHash +mfaSecret +mfaBackupCodes',
+  );
+
+  if (!user || !user.isActive) {
+    throw ApiError.unauthenticated(
+      'Your session is no longer valid. Please sign in again.',
+    );
+  }
+
+  if (!user.mfaEnabled || !user.mfaSecret) {
+    throw ApiError.validation(
+      'Two-factor authentication is not enabled on this account.',
+    );
+  }
+
+  const matches = await verifyPassword(
+    input.currentPassword,
+    user.passwordHash,
+  );
+
+  if (!matches) {
+    throw ApiError.validation('That is not your current password.', {
+      currentPassword: 'That is not your current password.',
+    });
+  }
+
+  const plainSecret = decryptSecret(user.mfaSecret);
+  if (!plainSecret) {
+    throw ApiError.internal('Unable to verify MFA secret.');
+  }
+
+  if (!verifyTotpCode(plainSecret, input.code)) {
+    throw ApiError.unauthenticated(
+      'Invalid 6-digit code. Please enter the current code shown in your authenticator app.',
+      'invalid_mfa',
+    );
+  }
+
+  const plainBackupCodes = generateBackupCodes(8);
+  user.mfaBackupCodes = plainBackupCodes.map(hashBackupCode);
+  await user.save();
+
+  return { backupCodes: plainBackupCodes };
 }
 
 function invalidCredentials(): ApiError {

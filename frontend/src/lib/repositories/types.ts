@@ -196,6 +196,8 @@ export interface UserRepository {
   create(input: UserInput): Promise<User>;
   update(id: string, input: UserInput): Promise<User>;
   setActive(id: string, isActive: boolean): Promise<User>;
+  /** Clears an account's authenticator and recovery codes. Admin only. */
+  resetMfa(id: string): Promise<User>;
   /**
    * Verifies credentials without creating a session.
    * Failures are typed so the login screen can show a specific message.
@@ -207,7 +209,14 @@ export interface UserRepository {
     rememberMe?: boolean,
   ): Promise<
     | { ok: true; user: User }
-    | { ok: true; mfaRequired: true; mfaToken: string; username: string }
+    | {
+        ok: true;
+        mfaRequired: true;
+        mfaToken: string;
+        username: string;
+        /** Single-use codes left; the challenge warns when this is low. */
+        backupCodesRemaining: number;
+      }
     | {
         ok: true;
         mfaSetupRequired: true;
@@ -228,6 +237,21 @@ export interface UserRepository {
   ): Promise<
     | { ok: true; user: User; backupCodes: string[] }
     | { ok: false; reason: string }
+  >;
+  /**
+   * How many single-use recovery codes the signed-in account has left.
+   * Only the count is returned; the hashes never leave the API.
+   */
+  mfaStatus(): Promise<{ mfaEnabled: boolean; backupCodesRemaining: number }>;
+  /**
+   * Issues a fresh set of recovery codes, invalidating every old one.
+   * Requires the current password and a live authenticator code.
+   */
+  regenerateBackupCodes(
+    currentPassword: string,
+    code: string,
+  ): Promise<
+    { ok: true; backupCodes: string[] } | { ok: false; reason: string }
   >;
 }
 

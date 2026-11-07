@@ -129,8 +129,18 @@ the seam does not provide that for free.
 
 ```jsonc
 // 200 — sets the session cookie
-{ "user": { "id": "u-1", "name": "Budi Santoso", "username": "admin", "role": "admin", "isActive": true } }
+{ "user": { "id": "u-1", "name": "Budi Santoso", "username": "admin", "role": "admin", "isActive": true, "mfaEnabled": false } }
+
+// 200 — account already enrolled; no cookie yet
+{ "mfaRequired": true, "mfaToken": "<5-minute challenge token>", "username": "admin", "backupCodesRemaining": 8 }
+
+// 200 — admin must enrol before a session is issued
+{ "mfaSetupRequired": true, "setupToken": "<10-minute setup token>", "secret": "<base32>", "qrUri": "otpauth://totp/...", "username": "admin" }
 ```
+
+Admin accounts are required to enrol unless `MFA_ENFORCE_ADMIN=false` (allowed
+outside production). The smoke stack disables enforcement because its fixtures
+sign in with seeded admins; the dedicated MFA e2e suite enables it.
 
 | Failure | Status | `reason` |
 |---|---|---|
@@ -143,6 +153,58 @@ login screen already shows a distinct message for each. Keep them distinct.
 
 Use the same message and status for `invalid` regardless of which half was
 wrong, so usernames cannot be enumerated.
+
+### `POST /api/auth/mfa/verify`
+
+```jsonc
+// request
+{ "mfaToken": "<from login>", "code": "123456" }  // 6-digit TOTP or a backup code
+```
+
+`200 { user }` sets the session cookie. A wrong code or a replayed backup code
+is `401 invalid_mfa`. Backup codes are single-use and consumed atomically, so
+two concurrent requests with the same code cannot both succeed.
+
+### `POST /api/auth/mfa/setup-confirm`
+
+```jsonc
+// request
+{ "setupToken": "<from login>", "code": "123456" }
+```
+
+`200 { user, backupCodes: string[8] }` enables MFA, sets the session cookie,
+and returns the only copy of the recovery codes. Each code is 48 random bits
+rendered as `xxxxxx-xxxxxx` (case-insensitive, dash optional on input). Codes are
+stored as salted hashes. Confirm failure is `401 invalid_mfa`; an expired setup
+token is `401`.
+
+The plaintext codes are returned exactly once. The UI must offer copy, download,
+and print, and must require an acknowledgement before leaving the screen. The
+security screen shows regenerated codes in a non-dismissible dialog for the same
+reason.
+
+### `GET /api/auth/mfa/status` → `200`
+
+```jsonc
+{ "mfaEnabled": true, "backupCodesRemaining": 8 }
+```
+
+Requires a session. Only the count is exposed; stored hashes never leave the
+server. `backupCodesRemaining` is also included in the `mfaRequired` login reply
+so the challenge screen can warn when the set is nearly exhausted.
+
+### `POST /api/auth/mfa/backup-codes/regenerate`
+
+```jsonc
+// request
+{ "currentPassword": "admin123", "code": "123456" }
+```
+
+`200 { backupCodes: string[8] }`. Requires a session, the current password, and
+a live TOTP code — a stolen session alone must not be able to mint recovery
+codes. Every previous code is invalidated; the authenticator secret and the
+current session are unchanged. A wrong password is `422 validation` with
+`fields.currentPassword`; a wrong TOTP code is `401 invalid_mfa`.
 
 ### `POST /api/auth/logout` → `204`, clears the cookie.
 
@@ -382,12 +444,15 @@ should survive into the API consumer.
 | `create(input)` | `POST /api/users` → `201` |
 | `update(id, input)` | `PUT /api/users/:id` |
 | `setActive(id, isActive)` | `PATCH /api/users/:id/active` |
+| `resetMfa(id)` | `POST /api/users/:id/mfa/reset` |
 | `authenticate(u, p)` | `POST /api/auth/login` |
+| `mfaStatus()` | `GET /api/auth/mfa/status` |
+| `regenerateBackupCodes(password, code)` | `POST /api/auth/mfa/backup-codes/regenerate` |
 
 ```jsonc
 UserInput { name, username, role, isActive, password? }
 // password required on create; on update, absent or empty means unchanged
-User      { id, name, username, role, isActive }   // never a password field
+User      { id, name, username, role, isActive, mfaEnabled }   // never a password field
 ```
 
 Server rules:
@@ -395,10 +460,15 @@ Server rules:
 - **Usernames unique case-insensitively.** `409 username-taken`.
 - **`409 last-active-admin`** when deactivating the last active admin. Without
   this the app can be left with no account that can reach user management.
-- **Auth changes revoke sessions.** An admin password reset, or any activation
-  state change, bumps the target account's `sessionEpoch`; every cookie issued
-  before the change answers `401`. Reactivating an account therefore does not
-  revive a session from before it was deactivated.
+- **Auth changes revoke sessions.** An admin password reset, any activation
+  state change, or an MFA reset bumps the target account's `sessionEpoch`; every
+  cookie issued before the change answers `401`. Reactivating an account
+  therefore does not revive a session from before it was deactivated.
+- **MFA reset is the lost-device recovery path.** It clears the authenticator
+  secret and recovery codes and signs the account out. The next sign-in enrolls
+  a fresh secret and issues new codes; the password is unchanged. When the only
+  admin is locked out, an operator with database access runs
+  `npm run mfa:reset -- <username>` in `backend/`.
 - **No delete endpoint.** Orders reference the cashier by id; deactivation is how
   someone leaves.
 

@@ -15,10 +15,12 @@ import { requireSession, sessionUser } from '../../middleware/session.js';
 import {
   changePasswordSchema,
   loginSchema,
+  mfaBackupCodesRegenerateSchema,
   mfaSetupConfirmSchema,
   mfaVerifySchema,
   type ChangePasswordInput,
   type LoginInput,
+  type MfaBackupCodesRegenerateInput,
   type MfaSetupConfirmInput,
   type MfaVerifyInput,
 } from './auth.schemas.js';
@@ -26,6 +28,8 @@ import {
   authenticate,
   changePassword,
   confirmMfaSetup,
+  getMfaStatus,
+  regenerateBackupCodes,
   revokeSessionsForToken,
   verifyMfaLogin,
 } from './auth.service.js';
@@ -58,6 +62,18 @@ router.post('/auth/logout', logout);
 router.get('/auth/me', requireSession, me);
 
 /**
+ * Security settings for the signed-in account.
+ */
+router.get('/auth/mfa/status', requireSession, mfaStatusRoute);
+router.post(
+  '/auth/mfa/backup-codes/regenerate',
+  requireSession,
+  passwordLimiter(),
+  validate({ body: mfaBackupCodesRegenerateSchema }),
+  regenerateBackupCodesRoute,
+);
+
+/**
  * Any signed-in role may change their own password.
  */
 router.post(
@@ -77,6 +93,7 @@ async function login(req: Request, res: Response): Promise<void> {
       mfaRequired: true,
       mfaToken: result.mfaToken,
       username: result.username,
+      backupCodesRemaining: result.backupCodesRemaining,
     });
     return;
   }
@@ -138,6 +155,22 @@ async function logout(req: Request, res: Response): Promise<void> {
  */
 function me(req: Request, res: Response): void {
   res.status(200).json({ user: sessionUser(req) });
+}
+
+async function mfaStatusRoute(req: Request, res: Response): Promise<void> {
+  res.status(200).json(await getMfaStatus(sessionUser(req).id));
+}
+
+async function regenerateBackupCodesRoute(
+  req: Request,
+  res: Response,
+): Promise<void> {
+  res.status(200).json(
+    await regenerateBackupCodes(
+      sessionUser(req).id,
+      req.validated?.body as MfaBackupCodesRegenerateInput,
+    ),
+  );
 }
 
 /**

@@ -10,6 +10,16 @@ import { navForRole } from "@/lib/nav";
 import { SPRING } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/useAuthStore";
+import { ROLE_LABEL } from "@/types/auth";
+
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
 interface SidebarContentProps {
   onNavigate?: () => void;
@@ -89,6 +99,22 @@ export function SidebarContent({
           );
         })}
       </nav>
+
+      <Separator />
+
+      {/* Identity stays in the shell so "who am I signed in as" does not
+          require opening the header menu on a shared till. */}
+      <div className="flex items-center gap-3 p-4">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+          {initials(user.name)}
+        </div>
+        <div className="min-w-0 leading-tight">
+          <p className="truncate text-sm font-semibold">{user.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {ROLE_LABEL[user.role]}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

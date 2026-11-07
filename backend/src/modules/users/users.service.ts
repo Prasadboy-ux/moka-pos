@@ -111,6 +111,30 @@ export async function updateUser(
   });
 }
 
+/**
+ * Clears an account's MFA enrolment and revokes its sessions.
+ *
+ * This is the recovery path when an authenticator and every backup code are
+ * lost. The next sign-in enrolls a fresh secret and issues new recovery codes.
+ * The password is untouched.
+ */
+export async function resetUserMfa(id: string): Promise<SessionUser> {
+  const user = await UserModel.findById(id).select(
+    '+mfaSecret +mfaBackupCodes',
+  );
+  if (!user) throw ApiError.notFound('That account no longer exists.');
+
+  if (user.mfaEnabled) {
+    user.mfaEnabled = false;
+    user.mfaSecret = undefined;
+    user.mfaBackupCodes = [];
+    user.sessionEpoch = (user.sessionEpoch ?? 0) + 1;
+    await user.save();
+  }
+
+  return toSessionUser(user);
+}
+
 export async function setUserActive(
   id: string,
   isActive: boolean,

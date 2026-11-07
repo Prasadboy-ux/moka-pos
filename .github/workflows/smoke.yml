@@ -67,4 +67,6 @@ jobs:
         working-directory: frontend
         env:
           API_PROXY_TARGET: http://localhost:3001
+          # Seeded demo admins would otherwise stop at first-time MFA setup.
+          MFA_ENFORCE_ADMIN: false
         run: npm run smoke:ci

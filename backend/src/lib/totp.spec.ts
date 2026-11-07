@@ -52,6 +52,25 @@ describe('RFC 6238 TOTP and backup codes', () => {
     expect(uri).toContain('issuer=Moka%20Cafe');
   });
 
+  it('generates 48-bit backup codes in the typed format', () => {
+    const codes = generateBackupCodes(8);
+
+    expect(new Set(codes)).toHaveLength(8);
+    for (const code of codes) {
+      expect(code).toMatch(/^[0-9a-f]{6}-[0-9a-f]{6}$/);
+    }
+  });
+
+  it('still accepts a legacy 8-character backup code', () => {
+    const legacy = 'a1b2-c3d4';
+    const result = verifyAndConsumeBackupCode(legacy, [
+      hashBackupCode(legacy),
+    ]);
+
+    expect(result.valid).toBe(true);
+    expect(result.remainingHashes).toHaveLength(0);
+  });
+
   it('generates and consumes single-use backup codes', () => {
     const codes = generateBackupCodes(4);
     expect(codes).toHaveLength(4);

@@ -111,6 +111,9 @@ export const userRepository: UserRepository = {
   setActive: (id: string, isActive: boolean) =>
     request<User>(() => http.patch(`/users/${id}/active`, { isActive })),
 
+  resetMfa: (id: string) =>
+    request<User>(() => http.post(`/users/${id}/mfa/reset`)),
+
   /**
    * The role is sent with the credentials so the server can refuse a mismatch
    * before it sets a session cookie. Without it, the browser could hold a valid
@@ -120,7 +123,12 @@ export const userRepository: UserRepository = {
     try {
       const response = await request<
         | { user: User }
-        | { mfaRequired: true; mfaToken: string; username: string }
+        | {
+            mfaRequired: true;
+            mfaToken: string;
+            username: string;
+            backupCodesRemaining: number;
+          }
         | {
             mfaSetupRequired: true;
             setupToken: string;
@@ -138,6 +146,7 @@ export const userRepository: UserRepository = {
           mfaRequired: true as const,
           mfaToken: response.mfaToken,
           username: response.username,
+          backupCodesRemaining: response.backupCodesRemaining,
         };
       }
 
@@ -191,6 +200,25 @@ export const userRepository: UserRepository = {
         http.post('/auth/mfa/setup-confirm', { setupToken, code }),
       );
       return { ok: true as const, user: response.user, backupCodes: response.backupCodes };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { ok: false as const, reason: error.message };
+      }
+      throw error;
+    }
+  },
+
+  mfaStatus: () =>
+    request<{ mfaEnabled: boolean; backupCodesRemaining: number }>(() =>
+      http.get('/auth/mfa/status'),
+    ),
+
+  async regenerateBackupCodes(currentPassword: string, code: string) {
+    try {
+      const response = await request<{ backupCodes: string[] }>(() =>
+        http.post('/auth/mfa/backup-codes/regenerate', { currentPassword, code }),
+      );
+      return { ok: true as const, backupCodes: response.backupCodes };
     } catch (error) {
       if (error instanceof ApiError) {
         return { ok: false as const, reason: error.message };

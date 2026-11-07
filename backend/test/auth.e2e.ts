@@ -78,10 +78,11 @@ describe('POST /api/auth/login', () => {
       username: 'admin',
       role: 'admin',
       isActive: true,
+      mfaEnabled: false,
     });
     expect(response.body.user).not.toHaveProperty('password');
     expect(response.body.user).not.toHaveProperty('passwordHash');
-    expect(JSON.stringify(response.body)).not.toContain('scrypt$');
+    expect(JSON.stringify(response.body)).not.toMatch(/(scrypt|argon2id)\$/);
   });
 
   it('sets an httpOnly cookie the browser script cannot read', async () => {
@@ -434,7 +435,7 @@ describe('password storage', () => {
     const user = await findByUsername('kasir').select('+passwordHash');
 
     expect(user?.passwordHash).not.toBe(PASSWORD);
-    expect(user?.passwordHash.startsWith('scrypt$')).toBe(true);
+    expect(user?.passwordHash).toMatch(/^(scrypt|argon2id)\$/);
   });
 
   it('salts, so the same password hashes differently each time', async () => {

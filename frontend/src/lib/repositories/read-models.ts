@@ -1,7 +1,7 @@
 "use client";
 
 import { getRepositories } from "@/lib/repositories";
-import type { Order } from "@/types/pos";
+import type { Order, Shift } from "@/types/pos";
 import {
   dayKeyDaysAgo,
   lowStockItems,
@@ -42,10 +42,13 @@ export interface DashboardSummary {
   lowStock: LowStockItem[];
   recentOrders: Order[];
   totalProducts: number;
+  /** Drawers still open, so the overview can show who is on the floor. */
+  openShifts: Shift[];
 }
 
 export async function getAdminDashboard(): Promise<DashboardSummary> {
-  const { config, products, ingredients, orders, reports } = getRepositories();
+  const { config, products, ingredients, orders, reports, shifts } =
+    getRepositories();
 
   /**
    * Config first: its reply carries the zone the API buckets days in, and the
@@ -58,7 +61,7 @@ export async function getAdminDashboard(): Promise<DashboardSummary> {
   const weekStart = dayKeyDaysAgo(6);
   const today = todayKey();
 
-  const [productList, ingredientList, recentOrders, week, currentDay] =
+  const [productList, ingredientList, recentOrders, week, currentDay, shiftList] =
     await Promise.all([
       products.list(),
       ingredients.list(),
@@ -69,6 +72,7 @@ export async function getAdminDashboard(): Promise<DashboardSummary> {
       // shop grows — no full sale history is ever shipped to the dashboard.
       reports.sales(weekStart, today),
       reports.sales(today, today),
+      shifts.list(),
     ]);
 
   return {
@@ -78,6 +82,7 @@ export async function getAdminDashboard(): Promise<DashboardSummary> {
     lowStock: lowStockItems(productList, ingredientList),
     recentOrders,
     totalProducts: productList.length,
+    openShifts: shiftList.filter((shift) => shift.status === "open"),
   };
 }
 
