@@ -91,6 +91,7 @@ export function createServerlessApp({
   });
 
   server.use(createApp());
+  // Catches errors from the connect gate above (and any wrapper-level errors).
   server.use(errorHandler);
 
   return server;

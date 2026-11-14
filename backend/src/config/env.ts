@@ -22,6 +22,31 @@ const baseSchema = z.object({
 
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required. See .env.example.'),
 
+  /**
+   * Server selection timeout for MongoDB connections. Keep bounded so health
+   * probes and cold starts fail fast instead of hanging on a bad URI or outage.
+   */
+  MONGODB_SERVER_SELECTION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(10_000),
+
+  /**
+   * Connection pool limits. On serverless (Vercel) prefer a small max pool and
+   * `minPoolSize` 0 to avoid exhausting Atlas connections across instances.
+   */
+  MONGODB_MAX_POOL_SIZE: z.coerce.number().int().positive().default(10),
+  MONGODB_MIN_POOL_SIZE: z.coerce.number().int().min(0).default(0),
+  MONGODB_MAX_IDLE_TIME_MS: z.coerce.number().int().min(0).default(30_000),
+
+  /**
+   * Mongoose autoIndex builds indexes from schemas on connect. Useful in local
+   * dev; disable in production/serverless and manage indexes explicitly.
+   * Defaults to true outside production.
+   */
+  MONGODB_AUTO_INDEX: z.stringbool().optional(),
+
   /** Signing key for the session cookie. 32 chars is a floor, not a suggestion. */
   SESSION_SECRET: z
     .string()
@@ -90,6 +115,13 @@ const baseSchema = z.object({
    * against runaway clients, set far above what a real shop generates.
    */
   RATE_LIMIT_API_MAX: z.coerce.number().int().positive().default(2000),
+
+  /**
+   * MFA verification attempts allowed per IP+token window. Covers TOTP and
+   * single-use backup code verification for login/setup confirmation.
+   */
+  RATE_LIMIT_MFA_MAX: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_MFA_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
 
   /**
    * Force the limiters on under NODE_ENV=test so one suite can exercise the
@@ -197,6 +229,11 @@ export function resetEnv(): void {
 export function adminMfaEnforced(): boolean {
   const settings = env();
   return settings.MFA_ENFORCE_ADMIN ?? settings.NODE_ENV !== 'test';
+}
+
+export function mongoAutoIndex(): boolean {
+  const settings = env();
+  return settings.MONGODB_AUTO_INDEX ?? settings.NODE_ENV !== 'production';
 }
 
 export function corsOrigins(): string[] {

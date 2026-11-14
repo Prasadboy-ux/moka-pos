@@ -87,7 +87,9 @@ export function mongoRateLimitStore(prefix: string, windowMs: number): Store {
     },
 
     async resetAll(): Promise<void> {
-      await RateLimitModel.deleteMany({}).exec();
+      // Scoped to this limiter's namespace so resetting one store cannot wipe
+      // counters owned by other limiters sharing the collection.
+      await RateLimitModel.deleteMany({ _id: { $regex: `^${prefix}` } }).exec();
     },
 
     init(): void {

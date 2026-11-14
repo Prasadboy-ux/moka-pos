@@ -205,3 +205,18 @@ Tests that touch a database need a deployment supporting multi-document
 transactions: Atlas, or `mongodb-memory-server` started as a single-node replica
 set. `test/setup.ts` supplies safe fake credentials so importing the app never
 depends on a `.env` that might not exist.
+
+## Serverless / production tuning
+
+- Mongo connection options are env-tunable (`MONGODB_SERVER_SELECTION_TIMEOUT_MS`,
+  `MONGODB_MAX_POOL_SIZE`, `MONGODB_MIN_POOL_SIZE`, `MONGODB_MAX_IDLE_TIME_MS`).
+  For Vercel + Atlas, keep the pool small (e.g. max 5–10, min 0) to limit
+  connections across instances.
+- `MONGODB_AUTO_INDEX` defaults to true outside production. In production set it
+  `false` and manage indexes explicitly to avoid cold-start index builds.
+- MFA verification limits are configurable via `RATE_LIMIT_MFA_MAX` and
+  `RATE_LIMIT_MFA_WINDOW_MINUTES` (defaults 5 / 15 minutes).
+- Request logs include a request ID (`req.id`); the app honors an incoming
+  `X-Request-Id` and returns `X-Request-Id` on responses for tracing.
+- In serverless (`backend/api/index.ts`), `createApp` owns route 404/error
+  handling; the outer wrapper only gates DB connection for non-health requests.

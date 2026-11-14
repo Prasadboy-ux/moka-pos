@@ -83,14 +83,14 @@ export function loginUsernameLimiter(): RateLimitRequestHandler {
 /**
  * Verification attempts for MFA TOTP codes and single-use backup codes.
  *
- * Strict limit (5 attempts per 15 minutes) prevents brute-forcing
- * 6-digit passcodes.
+ * Strict default (5 attempts per 15 minutes) prevents brute-forcing 6-digit
+ * passcodes. Tunable via env for operational needs.
  */
 export function mfaLimiter(): RateLimitRequestHandler {
-  const windowMs = 15 * 60 * 1000;
+  const windowMs = env().RATE_LIMIT_MFA_WINDOW_MINUTES * 60 * 1000;
   return rateLimit({
     windowMs,
-    limit: 5,
+    limit: env().RATE_LIMIT_MFA_MAX,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     skip: () => !limitersEnabled(),
@@ -108,10 +108,10 @@ export function mfaLimiter(): RateLimitRequestHandler {
       return `mfa:${ipKeyGenerator(req.ip ?? 'unknown')}:${token || 'none'}`;
     },
     handler: (_req, res) => {
+      const minutes = env().RATE_LIMIT_MFA_WINDOW_MINUTES;
       res.status(429).json({
         error: 'rate_limited',
-        message:
-          'Too many invalid verification attempts. Please wait 15 minutes before trying again.',
+        message: `Too many invalid verification attempts. Please wait ${minutes} minutes before trying again.`,
       });
     },
   });

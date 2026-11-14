@@ -118,23 +118,64 @@ These are results from the recorded verification run, not a guarantee that every
 
 ### Prerequisites
 
-- Node.js `v24.20.0` (version used for the recorded verification)
-- npm `11.19.0`
-- MongoDB or the configured test database workflow
+- Node.js 24+ (recorded verification used `v24.20.0`)
+- npm
+- MongoDB with transaction support for a full local run (the backend can start a local in-memory replica set via `npm run mongo`)
 
-### Project setup
+### Running locally
 
-The frontend and backend are separate npm projects. Install dependencies from each project directory:
+The app runs as three processes: local MongoDB, the backend API, and the frontend. Keep each in its own terminal.
 
-```bash
+**1. Local database** (terminal 1)
+
+```powershell
 cd backend
 npm install
-
-cd ../frontend
-npm install
+Copy-Item .env.example .env
+npm run mongo
 ```
 
-Configure each application using its environment example files before starting local development. See the frontend and backend documentation for the required variables and available scripts.
+`npm run mongo` starts an in-memory replica set and syncs `MONGODB_URI` in `backend/.env`. Leave it running.
+
+**2. Backend API** (terminal 2)
+
+```powershell
+cd backend
+npm run seed   # loads demo catalogue/accounts (rerun after restarting mongo)
+npm run dev    # http://localhost:3001
+```
+
+Health check:
+
+```powershell
+curl http://localhost:3001/api/health
+```
+
+Expected: `{"status":"ok","db":"up"}`.
+
+**3. Frontend** (terminal 3)
+
+```powershell
+cd frontend
+npm install
+Copy-Item .env.local.example .env.local
+npm run dev    # http://localhost:3000
+```
+
+Ensure `frontend/.env.local` includes `API_PROXY_TARGET=http://localhost:3001` (default in the example). The browser calls the frontend `/api` path and Next.js rewrites it to the backend.
+
+**Open:** http://localhost:3000/login
+
+| Role | Username | Password |
+|---|---|---|
+| Admin | `admin` | `admin123` |
+| Cashier | `kasir` | `kasir123` |
+
+**Notes**
+
+- Restarting `npm run mongo` clears the in-memory database — run `npm run seed` again.
+- If sign-in shows **"Cannot reach the server"**, confirm the database (terminal 1) and API (terminal 2) are both running.
+- For environment details and production settings, see `backend/.env.example`, `frontend/.env.local.example`, `backend/README.md`, and `frontend/README.md`.
 
 ### Useful verification commands
 

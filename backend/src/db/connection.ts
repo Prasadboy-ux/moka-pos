@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { env, mongoAutoIndex } from '../config/env.js';
 import { logger } from '../lib/logger.js';
 
 /**
@@ -20,6 +21,8 @@ export function redactMongoUri(uri: string): string {
   return uri.replace(/\/\/[^@/]*@/, '//***:***@');
 }
 
+let listenersBound = false;
+
 export async function connectDatabase(uri: string): Promise<void> {
   mongoose.set('strictQuery', true);
 
@@ -28,17 +31,24 @@ export async function connectDatabase(uri: string): Promise<void> {
   // process that is already connected (the test suite, for one).
   if (mongoose.connection.readyState === 1) return;
 
+  const settings = env();
   await mongoose.connect(uri, {
-    serverSelectionTimeoutMS: 10_000,
-    autoIndex: true,
+    serverSelectionTimeoutMS: settings.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+    maxPoolSize: settings.MONGODB_MAX_POOL_SIZE,
+    minPoolSize: settings.MONGODB_MIN_POOL_SIZE,
+    maxIdleTimeMS: settings.MONGODB_MAX_IDLE_TIME_MS,
+    autoIndex: mongoAutoIndex(),
   });
 
-  mongoose.connection.on('error', (error) => {
-    logger.error({ err: error }, 'mongo connection error');
-  });
-  mongoose.connection.on('disconnected', () => {
-    logger.warn('mongo disconnected');
-  });
+  if (!listenersBound) {
+    mongoose.connection.on('error', (error) => {
+      logger.error({ err: error }, 'mongo connection error');
+    });
+    mongoose.connection.on('disconnected', () => {
+      logger.warn('mongo disconnected');
+    });
+    listenersBound = true;
+  }
 }
 
 export async function disconnectDatabase(): Promise<void> {

@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express, { type Express } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import pino from 'pino';
 import { pinoHttp } from 'pino-http';
@@ -49,6 +50,15 @@ export function createApp(): Express {
   app.use(
     pinoHttp({
       logger,
+      genReqId: (req: Request, res: Response) => {
+        const incoming = req.headers['x-request-id'];
+        const id =
+          typeof incoming === 'string' && incoming.trim().length > 0
+            ? incoming.trim().slice(0, 200)
+            : randomUUID();
+        res.setHeader('x-request-id', id);
+        return id;
+      },
       // Keep cookies and authorization headers out of the log drain. Passing raw
       // serializers is deliberate: pino-http's default ones copy every header.
       wrapSerializers: false,

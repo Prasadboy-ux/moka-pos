@@ -18,17 +18,19 @@ restating the code.
 
 Production hardening in place: mandatory admin TOTP enrolment with single-use
 recovery codes (atomic one-time consumption), admin MFA reset, login,
-per-username login, password-change and API rate limits (env-tunable, disabled
-under `NODE_ENV=test`); server-side
-session revocation on logout and password change via a JWT epoch claim; a
-12-character password floor with a common-password blocklist; `Cache-Control:
-no-store` on every API response; and a startup guard that refuses to boot while
-a seeded demo password still works. `trust proxy` is off by default and
-auto-detects Vercel. `/api/health` answers outside the limiter and the
-serverless connect hook, so a database outage reports `503 degraded` instead of
-a timeout or a 500. Production refuses to boot with `COOKIE_SECURE=false` or a
-placeholder `SESSION_SECRET`; order quantities, cart size, product stock counts,
-shift-scoped idempotency keys and report ranges are all bounded.
+per-username login, password-change, MFA, and API rate limits (env-tunable,
+disabled under `NODE_ENV=test`); server-side session revocation on logout and
+password change via a JWT epoch claim; a 12-character password floor with a
+common-password blocklist; `Cache-Control: no-store` on every API response; and
+a startup guard that refuses to boot while a seeded demo password still works.
+`trust proxy` is off by default and auto-detects Vercel. `/api/health` answers
+outside the limiter and the serverless connect hook, so a database outage
+reports `503 degraded` instead of a timeout or a 500. Production refuses to
+boot with `COOKIE_SECURE=false` or a placeholder `SESSION_SECRET`; order
+quantities, cart size, product stock counts, shift-scoped idempotency keys and
+report ranges are all bounded. MongoDB connection pool/indexing and MFA rate
+limits are env-tunable for Vercel/Atlas deployments. Request logs propagate or
+generate `X-Request-Id` for tracing.
 
 See [`docs/README.md`](docs/README.md) for the documentation map and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the code is arranged.
