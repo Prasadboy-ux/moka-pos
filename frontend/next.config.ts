@@ -9,7 +9,19 @@ import type { NextConfig } from "next";
  * pin a developer's browser to a scheme the dev server does not serve.
  */
 const isDev = process.env.NODE_ENV === "development";
-const proxyTarget = process.env.API_PROXY_TARGET?.replace(/\/$/, "");
+
+/**
+ * `API_PROXY_TARGET` is the backend origin. It is accepted with or without a
+ * trailing `/api`, because both are natural ways to write it down:
+ *
+ *   https://api.example.com        -> https://api.example.com/api/:path*
+ *   https://api.example.com/api    -> https://api.example.com/api/:path*
+ *
+ * Stripping the suffix here keeps a literal `.../api` value from becoming
+ * `/api/api/...`, which the backend answers with a 404.
+ */
+const proxyTarget = process.env.API_PROXY_TARGET?.trim().replace(/\/+$/, "");
+const apiOrigin = proxyTarget?.replace(/\/api$/, "");
 
 /**
  * Scripts and styles need `'unsafe-inline'` because Next inlines its hydration
@@ -88,12 +100,12 @@ const nextConfig: NextConfig = {
    * a `localhost` URL baked into the bundle at build time.
    */
   async rewrites() {
-    if (!proxyTarget) return [];
+    if (!apiOrigin) return [];
 
     return [
       {
         source: "/api/:path*",
-        destination: `${proxyTarget}/api/:path*`,
+        destination: `${apiOrigin}/api/:path*`,
       },
     ];
   },
