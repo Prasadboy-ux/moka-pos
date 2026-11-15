@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import express, { type Express, type Request, type Response } from 'express';
+import express, {
+  type Express,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
 import * as helmetModule from 'helmet';
 import pino from 'pino';
 import { pinoHttp } from 'pino-http';
@@ -19,16 +24,20 @@ import { apiLimiter } from './lib/rate-limit.js';
 import { router as apiRouter } from './routes/index.js';
 
 /**
- * `helmet` publishes a CommonJS build and an ESM build, and its `exports` map
- * carries no `types` condition. TypeScript therefore has to guess which
- * declaration file describes the module, and Vercel's on-demand type check
- * guesses the CJS one: there a default import is typed as the module namespace
- * rather than the callable `Helmet`, so `helmet()` fails with TS2349. Reading
- * the callable off the namespace is what the runtime does anyway — both builds
- * expose it as `default` — and it types the same way under every resolution
- * mode, so the build no longer depends on the guess.
+ * `helmet` ships a CommonJS build and an ESM build, and its `package.json`
+ * `exports` map carries no `types` condition. TypeScript therefore falls back to
+ * the legacy `types: ./index.d.cts`, and Vercel's on-demand type check resolves
+ * that declaration as a CommonJS module whose default export is the module
+ * namespace — so `helmet`, `helmet.default` and `helmetModule.default` all come
+ * back as `typeof import(.../helmet/index)`, which has no call signatures. That
+ * is a declaration-resolution artefact, not the runtime value: both builds
+ * expose the middleware itself, either as the module or as its `default`.
+ *
+ * Take whichever shape the resolver produced and assert the single signature
+ * this file uses, so the build does not depend on which declaration file wins.
  */
-const helmet = helmetModule.default;
+const helmet = (helmetModule.default ??
+  helmetModule) as unknown as () => RequestHandler;
 
 /**
  * The Express application, as a factory.
