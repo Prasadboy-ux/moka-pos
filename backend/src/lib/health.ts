@@ -9,7 +9,7 @@ import { databaseState } from '../db/connection.js';
  * unavailable. It reports the connection state Mongoose already knows about
  * rather than opening a second connection of its own.
  */
-export const HEALTH_TIMEOUT_MS = 5_000;
+export const HEALTH_TIMEOUT_MS = 9_000;
 
 export function sendHealth(_req: Request, res: Response): void {
   const db = databaseState();
@@ -22,6 +22,12 @@ export function sendHealth(_req: Request, res: Response): void {
  * Bounds how long the serverless health probe waits for a cold-start
  * connection. The connect promise keeps running when the timeout wins, so the
  * next probe can observe the warm connection instead of throwing it away.
+ *
+ * The budget sits just under `MONGODB_SERVER_SELECTION_TIMEOUT_MS` (10s on
+ * purpose, but above the observed 4-8s a cold Atlas connect costs from a
+ * serverless region: SRV lookup, TLS and replica-set discovery all happen on
+ * the first request. A tighter cap made the very first probe of a fresh
+ * deployment report 503 and flap until the instance warmed up.
  */
 export function withTimeout<T>(
   promise: Promise<T>,
