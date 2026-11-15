@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import server from '../api/index.js';
-import vercelEntry from '../app.js';
+import server from '../index.js';
 import { hashPassword } from '../src/lib/password.js';
 import { SESSION_COOKIE } from '../src/lib/session.js';
 import {
@@ -12,7 +11,7 @@ import {
 } from './helpers/mongo.js';
 
 /**
- * The serverless entry, `api/index.ts` and its Vercel wrapper `app.ts`.
+ * The serverless entry, `index.ts` at the project root.
  *
  * Every other suite drives `createApp` directly, which deliberately skips the
  * wrapper: the lazy database hook, the outer error handler, and the
@@ -45,7 +44,7 @@ beforeEach(async () => {
   });
 });
 
-describe('serverless entry (api/index.ts)', () => {
+describe('serverless entry (index.ts)', () => {
   it('answers the health probe with db up, after the lazy connect hook', async () => {
     const response = await request(server).get('/api/health').expect(200);
 
@@ -77,9 +76,7 @@ describe('serverless entry (api/index.ts)', () => {
   });
 
   it('serves nested paths through the Vercel entry point with the path intact', async () => {
-    expect(vercelEntry).toBe(server);
-
-    const agent = request.agent(vercelEntry);
+    const agent = request.agent(server);
     await agent
       .post('/api/auth/login')
       .send({ username: 'admin', password: PASSWORD })

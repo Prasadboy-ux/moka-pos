@@ -401,7 +401,7 @@ deliberately.
 Ordered by what earns its keep first.
 
 1. **Deployment.** Hosting is settled — Vercel for this app; the API deploys as
-   its own Vercel project on the Express preset, where the root `backend/app.ts`
+   its own Vercel project on the Express preset, where the root `backend/index.ts`
    becomes a single function that keeps every request path intact, with Railway
    or Render as alternatives, and MongoDB Atlas for the data. Set
    `API_PROXY_TARGET` here to the API project's production domain, and on the API
@@ -536,7 +536,7 @@ keys, dashboard ranges, and cart totals.
   rather than a 500.
 - `Intl.DateTimeFormat` instances are cached per timezone, removing the
   cold-start timeout in the dates spec.
-- The Vercel entry is the root `backend/app.ts` on the Express preset — one
+- The Vercel entry is the root `backend/index.ts` on the Express preset — one
   function, every path intact. The earlier `api/[...path].ts` catch-all matched a
   single segment only, so nested routes never reached Express.
 - Refreshed `docs/API-CONTRACT.md` with eight repositories, config, product JSON,

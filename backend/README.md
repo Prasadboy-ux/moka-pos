@@ -110,10 +110,17 @@ The API deploys as its **own** Vercel project, not the frontend one:
 
 The Express preset bundles the whole application into a **single** function and
 forwards every request with its URL intact, so Express does the routing. It
-finds the app through the default export in `app.ts` at the project root, which
-re-exports `api/index.ts` — one implementation for tests, local runs and the
-deployment. `public/` holds a single placeholder file, so nothing but the API is
-reachable and no compiled source is downloadable.
+finds the app through the default export in `index.ts` at the project root — one
+implementation for tests, local runs and the deployment. `public/` holds a single
+placeholder file, so nothing but the API is reachable and no compiled source is
+downloadable.
+
+`index.ts` must keep its own `import express ...` and must stay at the root:
+the preset picks the first file named `app`, `index` or `server` (root or under
+`src/`) whose source text imports `express`. A re-export does not count — the
+detector reads the file, not its import graph — and the build then falls through
+to `src/app.ts`, which is an app *factory*, so the type check fails on
+`helmet()`.
 
 Environment variables (Production **and** Preview):
 

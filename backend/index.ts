@@ -4,27 +4,35 @@ import express, {
   type Request,
   type Response,
 } from 'express';
-import { createApp } from '../src/app.js';
-import { env } from '../src/config/env.js';
-import { noStore } from '../src/lib/cache.js';
-import { assertNoDemoAccounts } from '../src/lib/demo-accounts.js';
-import { errorHandler } from '../src/lib/errors.middleware.js';
+import { createApp } from './src/app.js';
+import { env } from './src/config/env.js';
+import { noStore } from './src/lib/cache.js';
+import { assertNoDemoAccounts } from './src/lib/demo-accounts.js';
+import { errorHandler } from './src/lib/errors.middleware.js';
 import {
   HEALTH_TIMEOUT_MS,
   sendHealth,
   withTimeout,
-} from '../src/lib/health.js';
-import { connectDatabase } from '../src/db/connection.js';
+} from './src/lib/health.js';
+import { connectDatabase } from './src/db/connection.js';
 
 /**
  * Vercel serverless entrypoint.
  *
- * `server.ts` remains the long-process entry (local dev, tests, any host that
- * binds a port). This file is the serverless counterpart: no `listen`, no
+ * `src/server.ts` remains the long-process entry (local dev, tests, any host
+ * that binds a port). This file is the serverless counterpart: no `listen`, no
  * `dotenv` — the platform injects env, and the Express app itself is the
  * request handler.
  *
- * The database cannot be opened at module load the way `server.ts` does: a
+ * The name and location are load-bearing. Vercel's Express preset looks for a
+ * default export in `app`, `index` or `server` (at the root or under `src/`)
+ * and picks the first one whose *source text* imports `express`. Do not reduce
+ * this file to a re-export of another module: the detector reads the file, not
+ * its import graph, and a re-export makes it fall through to `src/app.ts` —
+ * the app factory, which is not an app. Keeping the real wrapper here means the
+ * whole application ships as one function and Express sees every request path.
+ *
+ * The database cannot be opened at module load the way `src/server.ts` does: a
  * serverless instance may start, serve one request, and freeze, so a boot-time
  * connection would either be wasted or go stale. Instead the first request per
  * cold start waits for the connection, and the resolved promise is kept in

@@ -7,6 +7,7 @@ the code. For *what* the endpoints are, read the API contract — see
 ## Layout
 
 ```
+index.ts           Vercel entry: the same app, lazily connected, no listen
 src/
   server.ts        process entry: env -> database -> port -> graceful shutdown
   app.ts           Express app factory (middleware + routes)
@@ -23,18 +24,27 @@ test/              e2e tests (*.e2e.ts) and global setup
 
 ## Entrypoints, on purpose
 
-`app.ts` builds the application. `server.ts` binds a port and opens a database
-connection. Tests import `createApp` and drive it with Supertest without either.
+`src/app.ts` builds the application. `src/server.ts` binds a port and opens a
+database connection. Tests import `createApp` and drive it with Supertest
+without either.
 
-`api/index.ts` is the Vercel serverless entry: same `createApp`, no `listen`,
-and the database connects lazily on the first request per cold start (the
-resolved promise is cached in module scope so warm invocations skip it).
-`app.ts` at the project root re-exports it as the default export Vercel's
-Express preset looks for, so the whole application becomes one function and
-every request arrives with its path intact. A plain `api/` directory cannot do
-that — it maps one route per file, so nested paths such as `/api/auth/login`
-never reach Express. The frontend proxies `/api/*` to this service through a
-Next.js rewrite so the session cookie stays same-origin — see the frontend's
+`index.ts` at the project root is the Vercel serverless entry: same `createApp`,
+no `listen`, and the database connects lazily on the first request per cold start
+(the resolved promise is cached in module scope so warm invocations skip it).
+
+Its name and location are part of the deployment contract, not tidiness. Vercel's
+Express preset picks the first file named `app`, `index` or `server` (root or
+under `src/`) whose **source text** imports `express`, then ships that default
+export as a single function that receives every request path. So `index.ts` must
+keep its own `express` import and must not become a re-export — the detector
+reads the file, not its import graph, and a re-export makes it fall through to
+`src/app.ts`, which is a factory rather than an app.
+
+One function rather than one function per route is also why nested paths work. A
+plain `api/` directory maps one fixed route per file and has no catch-all, so
+`/api/health` reached Express while `/api/auth/login` was answered by the platform
+with a bare 404. The frontend proxies `/api/*` to this service through a Next.js
+rewrite so the session cookie stays same-origin — see the frontend's
 `next.config.ts`.
 
 `/api/health` is mounted separately from the API router in both entries. In
@@ -221,6 +231,5 @@ depends on a `.env` that might not exist.
   `RATE_LIMIT_MFA_WINDOW_MINUTES` (defaults 5 / 15 minutes).
 - Request logs include a request ID (`req.id`); the app honors an incoming
   `X-Request-Id` and returns `X-Request-Id` on responses for tracing.
-- In serverless (`backend/api/index.ts` behind `backend/app.ts`), `createApp`
-  owns route 404/error handling; the outer wrapper only gates DB connection for
-  non-health requests.
+- In serverless (`backend/index.ts`), `createApp` owns route 404/error handling;
+  the outer wrapper only gates DB connection for non-health requests.

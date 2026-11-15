@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { createServerlessApp } from '../api/index.js';
+import { createServerlessApp } from '../index.js';
 
 /**
  * The serverless wrapper's health probe must not depend on the connection it
