@@ -14,6 +14,7 @@ import {
   sendHealth,
   withTimeout,
 } from './src/lib/health.js';
+import { logger } from './src/lib/logger.js';
 import { connectDatabase } from './src/db/connection.js';
 
 /**
@@ -82,9 +83,11 @@ export function createServerlessApp({
   server.get('/api/health', async (req: Request, res: Response) => {
     try {
       await withTimeout(connect(), healthTimeoutMs);
-    } catch {
+    } catch (error: unknown) {
       // `sendHealth` reports the connection state; a failed or slow connect
-      // must not turn a probe into a 500.
+      // must not turn a probe into a 500. Log it, though: a 503 without a
+      // reason is indistinguishable from a platform outage.
+      logger.warn({ err: error }, 'health probe connect did not complete');
     }
     sendHealth(req, res);
   });
