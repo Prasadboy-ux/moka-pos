@@ -3,7 +3,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express, type Request, type Response } from 'express';
-import helmet from 'helmet';
+import * as helmetModule from 'helmet';
 import pino from 'pino';
 import { pinoHttp } from 'pino-http';
 import { corsOrigins, trustProxySetting } from './config/env.js';
@@ -17,6 +17,18 @@ import {
 } from './lib/logger.js';
 import { apiLimiter } from './lib/rate-limit.js';
 import { router as apiRouter } from './routes/index.js';
+
+/**
+ * `helmet` publishes a CommonJS build and an ESM build, and its `exports` map
+ * carries no `types` condition. TypeScript therefore has to guess which
+ * declaration file describes the module, and Vercel's on-demand type check
+ * guesses the CJS one: there a default import is typed as the module namespace
+ * rather than the callable `Helmet`, so `helmet()` fails with TS2349. Reading
+ * the callable off the namespace is what the runtime does anyway — both builds
+ * expose it as `default` — and it types the same way under every resolution
+ * mode, so the build no longer depends on the guess.
+ */
+const helmet = helmetModule.default;
 
 /**
  * The Express application, as a factory.
