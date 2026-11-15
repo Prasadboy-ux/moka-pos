@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import server from '../api/index.js';
-import catchAll from '../api/[...path].js';
+import vercelEntry from '../app.js';
 import { hashPassword } from '../src/lib/password.js';
 import { SESSION_COOKIE } from '../src/lib/session.js';
 import {
@@ -12,11 +12,11 @@ import {
 } from './helpers/mongo.js';
 
 /**
- * The serverless entry, `api/index.ts`.
+ * The serverless entry, `api/index.ts` and its Vercel wrapper `app.ts`.
  *
  * Every other suite drives `createApp` directly, which deliberately skips the
  * wrapper: the lazy database hook, the outer error handler, and the
- * pass-through of `/api/*` under Vercel's rewrites. A regression there —
+ * pass-through of `/api/*` to the single Vercel function. A regression there —
  * middleware order, a swallowed error, a route the wrapper never forwards —
  * would only surface after a deploy, so the wrapper is held to the same
  * contract here.
@@ -76,10 +76,10 @@ describe('serverless entry (api/index.ts)', () => {
     expect(cookie).not.toContain('Secure');
   });
 
-  it('serves nested paths through the catch-all entry with the path intact', async () => {
-    expect(catchAll).toBe(server);
+  it('serves nested paths through the Vercel entry point with the path intact', async () => {
+    expect(vercelEntry).toBe(server);
 
-    const agent = request.agent(catchAll);
+    const agent = request.agent(vercelEntry);
     await agent
       .post('/api/auth/login')
       .send({ username: 'admin', password: PASSWORD })

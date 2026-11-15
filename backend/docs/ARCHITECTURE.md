@@ -29,10 +29,13 @@ connection. Tests import `createApp` and drive it with Supertest without either.
 `api/index.ts` is the Vercel serverless entry: same `createApp`, no `listen`,
 and the database connects lazily on the first request per cold start (the
 resolved promise is cached in module scope so warm invocations skip it).
-`api/[...path].ts` re-exports it as the catch-all, because a single `api/index.ts`
-only matches `/api` and would drop `/api/products` and the rest. The frontend
-proxies `/api/*` to this service through a Next.js rewrite so the session cookie
-stays same-origin — see the frontend's `next.config.ts`.
+`app.ts` at the project root re-exports it as the default export Vercel's
+Express preset looks for, so the whole application becomes one function and
+every request arrives with its path intact. A plain `api/` directory cannot do
+that — it maps one route per file, so nested paths such as `/api/auth/login`
+never reach Express. The frontend proxies `/api/*` to this service through a
+Next.js rewrite so the session cookie stays same-origin — see the frontend's
+`next.config.ts`.
 
 `/api/health` is mounted separately from the API router in both entries. In
 `createApp` it sits before the body parser and the rate limiter; in the
@@ -218,5 +221,6 @@ depends on a `.env` that might not exist.
   `RATE_LIMIT_MFA_WINDOW_MINUTES` (defaults 5 / 15 minutes).
 - Request logs include a request ID (`req.id`); the app honors an incoming
   `X-Request-Id` and returns `X-Request-Id` on responses for tracing.
-- In serverless (`backend/api/index.ts`), `createApp` owns route 404/error
-  handling; the outer wrapper only gates DB connection for non-health requests.
+- In serverless (`backend/api/index.ts` behind `backend/app.ts`), `createApp`
+  owns route 404/error handling; the outer wrapper only gates DB connection for
+  non-health requests.

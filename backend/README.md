@@ -92,16 +92,28 @@ The API deploys as its **own** Vercel project, not the frontend one:
 | Project setting | Value |
 |---|---|
 | Root Directory | `backend` |
-| Framework Preset | `Other` (`framework: null` in `vercel.json`) |
-| Build Command | `npm run build` |
-| Output Directory | `public` |
+| Framework Preset | `Express` (`framework: "express"` in `vercel.json`) |
+| Build Command | not set — Vercel bundles the entry itself |
+| Output Directory | not set — static files come from `public/` |
 | Install Command | `npm install` |
 
-`vercel.json` pins the last three. They are not cosmetic: with Framework Preset
-left on automatic, Vercel detects Vite from the `vite` devDependency, runs the
-build and publishes `dist/` as a static site — which serves the compiled backend
-at `/server.js`, `/config/env.js` and friends. `public/` holds a single
-placeholder file, so the only HTTP surface is `/api/*`.
+`vercel.json` pins the framework, and it is not cosmetic in either direction:
+
+- Left on automatic, Vercel detects Vite from the `vite` devDependency, runs the
+  build and publishes `dist/` as a static site — which served the compiled
+  backend at `/server.js`, `/config/env.js` and friends.
+- On "Other", each file under `api/` becomes its own function with one fixed
+  route. There is no catch-all, so `/api/health` and `/api/config` reached
+  Express while `/api/auth/login` and everything else nested was answered by the
+  platform with a bare 404. Rewrites cannot fix that: a rewrite destination
+  loses the matched path.
+
+The Express preset bundles the whole application into a **single** function and
+forwards every request with its URL intact, so Express does the routing. It
+finds the app through the default export in `app.ts` at the project root, which
+re-exports `api/index.ts` — one implementation for tests, local runs and the
+deployment. `public/` holds a single placeholder file, so nothing but the API is
+reachable and no compiled source is downloadable.
 
 Environment variables (Production **and** Preview):
 

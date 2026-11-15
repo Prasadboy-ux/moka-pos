@@ -400,11 +400,12 @@ deliberately.
 
 Ordered by what earns its keep first.
 
-1. **Deployment.** Hosting is settled — Vercel for this app; the API has a Vercel
-   catch-all entry (`backend/api/[...path].ts`), with Railway or Render as
-   alternatives, and MongoDB Atlas for the data. Set `API_PROXY_TARGET` here to
-   the API project's production domain, and on the API set `MONGODB_URI`,
-   `SESSION_SECRET`, `CORS_ORIGIN`, `COOKIE_SECURE=true`, and
+1. **Deployment.** Hosting is settled — Vercel for this app; the API deploys as
+   its own Vercel project on the Express preset, where the root `backend/app.ts`
+   becomes a single function that keeps every request path intact, with Railway
+   or Render as alternatives, and MongoDB Atlas for the data. Set
+   `API_PROXY_TARGET` here to the API project's production domain, and on the API
+   set `MONGODB_URI`, `SESSION_SECRET`, `CORS_ORIGIN`, `COOKIE_SECURE=true`, and
    `NODE_ENV=production`, plus Atlas Network Access for Vercel. The target must
    be a permanent URL: a `trycloudflare.com`/ngrok tunnel makes the deployed site
    depend on whichever laptop is running it. See
@@ -535,7 +536,9 @@ keys, dashboard ranges, and cart totals.
   rather than a 500.
 - `Intl.DateTimeFormat` instances are cached per timezone, removing the
   cold-start timeout in the dates spec.
-- Added `api/[...path].ts` for Vercel and removed the path-dropping rewrite.
+- The Vercel entry is the root `backend/app.ts` on the Express preset — one
+  function, every path intact. The earlier `api/[...path].ts` catch-all matched a
+  single segment only, so nested routes never reached Express.
 - Refreshed `docs/API-CONTRACT.md` with eight repositories, config, product JSON,
   stock signs, revenue allocation, timezone behavior, and idempotency lifecycle.
 - Smoke suites pass 187/187 across 7 suites against an isolated seeded replica
