@@ -85,6 +85,57 @@ side.
 Never commit a backup of a live environment. If a secret reaches git, rotate it
 first; deleting the file does not remove it from history.
 
+## Deploying to Vercel
+
+The API deploys as its **own** Vercel project, not the frontend one:
+
+| Project setting | Value |
+|---|---|
+| Root Directory | `backend` |
+| Framework Preset | `Other` (`framework: null` in `vercel.json`) |
+| Build Command | `npm run build` |
+| Output Directory | `public` |
+| Install Command | `npm install` |
+
+`vercel.json` pins the last three. They are not cosmetic: with Framework Preset
+left on automatic, Vercel detects Vite from the `vite` devDependency, runs the
+build and publishes `dist/` as a static site — which serves the compiled backend
+at `/server.js`, `/config/env.js` and friends. `public/` holds a single
+placeholder file, so the only HTTP surface is `/api/*`.
+
+Environment variables (Production **and** Preview):
+
+| Variable | Value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `MONGODB_URI` | Atlas connection string |
+| `SESSION_SECRET` | 32+ random characters, not a placeholder |
+| `COOKIE_SECURE` | `true` |
+| `CORS_ORIGIN` | the frontend origin, e.g. `https://moka-pos-web.vercel.app` |
+| `STORE_TIMEZONE` | `Asia/Jakarta` |
+| `TAX_RATE_DEFAULT` | `0.1` |
+
+**Atlas must allow Vercel.** Serverless functions on the Hobby plan have no
+fixed egress IP, so add `0.0.0.0/0` under Atlas **Network Access** (or use Static
+IPs / a private endpoint on a paid plan). Without it every request fails with
+`MongooseServerSelectionError` and `/api/health` stays `503 degraded` even
+though the deployment itself is fine.
+
+```bash
+curl https://<api-project>.vercel.app/api/health
+# {"status":"ok","db":"up"}
+```
+
+Then point the frontend's `API_PROXY_TARGET` at that project's **production
+domain** — not a preview URL and never a tunnel:
+
+```bash
+API_PROXY_TARGET=https://<api-project>.vercel.app
+```
+
+The rewrite is resolved at build time, so redeploy the frontend after changing
+it.
+
 ## Scripts
 
 | Script | Purpose |

@@ -403,8 +403,12 @@ Ordered by what earns its keep first.
 1. **Deployment.** Hosting is settled — Vercel for this app; the API has a Vercel
    catch-all entry (`backend/api/[...path].ts`), with Railway or Render as
    alternatives, and MongoDB Atlas for the data. Set `API_PROXY_TARGET` here to
-   the API URL, and on the API set `MONGODB_URI`, `SESSION_SECRET`,
-   `CORS_ORIGIN`, `COOKIE_SECURE=true`, and `NODE_ENV=production`. CI already
+   the API project's production domain, and on the API set `MONGODB_URI`,
+   `SESSION_SECRET`, `CORS_ORIGIN`, `COOKIE_SECURE=true`, and
+   `NODE_ENV=production`, plus Atlas Network Access for Vercel. The target must
+   be a permanent URL: a `trycloudflare.com`/ngrok tunnel makes the deployed site
+   depend on whichever laptop is running it. See
+   [`../backend/README.md`](../backend/README.md#deploying-to-vercel). CI already
    runs the backend suite, frontend unit tests, and the frontend build on every
    push.
 2. **Real prices and supplier costs.** `costPerUnit` is rupiah per ml/gram now but

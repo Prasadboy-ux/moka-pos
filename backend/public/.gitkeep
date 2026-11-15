@@ -1,0 +1,10 @@
+# Static output placeholder.
+#
+# This project is an API, not a website. Vercel still packages a static "output
+# directory" for non-framework projects, and without this override it defaults
+# to the repository root / `dist`, which published the compiled backend sources
+# at /server.js, /config/env.js and so on. `vercel.json` points the output
+# directory here instead, so the only static asset is this file.
+#
+# The API itself is served by the serverless functions in `../api/`, which are
+# detected independently of this directory.
